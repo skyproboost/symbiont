@@ -80,7 +80,11 @@ jobs:
         run: bun run scripts/canary.ts --dist --node
 
       - name: Структурная консистентность после сборки
-        run: bun run scripts/selflint.ts
+        # --after-build: имена общих чанков несут хэш содержимого, а оно зависит
+        # от версии bun. После пересборки здешней версией они законно расходятся
+        # с закоммиченными, и проверка доставки по git судила бы уже не тот
+        # артефакт, что лежит в репозитории. Доставку проверяет ПЕРВЫЙ шаг.
+        run: bun run scripts/selflint.ts --after-build
 
       - name: Артефакт для разбора при падении
         if: failure()
@@ -140,4 +144,4 @@ jobs:
           bun run scripts/canary.ts --dist --node
 
       - name: Структурная консистентность
-        run: bun run scripts/selflint.ts
+        run: bun run scripts/selflint.ts --after-build

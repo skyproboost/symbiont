@@ -13,6 +13,9 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = join(import.meta.dirname, '..')
+// --after-build: прогон ПОСЛЕ пересборки артефакта в этом же процессе-конвейере
+// (шаги CI). Меняет ровно одну проверку — доставку по git, см. её комментарий.
+const AFTER_BUILD = process.argv.includes('--after-build')
 const results: Array<{ check: string; ok: boolean; note: string }> = []
 const check = (c: string, ok: boolean, note: string): void => {
   results.push({ check: c, ok, note })
@@ -332,6 +335,14 @@ try {
     // Не репозиторий (распакованный архив, песочница) — проверять нечем, и это
     // не поломка плагина: молчать нельзя, врать про успех тоже
     check('артефакт доедет по git', true, 'вне git-репозитория — доставка не проверялась')
+  } else if (AFTER_BUILD) {
+    // Дерево ПЕРЕСОБРАНО в этом же прогоне. Имена общих чанков несут хэш
+    // содержимого, а содержимое зависит от версии bun: у CI она своя, и после
+    // пересборки half артефакта закономерно оказывается «не в индексе» — не
+    // потому что владелец забыл `git add plugin`, а потому что судят уже не тот
+    // артефакт, который лежит в git. Вопрос доставки решается ДО сборки
+    // (первый шаг CI), поэтому здесь он не задаётся вовсе, а не отвечается «да».
+    check('артефакт доедет по git', true, 'дерево пересобрано в этом прогоне — доставка проверена до сборки')
   } else {
     const ignored = lines(git(['ls-files', '--others', '--ignored', '--exclude-standard', 'plugin']).out)
     const untracked = lines(git(['ls-files', '--others', '--exclude-standard', 'plugin']).out)
@@ -395,6 +406,12 @@ try {
 for (const r of results) console.log(` ${r.ok ? '✓' : '✗'} ${r.check.padEnd(30)}${r.note}`)
 const failed = results.filter((r) => !r.ok)
 if (failed.length > 0) {
+  // В CI причина обязана быть видна СНАРУЖИ: логи прогона недоступны без токена,
+  // и «шаг упал с кодом 1» — это ровно то молчание, против которого написан весь
+  // плагин. Аннотация показывается на странице прогона всем, включая мимокрокодила.
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    for (const f of failed) console.log(`::error::селф-линт: ${f.check} — ${f.note}`)
+  }
   console.log(`\nСамо-линт: структурная рассинхронизация — ${failed.map((f) => f.check).join(', ')}`)
   process.exit(1)
 }

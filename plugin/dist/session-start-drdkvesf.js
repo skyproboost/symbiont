@@ -189,6 +189,16 @@ function statement(ru) {
   }
   return ru;
 }
+function areaKey(input) {
+  const low = input.trim().toLowerCase();
+  if (!low)
+    return "";
+  for (const ru of Object.keys(AREAS)) {
+    if (ru.toLowerCase() === low || AREAS[ru].toLowerCase() === low)
+      return ru;
+  }
+  return low;
+}
 var FILE = "lang.json", current, lang = () => current, setLang = (l) => {
   current = l;
 }, t = (ru, en) => current === "en" ? en : ru, RU_SHARE = 0.15, decide = (cyr, lat) => cyr + lat > 0 && cyr / (cyr + lat) >= RU_SHARE ? "ru" : "en", sourceLabel = (key) => ({
@@ -224,7 +234,7 @@ var FILE = "lang.json", current, lang = () => current, setLang = (l) => {
   стоимость: "cost",
   приватность: "privacy",
   SEO: "SEO"
-}[ru] ?? ru : ru, axisList = (axes) => axes.map(axisName).join(", "), tier = (ru) => current === "en" ? { закон: "law", привычка: "habit", гипотеза: "hypothesis", "нет консенсуса": "no consensus" }[ru] ?? ru : ru;
+}[ru] ?? ru : ru, axisList = (axes) => axes.map(axisName).join(", "), tier = (ru) => current === "en" ? { закон: "law", привычка: "habit", гипотеза: "hypothesis", "нет консенсуса": "no consensus" }[ru] ?? ru : ru, AREAS, area = (ru) => current === "en" ? AREAS[ru] ?? ru : ru, areaList = () => Object.keys(AREAS).map(area).join(", ");
 var init_i18n = __esm(() => {
   current = (() => {
     const v = (process.env.SYMBIONT_LANG ?? "").toLowerCase();
@@ -240,6 +250,23 @@ var init_i18n = __esm(() => {
   };
   STATEMENTS = new Map;
   PATTERNS = [];
+  AREAS = {
+    форматирование: "formatting",
+    объявления: "declarations",
+    функции: "functions",
+    итерации: "iteration",
+    именование: "naming",
+    параметры: "parameters",
+    строки: "strings",
+    сигнатуры: "signatures",
+    массивы: "arrays",
+    сравнения: "comparisons",
+    методы: "methods",
+    "обработка ошибок": "error handling",
+    асинхронность: "asynchrony",
+    классы: "classes",
+    vue: "vue"
+  };
 });
 
 // src/passport/signals.ts
@@ -1909,13 +1936,13 @@ function dominant(rec) {
   entries.sort((a, b) => b[1] - a[1]);
   return { key: entries[0][0], positive: entries[0][1], total };
 }
-function pushDominant(facts, area, rec, label) {
+function pushDominant(facts, area2, rec, label) {
   const d = dominant(rec);
   if (!d)
     return;
   const prevalence = d.positive / d.total;
   facts.push({
-    area,
+    area: area2,
     statement: label(d.key),
     positive: d.positive,
     total: d.total,
@@ -3882,6 +3909,13 @@ function maturityFact(m) {
 }
 var dimName = (ru) => t(ru, { "определённость канона": "canon certainty", масса: "mass", проверяемость: "testability", стабильность: "stability" }[ru] ?? ru);
 var levelName = (ru) => t(ru, { зрелый: "mature", растущий: "growing", молодой: "young", "только начат": "just started" }[ru] ?? ru);
+pattern(/^зрелость проекта — ([\d.]+) \((.+?)\): (.+)$/, (m) => {
+  const dims = m[3].split(", ").map((part) => {
+    const cut = part.lastIndexOf(" ");
+    return cut > 0 ? `${dimName(part.slice(0, cut))} ${part.slice(cut + 1)}` : part;
+  }).join(", ");
+  return `project maturity — ${m[1]} (${levelName(m[2])}): ${dims}`;
+});
 function renderMaturity(m) {
   if (m.empty)
     return "";
@@ -4234,9 +4268,9 @@ init_i18n();
 
 // src/layer1/facts1.ts
 init_i18n();
-var push2 = (facts, area, statement2, positive, total) => {
+var push2 = (facts, area2, statement2, positive, total) => {
   const prevalence = total > 0 ? positive / total : 0;
-  facts.push({ area, statement: statement2, positive, total, prevalence, tier: tierOf(prevalence, total) });
+  facts.push({ area: area2, statement: statement2, positive, total, prevalence, tier: tierOf(prevalence, total) });
 };
 var L2 = {
   L0: pair("пустые catch-блоки — не встречаются (ошибка всегда обрабатывается)", "empty catch blocks — never (errors are always handled)"),
@@ -4394,6 +4428,9 @@ function runContentVerifiers(rel, content, ext, ctx = {}) {
   return [...checkAlphabetPurity(content), ...checkContentLinks(rel, content, ext, ctx.resolve)];
 }
 
+// src/core/statements.ts
+init_constitution_derive();
+
 // src/passport/build.ts
 var tierSections = () => [
   ["закон", t("Законы стиля (в этом репозитории соблюдаются практически всегда)", "Style laws (in this repository they hold almost always)")],
@@ -4472,7 +4509,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-e5f471628688";
+    return "bundle-099e42521ca2";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5467,4 +5504,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { silentSpawnOptions, openDb, t, sourceLabel, initLang, observePrompt, chooseLang, statement, tier, init_i18n, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };
+export { silentSpawnOptions, openDb, t, sourceLabel, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };

@@ -5,7 +5,7 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-vjhm8tdy.js";
+} from "./session-start-za2t4myk.js";
 import {
   contentHashOf,
   countLessons,
@@ -16,7 +16,7 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-ah2h903t.js";
+} from "./session-start-kk0478rx.js";
 import {
   REPORTED_WORKS,
   auditTruth,
@@ -42,7 +42,7 @@ import {
   statement,
   t,
   tier
-} from "./session-start-a6061n0b.js";
+} from "./session-start-drdkvesf.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";

@@ -10,7 +10,7 @@ import {
   readConfigEdges,
   renderConfigInfluence,
   t
-} from "./session-start-a6061n0b.js";
+} from "./session-start-drdkvesf.js";
 
 // src/hooks/node-brief.ts
 init_i18n();

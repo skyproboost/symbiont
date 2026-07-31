@@ -24,7 +24,7 @@
  * «растущий», «зрелый») остаётся, но становится подписью к числу, а не сущностью.
  */
 import type { Fact } from '../miner/facts'
-import { t } from '../core/i18n'
+import { t, pattern } from '../core/i18n'
 
 export type MaturityLevel = 'молодой' | 'растущий' | 'зрелый'
 
@@ -305,6 +305,27 @@ const dimName = (ru: string): string =>
   t(ru, ({ 'определённость канона': 'canon certainty', масса: 'mass', проверяемость: 'testability', стабильность: 'stability' } as Record<string, string>)[ru] ?? ru)
 const levelName = (ru: string): string =>
   t(ru, ({ зрелый: 'mature', растущий: 'growing', молодой: 'young', 'только начат': 'just started' } as Record<string, string>)[ru] ?? ru)
+
+/**
+ * Формулировка факта зрелости — переводится ОБРАЗЦОМ, а не парой строк.
+ *
+ * В журнал она уходит по-русски всегда (по ней считается ключ вытеснения), но в
+ * неё подставлены числа проекта, поэтому зарегистрировать все варианты парами
+ * нельзя — их бесконечно много. Регулярка ловит форму, а имена стадии и
+ * измерений собираются теми же функциями, что и в сводке: двух словарей об одном
+ * и том же быть не должно. Без этого образца факт уходил в MCP по-русски даже
+ * при английской подаче — единственная формулировка, которая там оставалась.
+ */
+pattern(/^зрелость проекта — ([\d.]+) \((.+?)\): (.+)$/, (m) => {
+  const dims = m[3]
+    .split(', ')
+    .map((part) => {
+      const cut = part.lastIndexOf(' ')
+      return cut > 0 ? `${dimName(part.slice(0, cut))} ${part.slice(cut + 1)}` : part
+    })
+    .join(', ')
+  return `project maturity — ${m[1]} (${levelName(m[2])}): ${dims}`
+})
 
 export function renderMaturity(m: Maturity): string {
   if (m.empty) return ''

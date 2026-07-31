@@ -3,7 +3,7 @@ import {
 } from "./session-start-g0g6tesq.js";
 import {
   checkAgainstLaws
-} from "./session-start-dgw3qfeb.js";
+} from "./session-start-htqt7re3.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -16,7 +16,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-ah2h903t.js";
+} from "./session-start-kk0478rx.js";
 import {
   ENTITY_EXT,
   FactStore,
@@ -37,7 +37,7 @@ import {
   snapshotContent,
   statement,
   t
-} from "./session-start-a6061n0b.js";
+} from "./session-start-drdkvesf.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts
@@ -696,7 +696,8 @@ function handleStop(input, dataRoot) {
       const attributable = own.size > 0 || parallel > 0;
       const ownFiles = attributable ? sessionFiles.filter((f) => own.has(f)) : sessionFiles;
       const unattributed = sessionFiles.filter((f) => !ownFiles.includes(f));
-      const parallelLine = parallel > 0 && unattributed.length > 0 ? `- параллельных сессий: ${parallel} · ${unattributed.length} изменённых файлов не отнесены к этой сессии — авторство не подтверждено (${unattributed.slice(0, 3).join(", ")}${unattributed.length > 3 ? ", …" : ""})` : "";
+      const freshUnattributed = parallel > 0 ? unattributed.filter((f) => Number(dedup.run(sid, "#параллель", f).changes) > 0) : [];
+      const parallelLine = freshUnattributed.length > 0 ? `- параллельных сессий: ${parallel} · ${freshUnattributed.length} изменённых файлов не отнесены к этой сессии — авторство не подтверждено (${freshUnattributed.slice(0, 3).join(", ")}${freshUnattributed.length > 3 ? ", …" : ""})` : "";
       if (ownFiles.length > 0) {
         db.run("CREATE TABLE IF NOT EXISTS model_state(session_id TEXT NOT NULL, file TEXT NOT NULL, hash TEXT NOT NULL, content TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(session_id, file))");
         const upsertState = db.query("INSERT INTO model_state(session_id,file,hash,content,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(session_id,file) DO UPDATE SET hash=excluded.hash, content=excluded.content, updated_at=excluded.updated_at");

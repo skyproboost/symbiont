@@ -379,24 +379,43 @@ export function statement(ru: string): string {
 export const tier = (ru: string): string =>
   current === 'en' ? ({ закон: 'law', привычка: 'habit', гипотеза: 'hypothesis', 'нет консенсуса': 'no consensus' } as Record<string, string>)[ru] ?? ru : ru
 
+const AREAS: Record<string, string> = {
+  форматирование: 'formatting',
+  объявления: 'declarations',
+  функции: 'functions',
+  итерации: 'iteration',
+  именование: 'naming',
+  параметры: 'parameters',
+  строки: 'strings',
+  сигнатуры: 'signatures',
+  массивы: 'arrays',
+  сравнения: 'comparisons',
+  методы: 'methods',
+  'обработка ошибок': 'error handling',
+  асинхронность: 'asynchrony',
+  классы: 'classes',
+  vue: 'vue',
+}
+
 /** Область факта (форматирование, объявления…) — то же правило. */
-export const area = (ru: string): string =>
-  current === 'en'
-    ? ({
-        форматирование: 'formatting',
-        объявления: 'declarations',
-        функции: 'functions',
-        итерации: 'iteration',
-        именование: 'naming',
-        параметры: 'parameters',
-        строки: 'strings',
-        сигнатуры: 'signatures',
-        массивы: 'arrays',
-        сравнения: 'comparisons',
-        методы: 'methods',
-        'обработка ошибок': 'error handling',
-        асинхронность: 'asynchrony',
-        классы: 'classes',
-        vue: 'vue',
-      } as Record<string, string>)[ru] ?? ru
-    : ru
+export const area = (ru: string): string => (current === 'en' ? AREAS[ru] ?? ru : ru)
+
+/** Перечень областей на языке подачи — для описаний инструментов и подсказок. */
+export const areaList = (): string => Object.keys(AREAS).map(area).join(', ')
+
+/**
+ * Обратный ход: как область НАЗВАЛИ снаружи → её ключ в журнале.
+ *
+ * Нужен там, где имя области принимается от человека или модели. Показать
+ * список по-английски и не принять английское имя — та же ловушка, что была с
+ * ключевыми словами возвышения: прочитать можно, выполнить нельзя. Русский ключ
+ * принимается всегда, независимо от языка подачи, — он остаётся идентичностью.
+ */
+export function areaKey(input: string): string {
+  const low = input.trim().toLowerCase()
+  if (!low) return ''
+  for (const ru of Object.keys(AREAS)) {
+    if (ru.toLowerCase() === low || AREAS[ru].toLowerCase() === low) return ru
+  }
+  return low // незнакомое имя отдаём как есть: фильтр по подстроке разберётся
+}

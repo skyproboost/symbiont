@@ -7,6 +7,7 @@
  * и закрываются с причиной — это сигнал (и будущая точка дожатия урожая),
  * а не ошибка.
  */
+import { statSync } from 'node:fs'
 import type { Database } from './db'
 
 export interface SessionRow {
@@ -15,9 +16,45 @@ export interface SessionRow {
   started_at: string
   closed_at: string | null
   close_reason: string | null
+  transcript_path: string | null
 }
 
 const STALE_HOURS_DEFAULT = 12
+
+/**
+ * Сколько транскрипт может молчать, прежде чем сессия считается умершей.
+ *
+ * Порог намеренно щедрый, и это асимметрия вреда, а не осторожность вообще.
+ * Ошибиться можно в две стороны, и цены у них разные. Признать ЖИВУЮ сессию
+ * мёртвой — значит снять признак параллельности, после чего Stop припишет её
+ * правки себе, а из них родятся ложные «поправки владельца» в журнале фактов,
+ * который append-only: это не откатывается. Признать МЁРТВУЮ живой — значит
+ * до суток не писать model_state по неатрибутированным файлам: петля поправок
+ * недополучит сырьё, но ничего ложного не запомнит. Поэтому порог заведомо
+ * длиннее любого правдоподобного перерыва в работе (обед, созвон, ночь).
+ */
+const IDLE_DEAD_HOURS = 6
+
+/**
+ * Признак смерти по транскрипту: платформа дописывает его на каждый ход, и
+ * долгое молчание файла — единственный доступный нам сигнал живости. PID не
+ * годится: схема его не хранит, а на Windows он ещё и переиспользуется.
+ *
+ * Это `stat` файла, а не разбор его содержимого: анти-скоуп запрещает парсинг
+ * внутреннего формата транскриптов (он официально нестабилен), а время правки
+ * файла — сведение файловой системы, от формата не зависящее.
+ *
+ * Пути нет или файл недоступен — НЕ улика: строка могла родиться до появления
+ * колонки, а транскрипт — переехать. Тогда судим по возрасту, как раньше.
+ */
+export function deadByTranscript(path: string | null, now: number, idleHours = IDLE_DEAD_HOURS): boolean {
+  if (!path) return false
+  try {
+    return now - statSync(path).mtimeMs > idleHours * 3600_000
+  } catch {
+    return false // файла нет — молчим в сторону осторожности, см. асимметрию выше
+  }
+}
 
 /**
  * Граница среза содержимого для model_state — ОБЩАЯ для обеих сторон.
@@ -46,15 +83,26 @@ export class SessionLog {
         close_reason TEXT
       )`,
     )
+    try {
+      this.db.run('ALTER TABLE sessions ADD COLUMN transcript_path TEXT')
+    } catch {
+      // Колонка уже есть — единственная причина отказа здесь, и она нормальна:
+      // миграция обязана переживать повторный запуск на живой базе владельца
+    }
   }
 
-  open(sessionId: string, source: string | null, now = new Date().toISOString()): void {
+  open(
+    sessionId: string,
+    source: string | null,
+    now = new Date().toISOString(),
+    transcriptPath: string | null = null,
+  ): void {
     // resume той же сессии не перезаписывает первый старт
     this.db
       .query(
-        'INSERT INTO sessions(session_id, source, started_at) VALUES(?,?,?) ON CONFLICT(session_id) DO NOTHING',
+        'INSERT INTO sessions(session_id, source, started_at, transcript_path) VALUES(?,?,?,?) ON CONFLICT(session_id) DO NOTHING',
       )
-      .run(sessionId, source, now)
+      .run(sessionId, source, now, transcriptPath)
   }
 
   close(sessionId: string, reason: string, now = new Date().toISOString()): void {
@@ -63,10 +111,26 @@ export class SessionLog {
       .run(now, reason, sessionId)
   }
 
+  /** Чужие незакрытые сессии — сырьё и для реконсиляции, и для счёта живых. */
+  private openOthers(currentSessionId: string): Array<Pick<SessionRow, 'session_id' | 'started_at' | 'transcript_path'>> {
+    return this.db
+      .query('SELECT session_id, started_at, transcript_path FROM sessions WHERE closed_at IS NULL AND session_id != ?')
+      .all(currentSessionId) as Array<Pick<SessionRow, 'session_id' | 'started_at' | 'transcript_path'>>
+  }
+
   /**
-   * Закрыть сессии, открытые дольше maxAgeHours и не попрощавшиеся, — «умерли грязно».
-   * Свежие открытые не трогаем: это могут быть живые параллельные сессии.
-   * Возвращает число реконсилированных.
+   * Закрыть сессии, которые не попрощались и признаков жизни не подают.
+   *
+   * Два независимых признака смерти. Возраст (открыта дольше maxAgeHours) —
+   * прежний и единственный, который работает без транскрипта. Молчание
+   * транскрипта — новый: платформа не гарантирует SessionEnd при Ctrl-C,
+   * закрытии окна и SIGKILL, поэтому труп восьмичасовой давности проходил под
+   * порогом возраста и до половины суток числился живым соседом. Цена этого не
+   * косметическая: пока сосед «жив», Stop не пишет model_state по файлам вне
+   * канала PostToolUse, то есть петля поправок молча недополучает сырьё.
+   *
+   * Причина закрытия у признаков разная не для красоты: «died dirty» и «замолчал»
+   * — разные события, и различать их нужно, когда будем дожимать урожай.
    */
   reconcileStale(
     currentSessionId: string,
@@ -74,13 +138,28 @@ export class SessionLog {
     now = new Date(),
   ): number {
     const cutoff = new Date(now.getTime() - maxAgeHours * 3600_000).toISOString()
-    const res = this.db
-      .query(
-        `UPDATE sessions SET closed_at=?, close_reason='reconciled-dirty'
-         WHERE closed_at IS NULL AND session_id != ? AND started_at < ?`,
-      )
-      .run(now.toISOString(), currentSessionId, cutoff)
-    return Number(res.changes)
+    const upd = this.db.query('UPDATE sessions SET closed_at=?, close_reason=? WHERE session_id=? AND closed_at IS NULL')
+    let closed = 0
+    for (const row of this.openOthers(currentSessionId)) {
+      const byAge = row.started_at < cutoff
+      const byIdle = deadByTranscript(row.transcript_path, now.getTime())
+      if (!byAge && !byIdle) continue
+      upd.run(now.toISOString(), byAge ? 'reconciled-dirty' : 'reconciled-idle', row.session_id)
+      closed++
+    }
+    return closed
+  }
+
+  /**
+   * Сколько ЧУЖИХ сессий подаёт признаки жизни прямо сейчас.
+   *
+   * Считается на чтении, а не после реконсиляции: та бежит только на
+   * SessionStart, а сосед умирает когда угодно — в том числе посреди нашей
+   * сессии. Правило живости при этом одно на оба места (deadByTranscript),
+   * иначе две копии разошлись бы молча.
+   */
+  openLiveOthers(currentSessionId: string, now = Date.now()): number {
+    return this.openOthers(currentSessionId).filter((r) => !deadByTranscript(r.transcript_path, now)).length
   }
 
   get(sessionId: string): SessionRow | null {

@@ -22,6 +22,7 @@
  *    подач воспроизводим и отлаживается глазами).
  */
 import type { Database } from '../core/db'
+import { t } from '../core/i18n'
 
 /** Виды подачи. Строки, а не enum: новый вид добавляется в канале, не здесь. */
 export type FeedKind = string
@@ -144,5 +145,5 @@ export function renderUtility(rows: Utility[]): string {
     .filter((r) => r.surfaced > 0)
     .slice(0, 6)
     .map((r) => `${r.kind} ${Math.round(r.score * 100)}% (${r.used}/${r.surfaced})`)
-  return shown.length > 0 ? `окупаемость подачи: ${shown.join(' · ')}` : ''
+  return shown.length > 0 ? `${t('окупаемость подачи', 'feed payback')}: ${shown.join(' · ')}` : ''
 }

@@ -5,7 +5,7 @@
     {
       "name": "symbiont",
       "source": "./plugin",
-      "description": "Живой паспорт проекта: конвенции и профиль выводятся из кода и подаются в каждую сессию."
+      "description": "A living passport of your project: conventions and a quality profile derived from the code itself and delivered to every session."
     }
   ]
 }

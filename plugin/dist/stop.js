@@ -2,11 +2,8 @@ import {
   readGateMode
 } from "./session-start-g0g6tesq.js";
 import {
-  checkAgainstLaws,
-  contentVerifierActive,
-  loadEntityResolver,
-  runContentVerifiers
-} from "./session-start-kqmsgabj.js";
+  checkAgainstLaws
+} from "./session-start-dgw3qfeb.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -19,22 +16,28 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-gm8x32p0.js";
+} from "./session-start-ah2h903t.js";
 import {
   ENTITY_EXT,
   FactStore,
+  SessionLog,
   beat,
+  contentVerifierActive,
+  inDerivedZone,
   init_i18n,
+  init_walk,
   isConfigFile,
+  loadEntityResolver,
   openDb,
   parseConfigFile,
   reachableUndirected,
+  runContentVerifiers,
   sha1,
   slugOf,
   snapshotContent,
   statement,
   t
-} from "./session-start-spcqe6t1.js";
+} from "./session-start-a6061n0b.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts
@@ -113,7 +116,7 @@ var zoneOf = (file) => {
   const parts = file.split("/");
   return parts.length <= 1 ? "(корень)" : parts[0];
 };
-var TEST_LINE = /^-.*\b(it|test|describe|expect|assert|should)\s*\(/m;
+var TEST_LINE = /^-.*(?<!\.)\b(it|test|describe|expect|assert|should)\s*\(/m;
 var TEST_FILE = /(\.test\.|\.spec\.|_test\.|(^|\/)(tests?|__tests__|spec)\/)/i;
 function detectFocusDrift(input) {
   const files = input.sessionFiles;
@@ -583,6 +586,7 @@ function checkContract(content, policies, learned = []) {
 }
 
 // src/hooks/stop-core.ts
+init_walk();
 init_i18n();
 var FUSE_LIMIT = 8;
 var JS_FAMILY = new Set([".ts", ".js", ".mjs", ".cjs", ".tsx", ".jsx", ".vue"]);
@@ -633,7 +637,7 @@ function dirtyGatedFiles(cwd) {
       const r = spawnSync("git", ["status", "--porcelain"], { cwd, encoding: "utf8", timeout: 12000, windowsHide: true });
       if (r.status === 0 && typeof r.stdout === "string") {
         return r.stdout.split(`
-`).map((l) => l.slice(3).trim()).filter((f) => f && GATED_EXT.has(extname(f).toLowerCase())).slice(0, MAX_FILES);
+`).map((l) => l.slice(3).trim()).filter((f) => f && GATED_EXT.has(extname(f).toLowerCase()) && !inDerivedZone(f)).slice(0, MAX_FILES);
       }
     } catch {}
   }
@@ -649,8 +653,7 @@ function ownEditedFiles(db, sid) {
 }
 function otherOpenSessions(db, sid) {
   try {
-    const r = db.query("SELECT COUNT(*) n FROM sessions WHERE closed_at IS NULL AND session_id != ?").get(sid);
-    return r ? Number(r.n) : 0;
+    return new SessionLog(db).openLiveOthers(sid);
   } catch {
     return 0;
   }

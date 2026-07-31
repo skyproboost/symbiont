@@ -1,17 +1,17 @@
 ---
 name: health
-description: Состояние проекта и честность самого паспорта. Показывает три вещи — насколько соблюдаются выведенные правила прямо сейчас (а в текстах — сироты и битые ссылки); куда всё движется относительно прошлых замеров (правило держалось на 100%, стало 96% — значит от собственной нормы уползают); и где чаще всего чинят — файлы, в которые баг-фиксы возвращаются снова и снова, отсортированные по формуле «частота починок × размер». Последнее — прямые кандидаты на рефакторинг, выбранные данными, а не ощущением. Плюс самопроверка — не подаёт ли паспорт того, чего на диске уже нет. Вызывайте, когда спрашивают «что не так», «где бардак», «что рефакторить» или «можно ли доверять паспорту».
+description: The state of the project and the honesty of the passport itself. It shows three things — how well the derived rules are being followed right now (and, in texts, orphans and broken links); where things are heading relative to earlier measurements (a rule held at 100% and is now 96%, so the project is drifting away from its own norm); and where fixes keep landing — the files bug-fixes return to again and again, ranked by fix frequency × size. That last one is a list of refactoring candidates chosen by data rather than by feel. Plus a self-check — whether the passport still serves things that are no longer on disk. Use it when someone asks "what is wrong", "where is the mess", "what should be refactored" or "can the passport be trusted".
 ---
 
-# Symbiont · здоровье и дрейф
+# Symbiont · health and drift
 
 !`bun run "${CLAUDE_SKILL_DIR}/../../src/cli/symbiont.ts" --data "${CLAUDE_PLUGIN_DATA}" health`
 
-Как читать вывод:
+How to read the output:
 
-- **Здоровье сейчас** — соблюдаемость конвенций, состояние контент-графа (сироты, битые ссылки), плотность связей. Это срез, а не приговор.
-- **Тренд (дрейф)** — самое важное. Дрейф это *производная* паспорта: показываются только ухудшения выше порога. Стабильно или лучше — раздел молчит. Код агентов деградирует монотонно, и заметить это можно лишь сравнением с собой вчерашним.
-- **Hotspot-зоны** — частота починок × размер. Не «большие файлы» и не «часто правимые», а пересечение: там, где чинят снова и снова и где много кода. Это и есть кандидаты на рефакторинг, выбранные данными, а не чутьём.
-- **Само-образ** — врёт ли карта: подаёт ли паспорт узлы, роли или уроки для файлов, которых уже нет. Честный паспорт отвечает одной строкой «подаётся только живое».
+- **Health now** — how well conventions are followed, the state of the content graph (orphans, broken links), link density. This is a snapshot, not a verdict.
+- **Trend (drift)** — the important part. Drift is the *derivative* of the passport: only deterioration above a threshold is shown. Stable or better, and the section stays silent. Agent-written code degrades monotonically, and the only way to notice is to compare the project with its yesterday self.
+- **Hotspot zones** — fix frequency × size. Not "big files" and not "frequently edited files", but the intersection: where fixes land again and again and where there is a lot of code. Those are the refactoring candidates, chosen by data rather than by instinct.
+- **Self-image** — whether the map lies: whether the passport serves nodes, roles or lessons for files that are already gone. An honest passport answers in one line, "only living things are served".
 
-Лечение не требует команд: фоновый садовник чистит мёртвое из проекций и назначает пересборку сам. Эта команда показывает, а не чинит.
+Healing needs no commands: the background gardener sweeps dead entries from the projections and schedules a rebuild on its own. This command shows, it does not fix.

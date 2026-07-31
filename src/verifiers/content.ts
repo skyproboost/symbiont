@@ -13,6 +13,23 @@
  * колбэком (доступ к БД остаётся в хуке).
  */
 import type { Database } from '../core/db'
+import { pair, t } from '../core/i18n'
+
+/**
+ * Имена верификаторов — таблица уровня модуля, как у конвенций майнера.
+ *
+ * Имя верификатора попадает в журнал поимок и служит там ключом, поэтому в базе
+ * оно остаётся русским всегда, а английское рождается на последней миле. Уровень
+ * модуля важен ровно по той же причине, что и у фактов: процесс, который только
+ * ЧИТАЕТ поимки (отчёт статуса), майнер и верификаторы не зовёт — без загрузки
+ * таблицы он показал бы русские имена в английском выводе.
+ */
+const V = {
+  ALPHABET: pair('чистота алфавита (кир/лат микс в слове)', 'alphabet purity (Cyrillic/Latin mix inside a word)'),
+  BROKEN: pair('битая внутренняя ссылка', 'broken internal link'),
+  ANCHOR_DUP: pair('один анкор на разные цели', 'one anchor pointing to different targets'),
+  EMPTY_ANCHOR: pair('ссылка без текста (a11y/SEO)', 'link without text (a11y/SEO)'),
+}
 import { extractContentLinks, buildResolveIndex, resolveContentTarget, ENTITY_EXT, type Resolution } from '../graph/entities'
 
 export interface VerifierViolation {
@@ -101,7 +118,7 @@ export function checkAlphabetPurity(content: string): VerifierViolation[] {
   const examples = bad.slice(0, MAX_EXAMPLES).map((t) => `«${t}»`).join(', ')
   return [
     {
-      verifier: 'чистота алфавита (кир/лат микс в слове)',
+      verifier: V.ALPHABET,
       detail: `${bad.length} слов со смешением алфавитов: ${examples}${bad.length > MAX_EXAMPLES ? ' …' : ''}`,
     },
   ]
@@ -138,20 +155,21 @@ export function checkContentLinks(rel: string, content: string, ext: string, res
   const out: VerifierViolation[] = []
   if (broken.length > 0) {
     out.push({
-      verifier: 'битая внутренняя ссылка',
+      verifier: V.BROKEN,
       detail: `${broken.length}: ${broken.slice(0, MAX_EXAMPLES).map((t) => `→ ${t}`).join(', ')}${broken.length > MAX_EXAMPLES ? ' …' : ''}`,
     })
   }
-  const dup = [...anchorTargets.entries()].filter((pair) => pair[1].size >= 2)
+  // Параметры переименованы из pair: имя занято таблицей формулировок выше
+  const dup = [...anchorTargets.entries()].filter((entry) => entry[1].size >= 2)
   if (dup.length > 0) {
     out.push({
-      verifier: 'один анкор на разные цели',
-      detail: dup.slice(0, MAX_EXAMPLES).map((pair) => `«${pair[0]}» → ${pair[1].size} целей`).join(', '),
+      verifier: V.ANCHOR_DUP,
+      detail: dup.slice(0, MAX_EXAMPLES).map((entry) => `«${entry[0]}» → ${entry[1].size} ${t('целей', 'targets')}`).join(', '),
     })
   }
   if (emptyAnchors.length > 0) {
     out.push({
-      verifier: 'ссылка без текста (a11y/SEO)',
+      verifier: V.EMPTY_ANCHOR,
       detail: `${emptyAnchors.length}: ${emptyAnchors.map((t) => `→ ${t}`).join(', ')}`,
     })
   }

@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDb } from '../core/db'
 import { observePrompt, initLang, t, statement } from '../core/i18n'
+import '../core/statements' // таблицы формулировок: импорт ради регистрации
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
 import { ensureFeedLog, claimNode, nodeBrief } from './node-brief'

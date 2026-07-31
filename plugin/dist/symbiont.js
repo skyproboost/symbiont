@@ -5,7 +5,7 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-8tcn3fb2.js";
+} from "./session-start-vjhm8tdy.js";
 import {
   contentHashOf,
   countLessons,
@@ -16,7 +16,7 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-gm8x32p0.js";
+} from "./session-start-ah2h903t.js";
 import {
   REPORTED_WORKS,
   auditTruth,
@@ -39,9 +39,10 @@ import {
   silentSpawnOptions,
   slugOf,
   sourceLabel,
+  statement,
   t,
   tier
-} from "./session-start-spcqe6t1.js";
+} from "./session-start-a6061n0b.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -132,7 +133,7 @@ function buildStatusReport(dataDir) {
     if (gates.length > 0) {
       const maxGate = Math.max(...gates.map((g) => g.n), 1);
       for (const g of gates)
-        L.push(`   ${pad(g.law.split("—")[0].trim(), 20)}${pad(bar(g.n, maxGate, 12), 14)}${g.n}`);
+        L.push(`   ${pad(statement(g.law).split("—")[0].trim(), 20)}${pad(bar(g.n, maxGate, 12), 14)}${g.n}`);
     }
     L.push("");
     try {

@@ -9,6 +9,8 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDb } from '../core/db'
 import { FactStore, factBasis, type FactRow } from '../core/store'
+import { statement, tier, t } from '../core/i18n'
+import '../core/statements' // таблицы формулировок: импорт ради регистрации
 
 export interface ToolDef {
   name: string
@@ -92,7 +94,9 @@ export const TOOLS: ToolDef[] = [
  */
 const factLine = (f: FactRow): string => {
   const measured = !f.source.startsWith('llm:')
-  return `${f.key} · ${f.statement} · ${f.tier} · ${factBasis(f)}${measured ? ` · замер ${f.seen_at.slice(0, 10)}` : ''}`
+  // Ключ НЕ переводится намеренно: это идентификатор факта (область|предмет), по
+  // нему считается вытеснение в журнале. Формулировка и ярус — наоборот, показ.
+  return `${f.key} · ${statement(f.statement)} · ${tier(f.tier)} · ${factBasis(f)}${measured ? ` · ${t('замер', 'measured')} ${f.seen_at.slice(0, 10)}` : ''}`
 }
 
 export function callTool(name: string, args: Record<string, unknown>, dataDir: string): string {

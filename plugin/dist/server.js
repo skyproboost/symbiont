@@ -1,12 +1,16 @@
 import {
   resolveDataRoot
-} from "./session-start-gm8x32p0.js";
+} from "./session-start-ah2h903t.js";
 import {
   FactStore,
   factBasis,
+  init_i18n,
   openDb,
-  slugOf
-} from "./session-start-spcqe6t1.js";
+  slugOf,
+  statement,
+  t,
+  tier
+} from "./session-start-a6061n0b.js";
 import"./session-start-70d7ckvt.js";
 
 // src/mcp/server.ts
@@ -16,6 +20,7 @@ import { createInterface } from "node:readline";
 // src/mcp/handlers.ts
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+init_i18n();
 var TOOLS = [
   {
     name: "passport_conventions",
@@ -79,7 +84,7 @@ var TOOLS = [
 ];
 var factLine = (f) => {
   const measured = !f.source.startsWith("llm:");
-  return `${f.key} · ${f.statement} · ${f.tier} · ${factBasis(f)}${measured ? ` · замер ${f.seen_at.slice(0, 10)}` : ""}`;
+  return `${f.key} · ${statement(f.statement)} · ${tier(f.tier)} · ${factBasis(f)}${measured ? ` · ${t("замер", "measured")} ${f.seen_at.slice(0, 10)}` : ""}`;
 };
 function callTool(name, args, dataDir) {
   const dbPath = join(dataDir, "passport.db");
@@ -225,7 +230,7 @@ function callTool(name, args, dataDir) {
         `Хабы (${hubs.length}): ${hubs.map((h) => `${h.file} (→${h.out_deg})`).join(", ")}`,
         `Глубина от хабов (клики): ${dist.map((d) => `${d.depth}:${d.n}`).join(" · ")}`,
         `Недостижимо из хабов: ${unreachCount} из ${total}${unreachable.length > 0 ? ` (со связями, но вне хабового дерева: ${unreachable.map((r) => r.file).join(", ")})` : ""}`,
-        `Топ по обратным ссылкам: ${topBack.map((t) => `${t.file} (←${t.in_deg})`).join(", ") || "—"} · без единой обратной: ${zeroBack}`
+        `Топ по обратным ссылкам: ${topBack.map((t2) => `${t2.file} (←${t2.in_deg})`).join(", ") || "—"} · без единой обратной: ${zeroBack}`
       ].join(`
 `);
     }

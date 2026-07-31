@@ -7,7 +7,7 @@
  */
 import { rmrf } from './_helpers'
 import { describe, it, expect } from 'bun:test'
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { buildPassport } from '../src/passport/build'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -181,6 +181,62 @@ describe('английская подача — полная, а не напол
       expect(consts.length).toBeGreaterThan(0)
       for (const f of consts) expect(cyr.test(statement(f.statement))).toBe(false)
       expect(factBasis({ positive: 5, total: 7, prevalence: 0.71 })).toBe('5 of 7 (71%)')
+    } finally {
+      setLang('ru')
+    }
+  })
+
+  it('каждая точка, показывающая факты, объявляет загрузку таблиц формулировок', () => {
+    // Список не задан руками, а ВЫВЕДЕН: кто зовёт statement(), тот и показывает
+    // факты. Иначе новая точка входа появилась бы вне проверки — ровно так и
+    // разъехались MCP, сводка, JIT-срез и гейт, каждый по-своему и молча.
+    const callers: string[] = []
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name)
+        if (e.isDirectory()) {
+          walk(p)
+          continue
+        }
+        if (!e.name.endsWith('.ts')) continue
+        const body = readFileSync(p, 'utf8')
+        // сам i18n объявляет statement(), а statements.ts — таблицы: они не потребители
+        if (p.endsWith('i18n.ts') || p.endsWith('statements.ts')) continue
+        if (/\bstatement\(/.test(body)) callers.push(p)
+      }
+    }
+    walk(join(import.meta.dir, '..', 'src'))
+    expect(callers.length).toBeGreaterThan(3)
+    const silent = callers.filter((p) => !readFileSync(p, 'utf8').includes("core/statements'"))
+    expect(silent.map((p) => p.replace(/^.*[\\/]src[\\/]/, 'src/'))).toEqual([])
+  })
+
+  it('все объявленные пары доступны процессу, который рисует отчёт', async () => {
+    // Таблица формулировок регистрируется ПРИ ЗАГРУЗКЕ объявившего её модуля.
+    // Отчёт статуса базу только читает и ни майнер, ни верификаторы не зовёт —
+    // забытый импорт-ради-регистрации поэтому ничего не ломает заметно: вывод
+    // просто уходит наполовину русским, и это видит уже владелец, а не тест.
+    // Так и случилось с законами формы и именами верификаторов разом.
+    await import('../src/cli/reports')
+    const pairs: Array<[string, string]> = []
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name)
+        if (e.isDirectory()) {
+          walk(p)
+          continue
+        }
+        if (!e.name.endsWith('.ts')) continue
+        for (const m of readFileSync(p, 'utf8').matchAll(/\bpair\('((?:[^'\\]|\\.)*)',\s*'((?:[^'\\]|\\.)*)'\)/g)) {
+          pairs.push([m[1], m[2]])
+        }
+      }
+    }
+    walk(join(import.meta.dir, '..', 'src'))
+    expect(pairs.length).toBeGreaterThan(30) // таблицы на месте, а не «ноль пар — ноль расхождений»
+    setLang('en')
+    try {
+      expect(pairs.filter((p) => statement(p[0]) !== p[1]).map((p) => p[0])).toEqual([])
     } finally {
       setLang('ru')
     }

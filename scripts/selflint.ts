@@ -168,11 +168,25 @@ try {
     const required = ['bun test', 'scripts/bundle.ts', 'scripts/canary.ts --dist', 'scripts/canary.ts --dist --node', 'scripts/selflint.ts']
     const missing = required.filter((r) => !ci.includes(r))
     const scheduled = ci.includes('schedule:') && ci.includes('cron:')
-    const ok = missing.length === 0 && scheduled
+    // Порядок значит не меньше наличия. Канарейка ПОСЛЕ bundle.ts судит сборку
+    // здешнего bun, а человеку по маркетплейсу уезжают байты из git — и пока
+    // канарейки стояли только после сборки, поставляемая форма не исполнялась в
+    // CI ни разу: её кросс-платформенность держалась на прогоне у владельца,
+    // то есть на Windows. Требуем хотя бы один прогон до пересборки.
+    const firstCanary = ci.indexOf('scripts/canary.ts --dist')
+    const firstBundle = ci.indexOf('scripts/bundle.ts')
+    const deliveredRun = firstCanary >= 0 && firstBundle >= 0 && firstCanary < firstBundle
+    const ok = missing.length === 0 && scheduled && deliveredRun
     check(
       'CI повторяет релиз-гейт',
       ok,
-      ok ? 'все проверки и ежедневная канарейка на месте' : missing.length ? `в CI нет: ${missing.join(', ')}` : 'нет расписания — молчаливая поломка платформы не обнаружится',
+      ok
+        ? 'все проверки, ежедневная канарейка и прогон поставляемой формы на месте'
+        : missing.length
+          ? `в CI нет: ${missing.join(', ')}`
+          : !scheduled
+            ? 'нет расписания — молчаливая поломка платформы не обнаружится'
+            : 'канарейка бежит только после пересборки — поставляемый артефакт в CI не исполняется',
     )
   }
 } catch (e) {

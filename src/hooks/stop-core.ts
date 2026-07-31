@@ -12,7 +12,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { openDb, type Database } from '../core/db'
-import { snapshotContent } from '../core/sessions'
+import { SessionLog, snapshotContent } from '../core/sessions'
 import { FactStore } from '../core/store'
 import { checkAgainstLaws } from '../gates/checks'
 import { runContentVerifiers, contentVerifierActive, loadEntityResolver } from '../verifiers/content'
@@ -24,11 +24,13 @@ import { readPolicies } from '../env/policies'
 import { isConfigFile } from '../env/config-graph'
 import { readRules } from '../env/rules'
 import { ENTITY_EXT } from '../graph/entities'
+import { inDerivedZone } from '../miner/walk'
 import { readGateMode } from '../gates/config'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
 import { sha1 } from '../core/salsa'
 import { t, statement } from '../core/i18n'
+import '../core/statements' // таблицы формулировок: импорт ради регистрации
 
 /** Предохранитель ralph-loop: столько блокировок подряд снимают гейт до конца сессии. */
 const FUSE_LIMIT = 8
@@ -117,7 +119,7 @@ function dirtyGatedFiles(cwd: string): string[] {
         return r.stdout
           .split('\n')
           .map((l) => l.slice(3).trim())
-          .filter((f) => f && GATED_EXT.has(extname(f).toLowerCase()))
+          .filter((f) => f && GATED_EXT.has(extname(f).toLowerCase()) && !inDerivedZone(f))
           .slice(0, MAX_FILES)
       }
     } catch {
@@ -137,13 +139,18 @@ function ownEditedFiles(db: Database, sid: string): Set<string> {
   }
 }
 
-/** Сколько ЧУЖИХ сессий открыто прямо сейчас (crash-only: closed_at IS NULL). */
+/**
+ * Сколько ЧУЖИХ сессий ЖИВО прямо сейчас (crash-only: closed_at IS NULL).
+ *
+ * Незакрытая ≠ живая: платформа не гарантирует прощание, поэтому сессия, убитая
+ * Ctrl-C или закрытием окна, остаётся в журнале открытой. Считать её соседом —
+ * значит держать Stop в осторожном режиме на пустом месте: model_state не
+ * пишется по файлам вне канала PostToolUse, и петля поправок недополучает сырьё.
+ * Признак жизни — молчание транскрипта, правило одно на весь плагин (sessions.ts).
+ */
 function otherOpenSessions(db: Database, sid: string): number {
   try {
-    const r = db
-      .query('SELECT COUNT(*) n FROM sessions WHERE closed_at IS NULL AND session_id != ?')
-      .get(sid) as { n: number } | null
-    return r ? Number(r.n) : 0
+    return new SessionLog(db).openLiveOthers(sid)
   } catch {
     return 0 // журнала сессий нет — считаем, что мы одни
   }

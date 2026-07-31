@@ -7,7 +7,8 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDb, type Database } from '../core/db'
-import { t, tier as tierName } from '../core/i18n'
+import { t, tier as tierName, statement } from '../core/i18n'
+import '../core/statements' // таблицы формулировок: импорт ради регистрации
 import { isDue } from '../core/schedule'
 import { readGateMode } from '../gates/config'
 import { readAvailability, renderAvailability, networkDownUntil } from '../core/models'
@@ -131,7 +132,11 @@ export function buildStatusReport(dataDir: string): string {
     }
     if (gates.length > 0) {
       const maxGate = Math.max(...gates.map((g) => g.n), 1)
-      for (const g of gates) L.push(`   ${pad(g.law.split('—')[0].trim(), 20)}${pad(bar(g.n, maxGate, 12), 14)}${g.n}`)
+      // statement() ДО обрезки по тире: в журнале формулировка русская всегда
+      // (по ней считается ключ вытеснения), английская рождается на последней
+      // миле. Обрежь сначала — и переводить будет уже нечего: ключ таблицы пар
+      // это целая формулировка, а не её голова.
+      for (const g of gates) L.push(`   ${pad(statement(g.law).split('—')[0].trim(), 20)}${pad(bar(g.n, maxGate, 12), 14)}${g.n}`)
     }
     L.push('')
 

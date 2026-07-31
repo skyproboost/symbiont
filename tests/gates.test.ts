@@ -1,6 +1,6 @@
 import { rmrf } from './_helpers'
 import { describe, it, expect } from 'bun:test'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -76,6 +76,23 @@ describe('handleStop: dry-run гейт на живом git-проекте', () =
   it('дедуп: те же нарушения второй раз не повторяются', () => {
     const out = handleStop({ cwd: proj, session_id: 'gs-1' }, dataRoot)
     expect(out.hookSpecificOutput).toBeUndefined()
+  })
+
+  it('собранный артефакт не судится законами: он их и не устанавливал', () => {
+    // Тот же код, что выше поймали в fresh.js, — но в каталоге сборки. Паспорт
+    // объявляет, что сгенерированное не голосует о конвенциях; судить его ими
+    // означало бы держать файл перед планкой, которую ему не дали устанавливать,
+    // да ещё и без возможности исправиться — следующая сборка перезапишет всё.
+    mkdirSync(join(proj, 'dist'), { recursive: true })
+    // Каталог обязан быть ОТСЛЕЖИВАЕМЫМ: целиком неотслеживаемый git схлопывает
+    // в одну строку «?? dist/», расширения у неё нет, и до гейта файл не дошёл бы
+    // вовсе — проверка молчала бы по случайной причине, а не по проверяемой
+    writeFileSync(join(proj, 'dist', 'built.js'), LEGACY)
+    g('add', 'dist')
+    g('commit', '-m', 'артефакт сборки')
+    writeFileSync(join(proj, 'dist', 'built.js'), 'const items = 2\nlet total = 1\n')
+    const out = handleStop({ cwd: proj, session_id: 'gs-1' }, dataRoot)
+    expect(out.hookSpecificOutput?.additionalContext ?? '').not.toContain('built.js')
   })
 
   it('новое нарушение в том же файле — сообщается отдельно', () => {

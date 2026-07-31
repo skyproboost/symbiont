@@ -538,12 +538,16 @@ var init_constitution_derive = __esm(() => {
 var exports_walk = {};
 __export(exports_walk, {
   walkFiles: () => walkFiles,
+  inDerivedZone: () => inDerivedZone,
   codeFiles: () => codeFiles,
   JS_EXT: () => JS_EXT,
   CODE_EXT: () => CODE_EXT
 });
 import { readdirSync, statSync } from "node:fs";
 import { extname, join as join4 } from "node:path";
+function inDerivedZone(rel) {
+  return rel.split("/").some((seg) => SKIP_DIRS.has(seg));
+}
 function walkFiles(root) {
   const out = [];
   const stack = [root];
@@ -4227,6 +4231,170 @@ function readFrame(dataDir) {
 
 // src/passport/build.ts
 init_i18n();
+
+// src/layer1/facts1.ts
+init_i18n();
+var push2 = (facts, area, statement2, positive, total) => {
+  const prevalence = total > 0 ? positive / total : 0;
+  facts.push({ area, statement: statement2, positive, total, prevalence, tier: tierOf(prevalence, total) });
+};
+var L2 = {
+  L0: pair("пустые catch-блоки — не встречаются (ошибка всегда обрабатывается)", "empty catch blocks — never (errors are always handled)"),
+  L1: pair("пустые catch-блоки — обычное дело (осознанное глушение)", "empty catch blocks — common (deliberate silencing)"),
+  L2: pair("ошибки из catch — возвращаются значением, не пробрасываются", "errors from catch — returned as a value, not rethrown"),
+  L3: pair("ошибки из catch — пробрасываются дальше (re-throw)", "errors from catch — rethrown further"),
+  L4: pair("исключения — ловятся, но свои не бросаются (throw почти не встречается)", "exceptions — caught but not raised (throw is rare)"),
+  L5: pair("async-функции — преобладают", "async functions — predominant"),
+  L6: pair("async-функции — почти не используются", "async functions — barely used"),
+  L7: pair("классы — не используются (функции и модули)", "classes — not used (functions and modules)"),
+  L8: pair("классы — основной строительный блок", "classes — the main building block")
+};
+function deriveAstFacts(m) {
+  const facts = [];
+  if (m.catchCount >= 10) {
+    const nonEmpty = m.catchCount - m.emptyCatch;
+    if (m.emptyCatch / m.catchCount <= 0.05) {
+      push2(facts, "обработка ошибок", L2.L0, nonEmpty, m.catchCount);
+    } else if (m.emptyCatch / m.catchCount >= 0.3) {
+      push2(facts, "обработка ошибок", L2.L1, m.emptyCatch, m.catchCount);
+    }
+    if (m.catchWithReturn / m.catchCount >= 0.7) {
+      push2(facts, "обработка ошибок", L2.L2, m.catchWithReturn, m.catchCount);
+    } else if (m.catchWithRethrow / m.catchCount >= 0.7) {
+      push2(facts, "обработка ошибок", L2.L3, m.catchWithRethrow, m.catchCount);
+    }
+  }
+  if (m.tryCount >= 10 && m.throwCount <= m.tryCount * 0.05) {
+    push2(facts, "обработка ошибок", L2.L4, m.tryCount, m.tryCount + m.throwCount);
+  }
+  if (m.fnTotal >= 20) {
+    const asyncShare = m.fnAsync / m.fnTotal;
+    if (asyncShare >= 0.5) {
+      push2(facts, "функции", L2.L5, m.fnAsync, m.fnTotal);
+    } else if (asyncShare <= 0.05 && m.fnAsync >= 0) {
+      push2(facts, "функции", L2.L6, m.fnTotal - m.fnAsync, m.fnTotal);
+    }
+    if (m.classCount === 0) {
+      push2(facts, "архитектура", L2.L7, m.fnTotal, m.fnTotal);
+    } else if (m.classCount >= m.fnTotal * 0.15) {
+      push2(facts, "архитектура", L2.L8, m.classCount, m.classCount + m.fnTotal);
+    }
+  }
+  return facts;
+}
+
+// src/verifiers/content.ts
+init_i18n();
+var V = {
+  ALPHABET: pair("чистота алфавита (кир/лат микс в слове)", "alphabet purity (Cyrillic/Latin mix inside a word)"),
+  BROKEN: pair("битая внутренняя ссылка", "broken internal link"),
+  ANCHOR_DUP: pair("один анкор на разные цели", "one anchor pointing to different targets"),
+  EMPTY_ANCHOR: pair("ссылка без текста (a11y/SEO)", "link without text (a11y/SEO)")
+};
+function makeResolver(entityRels) {
+  const index = buildResolveIndex(entityRels);
+  return (fromRel, target) => resolveContentTarget(fromRel, target, index);
+}
+function contentVerifierActive(ext) {
+  return ENTITY_EXT.has(ext.toLowerCase());
+}
+function loadEntityResolver(db) {
+  try {
+    const has = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='entity_nodes'").get().n > 0;
+    if (!has)
+      return;
+    const rels = db.query("SELECT file FROM entity_nodes").all().map((r) => r.file);
+    return rels.length > 0 ? makeResolver(rels) : undefined;
+  } catch {
+    return;
+  }
+}
+var CYRILLIC = /[Ѐ-ӿ]/;
+var LATIN = /[A-Za-z]/;
+var WORD_RE = /[A-Za-zЀ-ӿ][A-Za-zЀ-ӿ\d]*/g;
+function stripNonProse(text) {
+  return text.replace(/```[\s\S]*?```/g, " ").replace(/`[^`]*`/g, " ").replace(/https?:\/\/\S+/gi, " ").replace(/\b[\w.-]+\/[\w./-]+/g, " ");
+}
+function mixedScriptTokens(text) {
+  const out = [];
+  const seen = new Set;
+  for (const m of stripNonProse(text).matchAll(WORD_RE)) {
+    const tok = m[0];
+    if (CYRILLIC.test(tok) && LATIN.test(tok) && !seen.has(tok)) {
+      seen.add(tok);
+      out.push(tok);
+    }
+  }
+  return out;
+}
+var MAX_EXAMPLES = 5;
+function checkAlphabetPurity(content) {
+  const bad = mixedScriptTokens(content);
+  if (bad.length === 0)
+    return [];
+  const examples = bad.slice(0, MAX_EXAMPLES).map((t2) => `«${t2}»`).join(", ");
+  return [
+    {
+      verifier: V.ALPHABET,
+      detail: `${bad.length} слов со смешением алфавитов: ${examples}${bad.length > MAX_EXAMPLES ? " …" : ""}`
+    }
+  ];
+}
+function checkContentLinks(rel, content, ext, resolve) {
+  const links = extractContentLinks(ext, content);
+  const broken = [];
+  const emptyAnchors = [];
+  const anchorTargets = new Map;
+  for (const link of links) {
+    if (!link.explicit)
+      continue;
+    if (link.anchor.length === 0) {
+      if (emptyAnchors.length < MAX_EXAMPLES)
+        emptyAnchors.push(link.target);
+      continue;
+    }
+    if (resolve) {
+      const res = resolve(rel, link.target);
+      if (res.kind === "broken") {
+        broken.push(link.target);
+        continue;
+      }
+      if (res.kind === "entity") {
+        const set = anchorTargets.get(link.anchor) ?? new Set;
+        set.add(res.rel);
+        anchorTargets.set(link.anchor, set);
+      }
+    }
+  }
+  const out = [];
+  if (broken.length > 0) {
+    out.push({
+      verifier: V.BROKEN,
+      detail: `${broken.length}: ${broken.slice(0, MAX_EXAMPLES).map((t2) => `→ ${t2}`).join(", ")}${broken.length > MAX_EXAMPLES ? " …" : ""}`
+    });
+  }
+  const dup = [...anchorTargets.entries()].filter((entry) => entry[1].size >= 2);
+  if (dup.length > 0) {
+    out.push({
+      verifier: V.ANCHOR_DUP,
+      detail: dup.slice(0, MAX_EXAMPLES).map((entry) => `«${entry[0]}» → ${entry[1].size} ${t("целей", "targets")}`).join(", ")
+    });
+  }
+  if (emptyAnchors.length > 0) {
+    out.push({
+      verifier: V.EMPTY_ANCHOR,
+      detail: `${emptyAnchors.length}: ${emptyAnchors.map((t2) => `→ ${t2}`).join(", ")}`
+    });
+  }
+  return out;
+}
+function runContentVerifiers(rel, content, ext, ctx = {}) {
+  if (!contentVerifierActive(ext))
+    return [];
+  return [...checkAlphabetPurity(content), ...checkContentLinks(rel, content, ext, ctx.resolve)];
+}
+
+// src/passport/build.ts
 var tierSections = () => [
   ["закон", t("Законы стиля (в этом репозитории соблюдаются практически всегда)", "Style laws (in this repository they hold almost always)")],
   ["привычка", t("Преобладающий стиль (возможны легитимные исключения)", "Prevailing style (legitimate exceptions possible)")]
@@ -4304,7 +4472,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-3d0b69c4e5fd";
+    return "bundle-e5f471628688";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -4655,7 +4823,18 @@ ${learnedBlock}` : ""}` : learnedBlock
 }
 
 // src/core/sessions.ts
+import { statSync as statSync2 } from "node:fs";
 var STALE_HOURS_DEFAULT = 12;
+var IDLE_DEAD_HOURS = 6;
+function deadByTranscript(path, now, idleHours = IDLE_DEAD_HOURS) {
+  if (!path)
+    return false;
+  try {
+    return now - statSync2(path).mtimeMs > idleHours * 3600000;
+  } catch {
+    return false;
+  }
+}
 var SNAPSHOT_LIMIT = 50000;
 function snapshotContent(text) {
   return text.slice(0, SNAPSHOT_LIMIT);
@@ -4672,18 +4851,35 @@ class SessionLog {
         closed_at TEXT,
         close_reason TEXT
       )`);
+    try {
+      this.db.run("ALTER TABLE sessions ADD COLUMN transcript_path TEXT");
+    } catch {}
   }
-  open(sessionId, source, now = new Date().toISOString()) {
-    this.db.query("INSERT INTO sessions(session_id, source, started_at) VALUES(?,?,?) ON CONFLICT(session_id) DO NOTHING").run(sessionId, source, now);
+  open(sessionId, source, now = new Date().toISOString(), transcriptPath = null) {
+    this.db.query("INSERT INTO sessions(session_id, source, started_at, transcript_path) VALUES(?,?,?,?) ON CONFLICT(session_id) DO NOTHING").run(sessionId, source, now, transcriptPath);
   }
   close(sessionId, reason, now = new Date().toISOString()) {
     this.db.query("UPDATE sessions SET closed_at=?, close_reason=? WHERE session_id=? AND closed_at IS NULL").run(now, reason, sessionId);
   }
+  openOthers(currentSessionId) {
+    return this.db.query("SELECT session_id, started_at, transcript_path FROM sessions WHERE closed_at IS NULL AND session_id != ?").all(currentSessionId);
+  }
   reconcileStale(currentSessionId, maxAgeHours = STALE_HOURS_DEFAULT, now = new Date) {
     const cutoff = new Date(now.getTime() - maxAgeHours * 3600000).toISOString();
-    const res = this.db.query(`UPDATE sessions SET closed_at=?, close_reason='reconciled-dirty'
-         WHERE closed_at IS NULL AND session_id != ? AND started_at < ?`).run(now.toISOString(), currentSessionId, cutoff);
-    return Number(res.changes);
+    const upd = this.db.query("UPDATE sessions SET closed_at=?, close_reason=? WHERE session_id=? AND closed_at IS NULL");
+    let closed = 0;
+    for (const row of this.openOthers(currentSessionId)) {
+      const byAge = row.started_at < cutoff;
+      const byIdle = deadByTranscript(row.transcript_path, now.getTime());
+      if (!byAge && !byIdle)
+        continue;
+      upd.run(now.toISOString(), byAge ? "reconciled-dirty" : "reconciled-idle", row.session_id);
+      closed++;
+    }
+    return closed;
+  }
+  openLiveOthers(currentSessionId, now = Date.now()) {
+    return this.openOthers(currentSessionId).filter((r) => !deadByTranscript(r.transcript_path, now)).length;
   }
   get(sessionId) {
     return this.db.query("SELECT * FROM sessions WHERE session_id=?").get(sessionId);
@@ -4883,6 +5079,7 @@ function renderBackground(db, ids, nowMs) {
 }
 
 // src/gardener/utility.ts
+init_i18n();
 var MUTE_SCORE = 0.15;
 var MIN_SAMPLE = 12;
 var EXPLORE_EVERY = 10;
@@ -4947,7 +5144,7 @@ function renderUtility(rows) {
   if (rows.length === 0)
     return "";
   const shown = rows.filter((r) => r.surfaced > 0).slice(0, 6).map((r) => `${r.kind} ${Math.round(r.score * 100)}% (${r.used}/${r.surfaced})`);
-  return shown.length > 0 ? `окупаемость подачи: ${shown.join(" · ")}` : "";
+  return shown.length > 0 ? `${t("окупаемость подачи", "feed payback")}: ${shown.join(" · ")}` : "";
 }
 
 // src/hooks/session-start-core.ts
@@ -5168,7 +5365,7 @@ function handleSessionStart(input, dataRoot) {
       const log = new SessionLog(db);
       const sid = input.session_id ?? `manual-${Date.now()}`;
       diagLine = renderDiagnosis(silentChannels(readBeats(dataDir), log.recentStarts(sid)));
-      log.open(sid, input.source ?? null);
+      log.open(sid, input.source ?? null, new Date().toISOString(), input.transcript_path ?? null);
       reconciled = log.reconcileStale(sid);
       log.pruneEphemeral();
       detectCorrections(db, cwd, sid);
@@ -5270,4 +5467,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { silentSpawnOptions, openDb, t, sourceLabel, initLang, observePrompt, chooseLang, pair, statement, tier, init_i18n, isDue, factBasis, keyOf, FactStore, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, tierOf, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, extractContentLinks, buildResolveIndex, resolveContentTarget, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };
+export { silentSpawnOptions, openDb, t, sourceLabel, initLang, observePrompt, chooseLang, statement, tier, init_i18n, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };

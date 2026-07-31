@@ -39,7 +39,13 @@ const zoneOf = (file: string): string => {
   return parts.length <= 1 ? '(корень)' : parts[0]
 }
 
-const TEST_LINE = /^-.*\b(it|test|describe|expect|assert|should)\s*\(/m
+// Отрицательный просмотр назад на точку — анти-шум того же рода, что у стража
+// защитных слоёв. Без него `\btest(` совпадает с ВЫЗОВОМ МЕТОДА `.test(` у
+// регэкспа, и правка вида «расширить регулярку» читалась как «удалён тест»:
+// поймано вживую на src/cli/elevate.ts, где ни одной проверки не убрали.
+// Настоящие проверки так не пишут: `expect(`, `it(`, `describe(` вызываются
+// именами, а не методами объекта, — поэтому точка их не прячет.
+const TEST_LINE = /^-.*(?<!\.)\b(it|test|describe|expect|assert|should)\s*\(/m
 const TEST_FILE = /(\.test\.|\.spec\.|_test\.|(^|\/)(tests?|__tests__|spec)\/)/i
 
 export interface FocusInput {

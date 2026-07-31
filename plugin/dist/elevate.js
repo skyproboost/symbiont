@@ -5,8 +5,8 @@ import {
 import {
   callClaudeDetailed,
   callClaudeWithTools
-} from "./session-start-269xr3k3.js";
-import"./session-start-8tcn3fb2.js";
+} from "./session-start-v25dp35e.js";
+import"./session-start-vjhm8tdy.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -16,19 +16,22 @@ import {
   renderRootNotice,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-gm8x32p0.js";
+} from "./session-start-ah2h903t.js";
 import {
   activeAxes,
   artifactProfile,
   codeFiles,
   detectStack,
   extractContent,
+  initLang,
+  init_i18n,
   init_walk,
   isNonCodeMinable,
   openDb,
   slugOf,
+  t,
   walkFiles
-} from "./session-start-spcqe6t1.js";
+} from "./session-start-a6061n0b.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -382,13 +385,17 @@ function runGround(projectRoot, needs, caller) {
 }
 
 // src/cli/elevate.ts
+init_i18n();
 var root = process.cwd();
 var res = resolveDataRoot(join3(import.meta.dirname, "..", "..", ".data"));
 migrateLegacyPassports(res);
 var dataDir = join3(res.root, slugOf(root));
 var dbPath = join3(dataDir, "passport.db");
+initLang(dataDir, root);
 var args = stripDataFlag(process.argv.slice(2));
-var verb = args.find((a) => /^(отклонить|принять|решения)$/.test(a)) ?? "";
+var VERB_ALIAS = { reject: "отклонить", accept: "принять", decisions: "решения" };
+var rawVerb = args.find((a) => /^(отклонить|принять|решения|reject|accept|decisions)$/.test(a)) ?? "";
+var verb = VERB_ALIAS[rawVerb] ?? rawVerb;
 function lastProposals() {
   try {
     const raw = JSON.parse(readFileSync3(join3(dataDir, "elevate-last.json"), "utf8"));
@@ -399,35 +406,37 @@ function lastProposals() {
 }
 if (verb === "решения") {
   if (!existsSync3(dbPath)) {
-    console.log("Паспорт не построен — решений быть не может.");
+    console.log(t("Паспорт не построен — решений быть не может.", "The passport has not been built — there can be no decisions yet."));
   } else {
     const db = openDb(dbPath, { readonly: true });
     console.log(renderVerdicts(readVerdicts(db)));
     db.close();
   }
 } else if (verb === "отклонить" || verb === "принять") {
-  const idx = Number(args[args.indexOf(verb) + 1]);
+  const idx = Number(args[args.indexOf(rawVerb) + 1]);
   const proposals = lastProposals();
   const p = Number.isFinite(idx) ? proposals[idx - 1] : undefined;
   if (!p) {
-    console.log(`Нет предложения №${args[args.indexOf(verb) + 1] ?? "?"} в последнем прогоне (их ${proposals.length}). Сначала прогоните аудит.`);
+    const n = args[args.indexOf(rawVerb) + 1] ?? "?";
+    console.log(t(`Нет предложения №${n} в последнем прогоне (их ${proposals.length}). Сначала прогоните аудит.`, `There is no proposal #${n} in the last run (it had ${proposals.length}). Run the audit first.`));
   } else if (!existsSync3(dbPath)) {
-    console.log("Паспорт не построен — записывать решение некуда.");
+    console.log(t("Паспорт не построен — записывать решение некуда.", "The passport has not been built — there is nowhere to record the decision."));
   } else {
-    const reason = args.slice(args.indexOf(verb) + 2).join(" ").trim();
+    const reason = args.slice(args.indexOf(rawVerb) + 2).join(" ").trim();
     if (verb === "отклонить" && !reason) {
-      console.log("Отклонение без причины бесполезно: именно причина уходит в следующий аудит. Напишите её после номера.");
+      console.log(t("Отклонение без причины бесполезно: именно причина уходит в следующий аудит. Напишите её после номера.", "A rejection without a reason is useless — the reason is what the next audit receives. Write it after the number."));
     } else {
       const db = openDb(dbPath);
       recordVerdict(db, { verdict: verb === "отклонить" ? "отклонено" : "принято", axis: p.axis, observation: p.observation, reason });
       db.close();
-      console.log(`Записано: ${verb === "отклонить" ? "✗ отклонено" : "✓ принято"} — [${p.axis}] ${p.observation.slice(0, 100)}`);
-      console.log("Следующий аудит это учтёт и не повторит тот же довод без нового основания.");
+      const mark = verb === "отклонить" ? t("✗ отклонено", "✗ rejected") : t("✓ принято", "✓ accepted");
+      console.log(`${t("Записано", "Recorded")}: ${mark} — [${p.axis}] ${p.observation.slice(0, 100)}`);
+      console.log(t("Следующий аудит это учтёт и не повторит тот же довод без нового основания.", "The next audit will take this into account and will not repeat the same argument without new grounds."));
     }
   }
 } else {
   const threshold = Number(args.find((a) => /^\d+$/.test(a))) || 70;
-  console.log("Symbiont · возвышение · глубокий аудит проекта (один LLM-проход)…");
+  console.log(t("Symbiont · возвышение · глубокий аудит проекта (один LLM-проход)…", "Symbiont · elevation · deep project audit (a single LLM pass)…"));
   const rootNotice = renderRootNotice(res);
   if (rootNotice)
     console.log(rootNotice);
@@ -440,14 +449,15 @@ if (verb === "решения") {
   }, threshold);
   const sec = Math.round((performance.now() - t0) / 1000);
   for (const a of attempts)
-    console.log(`  проба ${a.model}: ${a.ok ? "✓" : "✗"} · ${Math.round(a.ms / 1000)}с · ${a.note}`);
-  console.log(`  порог уверенности: ${threshold} · ${sec}с
+    console.log(`  ${t("проба", "attempt")} ${a.model}: ${a.ok ? "✓" : "✗"} · ${Math.round(a.ms / 1000)}${t("с", "s")} · ${a.note}`);
+  console.log(`  ${t("порог уверенности", "confidence threshold")}: ${threshold} · ${sec}${t("с", "s")}
 `);
   console.log(renderProposals(r));
   if (r.proposals.length > 0) {
-    console.log(`
-Решение записывается командой: /symbiont:elevate отклонить N причина… (или «принять N»).`);
-    console.log("Записанное уходит в следующий аудит — отклонённый довод не вернётся без нового основания.");
+    console.log(t(`
+Решение записывается командой: /symbiont:elevate отклонить N причина… (или «принять N»).`, `
+Record a decision with: /symbiont:elevate reject N reason… (or "accept N").`));
+    console.log(t("Записанное уходит в следующий аудит — отклонённый довод не вернётся без нового основания.", "What is recorded goes into the next audit — a rejected argument will not return without new grounds."));
   }
   if (args.includes("--ground") && r.proposals.length > 0) {
     const needs = r.proposals.map((p) => `${p.axis}: ${p.proposal}`).slice(0, 6);

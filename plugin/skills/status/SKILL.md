@@ -1,18 +1,18 @@
 ---
 name: status
-description: Что Symbiont уже знает об этом проекте и что делает без вашего участия — сколько правил выведено и сколько из них подтвердилось настолько, что стало законом; размер карты связей; что поймал гейт формы; работают ли каналы подачи; чем занималась фоновая работа; какие виды подсказок здесь реально пригождаются, а какие приглушены как неокупающиеся. Ничего не запускает и не пересчитывает — только показывает уже посчитанное, поэтому быстро и бесплатно. Аргументом можно передать каталог — тогда вместо общего обзора придёт карта именно этой части проекта с ролями файлов и числом связей (например «/symbiont:status src/core»). Тем же аргументом переключается язык вывода — «/symbiont:status lang en», обратно «/symbiont:status lang auto».
+description: What Symbiont already knows about this project and what it does without you — how many rules have been derived and how many are confirmed enough to have become law; the size of the link map; what the form gate caught; whether the delivery channels are alive; what the background work has been doing; which kinds of hint actually pay off here and which are muted as not worth their cost. It starts and recomputes nothing — it only shows what has already been counted, so it is fast and free. An argument can name a directory — then instead of the general overview you get a map of exactly that part of the project, with file roles and link counts (for example "/symbiont:status src/core"). The same argument switches the output language — "/symbiont:status lang en", and "/symbiont:status lang auto" hands it back to automatic detection.
 ---
 
-# Symbiont · состояние
+# Symbiont · state
 
 !`node "${CLAUDE_SKILL_DIR}/../../dist/symbiont.js" --data "${CLAUDE_PLUGIN_DATA}" $ARGUMENTS`
 
-Как читать вывод:
+How to read the output:
 
-- **Паспорт и петля** — сколько фактов живо, сколько из них дозрело до законов, что стареет и ждёт перепроверки. Факт живёт: подтверждается работой, тускнеет без подтверждения, умирает, если в него перестали верить.
-- **Граф** — узлы, связи и самые влиятельные модули проекта.
-- **Каналы и пульс** — работают ли все шесть каналов подачи. Молчащий канал виден здесь, а не выясняется через неделю.
-- **Садовник (фон)** — что система сделала сама с прошлого раза: углубила паспорт, разобрала ваши правки, посчитала дрейф и hotspot-зоны, вычистила из карты то, чего уже нет.
-- **Окупаемость подачи** — какие виды знания реально пригождаются на этом проекте. Не окупающееся система приглушает сама и периодически перепроверяет.
+- **Passport and loop** — how many facts are alive, how many have matured into laws, what is ageing and awaiting a recheck. A fact lives: it is confirmed by work, fades without confirmation, and dies once belief in it is gone.
+- **Graph** — nodes, links and the most influential modules of the project.
+- **Channels and pulse** — whether all six delivery channels are working. A silent channel is visible here, instead of surfacing a week later.
+- **Gardener (background)** — what the system did on its own since last time: deepened the passport, analysed your edits, computed drift and hotspot zones, swept from the map what no longer exists.
+- **Feed payback** — which kinds of knowledge genuinely pay off in this project. What does not pay off is muted by the system itself and rechecked from time to time.
 
-Смежные команды: `/symbiont:graph` — интерактивная карта в браузере, `/symbiont:health` — дрейф и честность паспорта.
+Nearby commands: `/symbiont:graph` — the interactive map in a browser, `/symbiont:health` — drift and whether the passport can be trusted.

@@ -101,6 +101,21 @@ describe('исчезнувшие проверки', () => {
     expect(detectFocusDrift({ sessionFiles: files, edges: [], diffs }).some((s) => s.kind.includes('проверки'))).toBe(false)
   })
 
+  it('удалённый вызов регэкспа .test( — не удалённый тест', () => {
+    // Правка «расширить регулярку» удаляет строку с `.test(` и добавляет такую
+    // же. Без просмотра назад страж читал это как вынос проверки и тревожил
+    // владельца на ровном месте — поймано на реальном диффе src/cli/elevate.ts.
+    const files = ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/e.ts', 'src/f.ts']
+    const diffs = new Map([['src/a.ts', "@@\n-const verb = args.find((a) => /^(one|two)$/.test(a))\n+const verb = args.find((a) => /^(one|two|three)$/.test(a))\n"]])
+    expect(detectFocusDrift({ sessionFiles: files, edges: [], diffs }).some((s) => s.kind.includes('проверки'))).toBe(false)
+  })
+
+  it('вынос настоящей проверки из кода по-прежнему ловится', () => {
+    const files = ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/e.ts', 'src/f.ts']
+    const diffs = new Map([['src/a.ts', '@@\n-  expect(total).toBe(3)\n-  assert(ok)\n']])
+    expect(detectFocusDrift({ sessionFiles: files, edges: [], diffs }).some((s) => s.kind.includes('проверки'))).toBe(true)
+  })
+
   it('удаление обычного кода проверками не считается', () => {
     const files = ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/e.ts', 'src/f.ts']
     const diffs = new Map([['src/a.ts', '@@\n-const unused = 1\n-function old() {}\n']])

@@ -13,6 +13,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
 import { t, statement } from '../core/i18n'
+import '../core/statements' // таблицы формулировок: импорт ради регистрации
 import { openDb, type Database } from '../core/db'
 import { FactStore } from '../core/store'
 import { checkAgainstLaws } from '../gates/checks'

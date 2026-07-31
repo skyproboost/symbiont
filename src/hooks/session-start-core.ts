@@ -20,6 +20,7 @@ import { renderBackground, renderGardenerSilence, REPORTED_WORKS } from '../gard
 import { mutedKinds } from '../gardener/utility'
 import { inspectRuntime, renderRuntimeWarning } from '../core/runtime'
 import { t, statement } from '../core/i18n'
+import '../core/statements' // таблицы формулировок: импорт ради регистрации
 
 /**
  * Детекция поправок владельца: файлы, которые человек изменил ПОСЛЕ последнего
@@ -62,6 +63,8 @@ export interface SessionStartInput {
   cwd?: string
   source?: string
   session_id?: string
+  /** Путь к транскрипту сессии: единственный доступный признак её живости. */
+  transcript_path?: string
 }
 
 export interface HookOutput {
@@ -112,7 +115,7 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
       const sid = input.session_id ?? `manual-${Date.now()}`
       // самодиагностика — ДО open(): смотрим пульс против ПРОШЛЫХ сессий
       diagLine = renderDiagnosis(silentChannels(readBeats(dataDir), log.recentStarts(sid)))
-      log.open(sid, input.source ?? null)
+      log.open(sid, input.source ?? null, new Date().toISOString(), input.transcript_path ?? null)
       reconciled = log.reconcileStale(sid)
       log.pruneEphemeral() // храповик: посессионные логи не растут вечно
       detectCorrections(db, cwd, sid)

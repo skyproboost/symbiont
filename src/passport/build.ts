@@ -32,6 +32,7 @@ import { OFFICE, TEXT, CSVX } from '../miner/noncode'
 import { captureHealth } from '../gardener/drift'
 import { buildFrame } from '../domains/frame'
 import { observeComments, initLang, lang, t, statement } from '../core/i18n'
+import '../core/statements' // таблицы формулировок: импорт ради регистрации
 
 export interface GraphResult {
   nodeCount: number

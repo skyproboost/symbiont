@@ -1,6 +1,6 @@
 import { rmrf } from './_helpers'
 import { describe, it, expect } from 'bun:test'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -42,6 +42,65 @@ describe('SessionLog', () => {
     expect(log.get('old')?.close_reason).toBe('reconciled-dirty')
     expect(log.get('parallel')?.closed_at).toBe(null)
     expect(log.get('current')?.closed_at).toBe(null)
+  })
+
+  it('свежая по возрасту, но транскрипт молчит — умерла, а не «возможно жива»', () => {
+    const log = freshLog()
+    const now = new Date('2026-07-29T20:00:00Z')
+    const dir = mkdtempSync(join(tmpdir(), 'symbiont-tr-'))
+    const ghost = join(dir, 'ghost.jsonl')
+    writeFileSync(ghost, '{}\n')
+    // транскрипт не дописывался 8 часов — платформа пишет его на каждый ход
+    const idle = new Date(now.getTime() - 8 * 3600_000)
+    utimesSync(ghost, idle, idle)
+
+    log.open('ghost', 'startup', '2026-07-29T19:00:00Z', ghost) // час назад — под порогом возраста
+    log.open('current', 'startup', now.toISOString())
+
+    expect(log.reconcileStale('current', 12, now)).toBe(1)
+    expect(log.get('ghost')?.close_reason).toBe('reconciled-idle')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('транскрипт свежий — сессия жива, её не трогают и в соседях считают', () => {
+    const log = freshLog()
+    const now = new Date()
+    const dir = mkdtempSync(join(tmpdir(), 'symbiont-tr-live-'))
+    const live = join(dir, 'live.jsonl')
+    writeFileSync(live, '{}\n') // только что записан
+
+    log.open('alive', 'startup', new Date(now.getTime() - 3600_000).toISOString(), live)
+    log.open('current', 'startup', now.toISOString())
+
+    expect(log.reconcileStale('current', 12, now)).toBe(0)
+    expect(log.get('alive')?.closed_at).toBe(null)
+    expect(log.openLiveOthers('current', now.getTime())).toBe(1)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('молчащий сосед не считается живым — Stop не уходит в осторожный режим зря', () => {
+    const log = freshLog()
+    const now = new Date()
+    const dir = mkdtempSync(join(tmpdir(), 'symbiont-tr-dead-'))
+    const ghost = join(dir, 'ghost.jsonl')
+    writeFileSync(ghost, '{}\n')
+    const idle = new Date(now.getTime() - 8 * 3600_000)
+    utimesSync(ghost, idle, idle)
+
+    log.open('ghost', 'startup', new Date(now.getTime() - 3600_000).toISOString(), ghost)
+    log.open('current', 'startup', now.toISOString())
+
+    expect(log.openLiveOthers('current', now.getTime())).toBe(0)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('пути транскрипта нет — судим по возрасту, как раньше (обратная совместимость)', () => {
+    const log = freshLog()
+    const now = new Date('2026-07-29T20:00:00Z')
+    log.open('nopath', 'startup', '2026-07-29T19:00:00Z') // свежая, пути нет
+    log.open('current', 'startup', now.toISOString())
+    expect(log.reconcileStale('current', 12, now)).toBe(0)
+    expect(log.openLiveOthers('current', now.getTime())).toBe(1)
   })
 
   it('повторная реконсиляция идемпотентна', () => {

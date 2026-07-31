@@ -1,0 +1,11 @@
+{
+  "name": "symbiont-market",
+  "owner": { "name": "skyproboost" },
+  "plugins": [
+    {
+      "name": "symbiont",
+      "source": "./plugin",
+      "description": "Живой паспорт проекта: конвенции и профиль выводятся из кода и подаются в каждую сессию."
+    }
+  ]
+}

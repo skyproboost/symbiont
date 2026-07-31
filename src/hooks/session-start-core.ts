@@ -1,0 +1,245 @@
+/**
+ * Ядро SessionStart-хука (чистая функция — тестируется без процесса).
+ *
+ * Принципы: fail-open (любая ошибка не должна сломать старт сессии владельца),
+ * heartbeat (канал оставляет след срабатывания — самодиагностика),
+ * бюджет вывода (обрезка до лимита платформы с указателем на полный файл).
+ */
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
+import { openDb, type Database } from '../core/db'
+import { buildPassport } from '../passport/build'
+import { SessionLog, snapshotContent } from '../core/sessions'
+import { readConstitution, renderConstitution } from '../core/constitution'
+import { gitState, renderGitBlock } from './git-state'
+import { reconstructEntry } from './entry'
+import { beat } from './heartbeat'
+import { silentChannels, readBeats, renderDiagnosis } from './diagnose'
+import { sha1 } from '../core/salsa'
+import { renderBackground, renderGardenerSilence, REPORTED_WORKS } from '../gardener/scheduler'
+import { mutedKinds } from '../gardener/utility'
+import { inspectRuntime, renderRuntimeWarning } from '../core/runtime'
+
+/**
+ * Детекция поправок владельца: файлы, которые человек изменил ПОСЛЕ последнего
+ * хода модели (между сессиями). Дифф «модель → человек» — главное сырьё петли
+ * самообучения. Обработанные состояния потребляются (идемпотентность).
+ */
+function detectCorrections(db: Database, cwd: string, currentSid: string): number {
+  const hasState =
+    (db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='model_state'").get() as { n: number }).n > 0
+  if (!hasState) return 0
+  db.run(
+    'CREATE TABLE IF NOT EXISTS corrections(id INTEGER PRIMARY KEY AUTOINCREMENT, file TEXT NOT NULL, before_content TEXT NOT NULL, from_session TEXT NOT NULL, detected_at TEXT NOT NULL, analyzed INTEGER NOT NULL DEFAULT 0)',
+  )
+  const rows = db
+    .query('SELECT session_id, file, hash, content FROM model_state WHERE session_id != ?')
+    .all(currentSid) as Array<{ session_id: string; file: string; hash: string; content: string }>
+  let found = 0
+  const insert = db.query(
+    'INSERT INTO corrections(file, before_content, from_session, detected_at) VALUES(?,?,?,?)',
+  )
+  const consume = db.query('DELETE FROM model_state WHERE session_id=? AND file=?')
+  for (const r of rows) {
+    try {
+      const nowContent = snapshotContent(readFileSync(join(cwd, r.file), 'utf8'))
+      if (sha1(nowContent) !== r.hash) {
+        insert.run(r.file, r.content, r.session_id, new Date().toISOString())
+        found++
+      }
+    } catch {
+      /* файл исчез — не поправка, просто потребляем */
+    }
+    consume.run(r.session_id, r.file)
+  }
+  return found
+}
+
+const CONTEXT_CHAR_BUDGET = 8000
+
+export interface SessionStartInput {
+  cwd?: string
+  source?: string
+  session_id?: string
+}
+
+export interface HookOutput {
+  hookSpecificOutput?: {
+    hookEventName: 'SessionStart'
+    additionalContext: string
+  }
+}
+
+export function slugOf(path: string): string {
+  // Разделители приводятся к одному виду ДО basename: node:path на Linux не
+  // считает обратный слэш разделителем, и виндовый путь целиком превращался бы
+  // в слаг («d-ospanel-domains-проект» вместо «проект»). Путь может прийти из
+  // конфигурации или с другой машины, поэтому судить по системе нельзя.
+  const norm = path.replaceAll('\\', '/').replace(/\/+$/, '')
+  return basename(norm).toLowerCase().replace(/[^a-z0-9-]+/g, '-') || 'project'
+}
+
+export function handleSessionStart(input: SessionStartInput, dataRoot: string): HookOutput {
+  const cwd = input.cwd ?? process.cwd()
+  const dataDir = join(dataRoot, slugOf(cwd))
+  mkdirSync(dataDir, { recursive: true })
+
+  // Heartbeat — до любой работы: даже упавший канал оставляет след попытки.
+  beat(dataDir, 'SessionStart', { source: input.source ?? null })
+
+  try {
+    const r = buildPassport(cwd, dataDir)
+
+    // Сессионный журнал: открыть текущую, реконсилировать грязно умершие (crash-only);
+    // заодно поднять HANDOFF-нить прошлой сессии
+    let reconciled = 0
+    let threadLine = ''
+    let threadFiles: string[] = []
+    let gateLine = ''
+    let diagLine = ''
+    let bgLine = ''
+    // Предпосылки к окружению: если плагину негде хранить паспорт, владелец
+    // узнаёт об этом строкой в сводке, а не по загадочному отсутствию плагина
+    const runtimeLine = renderRuntimeWarning(inspectRuntime())
+    let utilLine = ''
+    let entryBlock = ''
+    // git-состояние — до журнала: dirty-файлы нужны реконструкции входа
+    const g = gitState(cwd)
+    try {
+      const db = openDb(join(dataDir, 'passport.db'))
+      const log = new SessionLog(db)
+      const sid = input.session_id ?? `manual-${Date.now()}`
+      // самодиагностика — ДО open(): смотрим пульс против ПРОШЛЫХ сессий
+      diagLine = renderDiagnosis(silentChannels(readBeats(dataDir), log.recentStarts(sid)))
+      log.open(sid, input.source ?? null)
+      reconciled = log.reconcileStale(sid)
+      log.pruneEphemeral() // храповик: посессионные логи не растут вечно
+      detectCorrections(db, cwd, sid)
+
+      // Что фон сделал, пока владельца не было: садовник заменил собой команды-
+      // отчёты, поэтому его результат приходит сам — фактом в сводке, не по запросу.
+      try {
+        bgLine = renderBackground(db, REPORTED_WORKS, Date.now())
+        // Пустая строка фона двусмысленна: «нечего делать» и «фон мёртв»
+        // выглядят одинаково. Второе обязано называться вслух.
+        if (bgLine === '') bgLine = renderGardenerSilence(db, Date.now())
+      } catch {
+        /* фон ещё не бегал — молчим */
+      }
+
+      // Подача учится на себе и могла что-то заглушить. Решение системы о самой
+      // себе не должно быть тайной («никогда молча» — аксиома §3.10).
+      try {
+        const muted = mutedKinds(db)
+        if (muted.length > 0) {
+          utilLine = `- подача адаптирована: ${muted.map((m) => `${m.kind} (${m.used}/${m.surfaced} окупаемость)`).join(', ')} — здесь не окупалось, приглушено; периодически перепроверяется`
+        }
+      } catch {
+        /* статистики нет — молчим */
+      }
+
+      // Поимки гейта усиливают подачу: часто нарушаемое правило — выше в сводке
+      const hasGateLog =
+        (db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='gate_log'").get() as { n: number }).n > 0
+      if (hasGateLog) {
+        const top = db
+          .query('SELECT law, COUNT(*) n FROM gate_log GROUP BY law HAVING n >= 3 ORDER BY n DESC LIMIT 1')
+          .get() as { law: string; n: number } | null
+        if (top) gateLine = `- гейт чаще всего ловит: «${top.law}» — ${top.n} поимок (это правило здесь нарушается регулярно)`
+      }
+
+      const hasThreads =
+        (db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='session_threads'").get() as { n: number }).n > 0
+      if (hasThreads) {
+        const tcols = (db.query('PRAGMA table_info(session_threads)').all() as Array<{ name: string }>).map((c) => c.name)
+        const sel = tcols.includes('commits') ? 'files, updated_at, commits' : 'files, updated_at'
+        const t = db
+          .query(`SELECT ${sel} FROM session_threads WHERE session_id != ? ORDER BY updated_at DESC LIMIT 1`)
+          .get(sid) as { files: string; updated_at: string; commits?: string } | null
+        if (t) {
+          const files = JSON.parse(t.files) as string[]
+          const ageH = Math.max(0, Math.round((Date.now() - Date.parse(t.updated_at)) / 3600_000))
+          const age = ageH < 1 ? 'меньше часа назад' : ageH < 48 ? `${ageH}ч назад` : `${Math.round(ageH / 24)}д назад`
+          threadLine = `- нить прошлой сессии (${age}): ${files.slice(0, 5).join(', ')}${files.length > 5 ? `, … (+${files.length - 5})` : ''}`
+          threadFiles = files
+          // Что СДЕЛАНО (коммиты сессии) — untrusted, подаём как данные (бэктики убраны, лимит)
+          const commits = t.commits ? (JSON.parse(t.commits) as string[]) : []
+          if (commits.length > 0) {
+            const shown = commits.slice(0, 3).map((c) => c.replace(/`/g, "'").slice(0, 90))
+            threadLine += `\n- прошлая сессия сделала: ${shown.join('; ')}${commits.length > 3 ? `, … (+${commits.length - 3})` : ''}`
+          }
+        }
+      }
+      // Протокол самостарта: реконструкция состояния работы + её граф-окружение
+      entryBlock = reconstructEntry(db, threadFiles, g?.dirtyTop ?? [], Date.now())
+      db.close()
+    } catch {
+      /* журнал недоступен — сводка важнее */
+    }
+
+    // Конституция подаётся даже в пустом проекте (назначена — охраняется с первого коммита)
+    const constitution = readConstitution(dataDir)
+    const constBlock = constitution ? `\n${renderConstitution(constitution)}\n` : ''
+
+    // Сводка живёт журналом, не только статистикой кода: контентный репозиторий
+    // без единого кодового файла всё равно несёт профиль качества/LLM-правила
+    let summary = ''
+    try {
+      summary = readFileSync(r.summaryPath, 'utf8')
+    } catch {
+      /* проекции нет — падать не из-за чего */
+    }
+    if (!summary.includes('## ')) summary = '' // один заголовок без секций — не сводка
+    if (!summary && !constBlock) return {} // нечего сказать — молчим, не занимаем контекст
+    if (summary.length > CONTEXT_CHAR_BUDGET) {
+      summary =
+        summary.slice(0, CONTEXT_CHAR_BUDGET) +
+        `\n…обрезано; полная версия: ${r.summaryPath}`
+    }
+
+    let stateBlock = g ? `\n${renderGitBlock(g, reconciled)}` : ''
+    // Контекст сжат/форкнут — сводка переинжектится (восстановление после потери
+    // паспорта при компакции; для сабагентов форка — впервые). Честная пометка.
+    const compactNote =
+      input.source === 'compact'
+        ? '- контекст был сжат — паспорт восстановлен (то, что компакция могла выронить)'
+        : input.source === 'fork'
+          ? '- сессия форкнута — паспорт подан форку (сабагенты не наследуют контекст родителя)'
+          : ''
+    for (const line of [runtimeLine, compactNote, threadLine, bgLine, utilLine, gateLine, diagLine]) {
+      if (line) stateBlock += `${stateBlock ? '\n' : '\n## Состояние\n\n'}${line}`
+    }
+    if (stateBlock) stateBlock += '\n'
+
+    const entrySection = entryBlock ? `\n${entryBlock}\n` : ''
+    // Рамка легитимности (только чувствительный проект): готовый frame.md пишет
+    // buildPassport (из доков + сэмпла контента). Несенситивный → файла нет/пуст
+    // → ноль токенов. Fail-open.
+    let frameSection = ''
+    try {
+      const frame = readFileSync(join(dataDir, 'frame.md'), 'utf8').trim()
+      if (frame) frameSection = `\n${frame}\n`
+    } catch {
+      /* нет рамки — молчим */
+    }
+    const freshness = r.factsExecuted ? 'свежий пересчёт' : 'кэш (код не менялся)'
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        additionalContext: `${summary}${constBlock}${frameSection}${stateBlock}${entrySection}\n_Symbiont · ${freshness} · подробнее по требованию: passport_conventions / passport_history_`,
+      },
+    }
+  } catch (e) {
+    // fail-open: сессия владельца важнее нашего контекста
+    try {
+      appendFileSync(
+        join(dataDir, 'errors.log'),
+        `${new Date().toISOString()} SessionStart: ${String(e)}\n`,
+        'utf8',
+      )
+    } catch {
+      /* даже лог не пишется — молчим */
+    }
+    return {}
+  }
+}

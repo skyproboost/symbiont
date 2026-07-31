@@ -1,0 +1,143 @@
+# Непрерывная проверка Symbiont.
+#
+# Два независимых повода запуска, и это не дублирование:
+#   push/PR — «наш код не сломался»;
+#   расписание — «ПЛАТФОРМА не сломала нас». Второе важнее и незаметнее: хук,
+#   переставший срабатывать после обновления Claude Code, не даёт ни ошибки, ни
+#   следа — он просто молчит. Грех не поломка, а тишина (CONCEPT §7), поэтому
+#   канарейка бежит ежедневно, даже когда в репозитории ничего не менялось.
+#
+# Зачем две ОС. Разработка и все замеры идут на Windows; Linux и macOS проверяет
+# только CI — это единственное место, где кросс-платформенность вообще
+# проверяется. Репозиторий публичный, поэтому минуты Actions не тарифицируются
+# и обе системы гоняются на каждый пуш.
+name: Symbiont CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['symbiont--v*']
+  pull_request:
+  schedule:
+    # Ежедневно: ловим молчаливую поломку от обновлений платформы, а не от нас
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  gate:
+    name: Релиз-гейт (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false # падение на одной ОС не должно скрывать состояние другой
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Полная история: co-change, hotspot-зоны и стабильность считаются из
+          # неё, а на мелком клоне паспорт вышел бы неполным и проверки — ложными
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      # Рантайм поставки: артефакт устанавливается и работает под node, поэтому
+      # он нужен здесь не для удобства, а чтобы проверять то, что уезжает людям
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: bun install --frozen-lockfile
+
+      # ПЕРВЫМ делом — свежесть закоммиченного артефакта: plugin/ лежит в git, и
+      # забытая пересборка означала бы, что установка везёт старый код. Проверка
+      # идёт ДО bundle.ts, иначе сборка починила бы улику и проверять стало нечего
+      - name: Артефакт в репозитории свеж
+        run: bun run scripts/selflint.ts
+
+      - name: Тесты
+        # Падение обязано быть читаемым СНАРУЖИ: имена упавших проверок
+        # публикуются аннотациями, иначе диагноз доступен только тому, у кого
+        # есть доступ к логам — а «никогда молча» касается и самого CI
+        run: |
+          set -o pipefail
+          bun test 2>&1 | tee test.log || {
+            grep -E '^\(fail\)' test.log | head -25 | while IFS= read -r line; do echo "::error::$line"; done
+            exit 1
+          }
+
+      - name: Сборка артефакта поставки
+        run: bun run scripts/bundle.ts
+
+      - name: Каналы против собранной формы
+        run: bun run scripts/canary.ts --dist
+
+      - name: Каналы под рантаймом поставки
+        # Не дубликат предыдущего шага: манифесты артефакта зовут node, и «зелено
+        # под bun» о поставляемом пути не говорит ничего
+        run: bun run scripts/canary.ts --dist --node
+
+      - name: Структурная консистентность после сборки
+        run: bun run scripts/selflint.ts
+
+      - name: Артефакт для разбора при падении
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-dist-${{ matrix.os }}
+          path: plugin/
+          retention-days: 3
+
+  compatibility:
+    name: Совместимость со свежим Claude Code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Только по расписанию и вручную: на каждый коммит это лишний шум, а вот
+    # ежедневно — единственный способ узнать об изменении платформы вовремя
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: bun install --frozen-lockfile
+
+      - name: Поставить свежий Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Версия платформы (в лог — чтобы падение было объяснимо)
+        run: claude --version || true
+
+      - name: Манифесты плагина читаемы платформой
+        # Разбираем то же, что читает Claude Code: битый JSON или уехавшая схема
+        # обнаружатся здесь, а не в сессии владельца
+        run: |
+          node -e "
+            const fs = require('fs');
+            for (const f of ['.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', 'hooks/hooks.json', '.mcp.json', 'plugin/hooks/hooks.json', 'plugin/.mcp.json']) {
+              JSON.parse(fs.readFileSync(f, 'utf8'));
+              console.log('ok', f);
+            }
+          "
+
+      - name: Плагин проходит валидацию платформы
+        # Официальная проверка структуры — та же, что гоняет ревью маркетплейса.
+        # Строго, без «|| true»: именно она нашла сломанный YAML во всех шести
+        # скиллах, который наш собственный линт пропускал. Чужая строгая проверка
+        # ценна ровно тем, что видит то, чего не видит своя.
+        run: claude plugin validate ./plugin
+
+      - name: Сборка и каналы
+        run: |
+          bun run scripts/bundle.ts
+          bun run scripts/canary.ts --dist
+          bun run scripts/canary.ts --dist --node
+
+      - name: Структурная консистентность
+        run: bun run scripts/selflint.ts

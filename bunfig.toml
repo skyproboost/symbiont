@@ -1,0 +1,4 @@
+# Тест-конфиг Bun. Preload подметает старые утёкшие temp-каталоги (гигиена диска
+# на Windows: Defender иногда держит sqlite-файлы, rmrf оставляет остатки).
+[test]
+preload = "./tests/_setup.ts"

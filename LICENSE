@@ -1,0 +1,43 @@
+# Symbiont License
+
+**All rights reserved. © 2026 Mikhail Baykov (skyproboost).**
+
+The source code in this repository is published for READING and STUDY. This is
+not free or open-source software: publication does not grant any rights beyond
+those explicitly listed below.
+
+## Permitted
+
+1. **Read and study the code**, including copying snippets into personal notes
+   for your own learning.
+
+2. **Install and use the plugin as distributed** (via the Claude Code
+   marketplace) for personal or in-house work, on any number of projects and
+   machines.
+
+3. **Report bugs and propose ideas** via repository issues.
+
+## Prohibited without written permission of the copyright holder
+
+1. Redistributing, publishing, reselling, or incorporating the code (in whole or
+   in part) into other products, including free ones.
+
+2. Creating derivative works: development forks, ports to other platforms,
+   rebranded builds.
+
+3. Using the code or its ideas as part of a commercial product or service
+   offered to third parties.
+
+4. Training models on this code for the purpose of generating a competing
+   product.
+
+## Warranty disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. THE COPYRIGHT HOLDER SHALL NOT BE LIABLE FOR ANY DAMAGES ARISING FROM
+THE USE OF OR INABILITY TO USE THE SOFTWARE.
+
+## Commercial licensing
+
+Need rights beyond those listed above — contact the copyright holder. A separate
+license is possible and negotiable.

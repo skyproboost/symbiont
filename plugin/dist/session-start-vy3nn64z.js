@@ -2,7 +2,7 @@ import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./session-start-0hbm8nsh.js";
+} from "./session-start-269xr3k3.js";
 import {
   addMetrics,
   astSupported,
@@ -44,6 +44,7 @@ import {
   findUnknownMaterial,
   healProjections,
   hotspotsFromGit,
+  init_i18n,
   init_walk,
   isConfigFile,
   keyOf,
@@ -52,9 +53,10 @@ import {
   pair,
   readConfigEntries,
   sha1,
+  t,
   tierOf,
   walkFiles
-} from "./session-start-8nd3663h.js";
+} from "./session-start-spcqe6t1.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -62,6 +64,7 @@ import {
 // src/gardener/works.ts
 import { readFileSync as readFileSync4, existsSync as existsSync2 } from "node:fs";
 import { join as join4, relative as relative2, basename, dirname } from "node:path";
+init_i18n();
 
 // src/gardener/simhash.ts
 import { createHash } from "node:crypto";
@@ -72,8 +75,8 @@ function tokens(text, maxTokens) {
 }
 function simhash(text, maxTokens = Number.MAX_SAFE_INTEGER) {
   const v = new Array(64).fill(0);
-  for (const t of tokens(text, maxTokens)) {
-    const h = BigInt("0x" + createHash("sha1").update(t).digest("hex").slice(0, 16));
+  for (const t2 of tokens(text, maxTokens)) {
+    const h = BigInt("0x" + createHash("sha1").update(t2).digest("hex").slice(0, 16));
     for (let bit = 0;bit < 64; bit++) {
       v[bit] += h >> BigInt(bit) & 1n ? 1 : -1;
     }
@@ -433,6 +436,7 @@ import { join as join2, relative } from "node:path";
 init_walk();
 
 // src/layer1/facts1.ts
+init_i18n();
 var push = (facts, area, statement, positive, total) => {
   const prevalence = total > 0 ? positive / total : 0;
   facts.push({ area, statement, positive, total, prevalence, tier: tierOf(prevalence, total) });
@@ -652,9 +656,10 @@ var truthWork = {
     const lying = issues.filter((i) => !i.healable);
     const parts = [];
     if (healed.removed > 0)
-      parts.push(`карта почищена: ${healed.removed} мёртвых записей`);
-    if (lying.length > 0)
-      parts.push(`сводка расходится с журналом (${lying[0].count}) — пересборка назначена`);
+      parts.push(t(`карта почищена: ${healed.removed} мёртвых записей`, `map cleaned: ${healed.removed} dead records`));
+    if (lying.length > 0) {
+      parts.push(t(`сводка расходится с журналом (${lying[0].count}) — пересборка назначена`, `the summary disagrees with the journal (${lying[0].count}) — a rebuild is scheduled`));
+    }
     return parts.length > 0 ? parts.join(", ") : null;
   }
 };
@@ -678,7 +683,7 @@ var repairWork = {
     } catch {
       return null;
     }
-    return "проекции помечены к пересчёту (сводка пересоберётся при следующем старте)";
+    return t("проекции помечены к пересчёту (сводка пересоберётся при следующем старте)", "projections marked for recomputation (the summary will be rebuilt at the next start)");
   }
 };
 var layer1Work = {
@@ -710,11 +715,11 @@ var driftWork = {
     const near = findNearClones(codeInputs);
     const parts = [];
     if (hotspots.length > 0)
-      parts.push(`чаще всего чинят: ${hotspots[0].file} (${hotspots[0].fixes} починок × ${hotspots[0].size} строк)`);
+      parts.push(t(`чаще всего чинят: ${hotspots[0].file} (${hotspots[0].fixes} починок × ${hotspots[0].size} строк)`, `repaired most often: ${hotspots[0].file} (${hotspots[0].fixes} fixes × ${hotspots[0].size} lines)`));
     if (clones.length > 0)
-      parts.push(`клоны: блок ×${clones[0].count} (${clones[0].lines} строк)`);
+      parts.push(t(`клоны: блок ×${clones[0].count} (${clones[0].lines} строк)`, `clones: a block ×${clones[0].count} (${clones[0].lines} lines)`));
     if (near.length > 0)
-      parts.push(`почти-дубли: ${near[0].a.file} ≈ ${near[0].b.file}`);
+      parts.push(t(`почти-дубли: ${near[0].a.file} ≈ ${near[0].b.file}`, `near-duplicates: ${near[0].a.file} ≈ ${near[0].b.file}`));
     return parts.length > 0 ? parts.join(" · ") : null;
   }
 };
@@ -738,7 +743,7 @@ var verbalizeWork = {
       throw new Error(explainNoAnswer(tried));
     if (v.journal.born === 0 && v.journal.updated === 0)
       return null;
-    return `правил +${v.journal.born}, подтверждено ${v.journal.updated}`;
+    return t(`правил +${v.journal.born}, подтверждено ${v.journal.updated}`, `rules +${v.journal.born}, confirmed ${v.journal.updated}`);
   }
 };
 var correctionsWork = {
@@ -749,7 +754,7 @@ var correctionsWork = {
   due: (ctx) => countOf(ctx, "SELECT COUNT(*) n FROM corrections WHERE analyzed=0") > 0,
   run: (ctx) => {
     const c = analyzeCorrections(ctx.db, ctx.projectRoot, deepCaller(ctx, "разбор поправок владельца"));
-    return c.analyzed > 0 ? `поправок разобрано ${c.analyzed} → правил ${c.born}` : null;
+    return c.analyzed > 0 ? t(`поправок разобрано ${c.analyzed} → правил ${c.born}`, `corrections analysed ${c.analyzed} → rules ${c.born}`) : null;
   }
 };
 var zsummaryWork = {
@@ -760,7 +765,7 @@ var zsummaryWork = {
   due: (ctx) => pendingSummaries(ctx.db, contentHashes(ctx.db), 1).length > 0,
   run: (ctx) => {
     const z = runZSummaries(ctx.db, ctx.projectRoot, routineCaller(ctx, "роли узлов"), new Date().toISOString(), undefined, ctx.dataDir);
-    return z.stored > 0 ? `ролей выведено +${z.stored}` : null;
+    return z.stored > 0 ? t(`ролей выведено +${z.stored}`, `roles derived +${z.stored}`) : null;
   }
 };
 var contractRulesWork = {
@@ -788,7 +793,7 @@ var contractRulesWork = {
       throw new Error(explainNoAnswer(outcome.tried));
     const rules = parseRules(res.text, res.model);
     const stored = storeRules(ctx.db, rules);
-    return stored > 0 ? `правил среды выведено +${stored} (из ${entries.length} настроек проекта)` : null;
+    return stored > 0 ? t(`правил среды выведено +${stored} (из ${entries.length} настроек проекта)`, `environment rules derived +${stored} (from ${entries.length} project settings)`) : null;
   }
 };
 var unknownMaterialWork = {
@@ -836,7 +841,7 @@ var unknownMaterialWork = {
       return null;
     const facts = rules.map((r) => ruleToFact(r, samples.length));
     const journal = new FactStore(ctx.db).assertAll(facts, `llm:material:${kind}`);
-    return journal.born > 0 ? `материал ${kind}: выведено правил +${journal.born}` : null;
+    return journal.born > 0 ? t(`материал ${kind}: выведено правил +${journal.born}`, `material ${kind}: rules derived +${journal.born}`) : null;
   }
 };
 var compositionWork = {
@@ -888,7 +893,7 @@ var compositionWork = {
     if (rules.length === 0)
       return null;
     const journal = new FactStore(ctx.db).assertAll(rules.map((r) => ruleToFact(r, composition.formats.length)), "llm:composition");
-    return journal.born > 0 ? `устройство продукта: правил +${journal.born} (видов материала ${composition.formats.length})` : null;
+    return journal.born > 0 ? t(`устройство продукта: правил +${journal.born} (видов материала ${composition.formats.length})`, `product shape: rules +${journal.born} (${composition.formats.length} kinds of material)`) : null;
   }
 };
 var groundingWork = {
@@ -918,14 +923,14 @@ var groundingWork = {
       return null;
     const nowIso = new Date().toISOString();
     storeGrounding(ctx.db, { domain, checkedAt: nowIso, correction: answer.changed ? answer.correction : "", source: answer.source });
-    return answer.changed ? `стандарты «${domain}»: есть изменения — ${answer.correction.slice(0, 120)}` : `стандарты «${domain}»: подтверждены без изменений`;
+    return answer.changed ? t(`стандарты «${domain}»: есть изменения — ${answer.correction.slice(0, 120)}`, `“${domain}” standards: there are changes — ${answer.correction.slice(0, 120)}`) : t(`стандарты «${domain}»: подтверждены без изменений`, `“${domain}” standards: confirmed unchanged`);
   }
 };
 function activePlaybookDomains(ctx) {
   try {
     const facts = new FactStore(ctx.db).active();
     const text = facts.map((f) => f.statement).join(" ").toLowerCase();
-    return PLAYBOOKS.filter((p) => p.triggers.some((t) => text.includes(t.toLowerCase()))).map((p) => p.domain);
+    return PLAYBOOKS.filter((p) => p.triggers.some((t2) => text.includes(t2.toLowerCase()))).map((p) => p.domain);
   } catch {
     return [];
   }

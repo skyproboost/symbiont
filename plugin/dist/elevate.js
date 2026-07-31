@@ -5,8 +5,8 @@ import {
 import {
   callClaudeDetailed,
   callClaudeWithTools
-} from "./session-start-0hbm8nsh.js";
-import"./session-start-2ac08kse.js";
+} from "./session-start-269xr3k3.js";
+import"./session-start-8tcn3fb2.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -16,8 +16,10 @@ import {
   renderRootNotice,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-a4kc6fyf.js";
+} from "./session-start-gm8x32p0.js";
 import {
+  activeAxes,
+  artifactProfile,
   codeFiles,
   detectStack,
   extractContent,
@@ -26,7 +28,7 @@ import {
   openDb,
   slugOf,
   walkFiles
-} from "./session-start-8nd3663h.js";
+} from "./session-start-spcqe6t1.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -105,7 +107,7 @@ function renderVerdicts(rows) {
 
 // src/elevate/engine.ts
 init_walk();
-import { relative } from "node:path";
+import { relative, basename } from "node:path";
 var SCOPES = ["локальное", "модуль", "архитектура", "концепция"];
 var EFFORT = ["низкое", "среднее", "высокое"];
 var RISK = ["низкий", "средний", "высокий"];
@@ -117,9 +119,11 @@ function buildContext(projectRoot, dataDir, presentOverride) {
   try {
     summary = readFileSync(join(dataDir, "SUMMARY.md"), "utf8");
   } catch {}
-  const classes = presentOverride ?? inferClassesFromSummary(summary);
+  const walked = walkSafe(projectRoot);
+  const profile = artifactProfile(walked.map((f) => ({ name: basename(f.path), ext: f.ext })));
+  const classes = presentOverride ?? (profile.present.length > 0 ? profile.present : ["код"]);
   const rubric = axesForArtifacts(classes);
-  const axesActive = deriveActiveFromSummary(summary);
+  const axesActive = activeAxes(profile);
   const samples = [];
   let verdictsBlock = "";
   const dbPath = join(dataDir, "passport.db");
@@ -143,34 +147,16 @@ function buildContext(projectRoot, dataDir, presentOverride) {
     for (const s of gatherNonCodeSamples(projectRoot, SAMPLE_FILES - samples.length))
       samples.push(s);
   }
-  const stack = detectStack(projectRoot, walkFilesRel(projectRoot));
+  const stack = detectStack(projectRoot, walked.map((f) => relative(projectRoot, f.path).replaceAll("\\", "/")));
   const playbooks = playbooksFor(stack).map((p) => ({ domain: p.domain, checklist: p.checklist, thresholds: p.thresholds, pitfalls: p.pitfalls }));
   return { summary, activeAxes: axesActive, rubric, samples, playbooks, stack, verdictsBlock };
 }
-function walkFilesRel(projectRoot) {
+function walkSafe(projectRoot) {
   try {
-    return walkFiles(projectRoot).map((f) => relative(projectRoot, f.path).replaceAll("\\", "/"));
+    return walkFiles(projectRoot);
   } catch {
     return [];
   }
-}
-function deriveActiveFromSummary(summary) {
-  const m = summary.match(/активные оси качества:\s*(.+)/);
-  return m ? m[1].split(",").map((s) => s.trim()).filter(Boolean) : [];
-}
-function inferClassesFromSummary(summary) {
-  const map = [
-    [/код —/, "код"],
-    [/контент\/тексты —/, "контент"],
-    [/разметка\/стили —/, "разметка-стили"],
-    [/данные —/, "данные"],
-    [/конфиг\/инфра —/, "конфиг-инфра"],
-    [/дизайн\/графика —/, "дизайн"],
-    [/офис-документы —/, "офис"],
-    [/медиа —/, "медиа"]
-  ];
-  const out = map.filter(([re]) => re.test(summary)).map(([, c]) => c);
-  return out.length > 0 ? out : ["код"];
 }
 function gatherNonCodeSamples(projectRoot, limit) {
   if (limit <= 0)

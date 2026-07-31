@@ -15,13 +15,13 @@ import { join } from 'node:path'
 import { openDb } from '../core/db'
 import { readVerdicts, renderVerdictsForPrompt } from './verdicts'
 import { axesForArtifacts, DESIGN_PRINCIPLES, type RubricAxis } from './rubric'
-import type { ArtifactClass } from '../passport/artifacts'
+import { artifactProfile, activeAxes, type ArtifactClass } from '../passport/artifacts'
 import type { LlmCaller } from '../layer2/llm'
 import { walkFiles } from '../miner/walk'
 import { isNonCodeMinable, extractContent } from '../miner/noncode'
 import { detectStack } from '../passport/stack'
 import { playbooksFor } from '../domains/playbooks'
-import { relative } from 'node:path'
+import { relative, basename } from 'node:path'
 
 export type Scope = 'локальное' | 'модуль' | 'архитектура' | 'концепция'
 const SCOPES: Scope[] = ['локальное', 'модуль', 'архитектура', 'концепция']
@@ -66,9 +66,16 @@ export function buildContext(projectRoot: string, dataDir: string, presentOverri
     /* сводки может не быть */
   }
 
-  const classes = presentOverride ?? inferClassesFromSummary(summary)
+  // Состав и активные оси считаются ЗАНОВО по файлам, а не вычитываются из
+  // текста сводки. Разбор собственной подачи регулярками связывал аудит с ЯЗЫКОМ
+  // подачи: в английской сводке строки «активные оси качества» просто нет, и
+  // рубрика молча схлопывалась до кода. Тот же счёт по тем же данным — дешевле
+  // и не зависит от того, на каком языке паспорт показали человеку.
+  const walked = walkSafe(projectRoot)
+  const profile = artifactProfile(walked.map((f) => ({ name: basename(f.path), ext: f.ext })))
+  const classes = presentOverride ?? (profile.present.length > 0 ? profile.present : (['код'] as ArtifactClass[]))
   const rubric = axesForArtifacts(classes)
-  const axesActive = deriveActiveFromSummary(summary)
+  const axesActive = activeAxes(profile)
 
   // Выборка — самые связные файлы графа (PageRank), как у слоя 2
   const samples: Array<{ file: string; content: string }> = []
@@ -99,35 +106,19 @@ export function buildContext(projectRoot: string, dataDir: string, presentOverri
   }
 
   // Доменные плейбуки активного стека — экспертиза направлений в аудит
-  const stack = detectStack(projectRoot, walkFilesRel(projectRoot))
+  const stack = detectStack(projectRoot, walked.map((f) => relative(projectRoot, f.path).replaceAll('\\', '/')))
   const playbooks = playbooksFor(stack).map((p) => ({ domain: p.domain, checklist: p.checklist, thresholds: p.thresholds, pitfalls: p.pitfalls }))
 
   return { summary, activeAxes: axesActive, rubric, samples, playbooks, stack, verdictsBlock }
 }
 
-function walkFilesRel(projectRoot: string): string[] {
+/** Обход проекта; недоступный корень — не повод ронять аудит. */
+function walkSafe(projectRoot: string): Array<{ path: string; ext: string }> {
   try {
-    return walkFiles(projectRoot).map((f) => relative(projectRoot, f.path).replaceAll('\\', '/'))
+    return walkFiles(projectRoot)
   } catch {
     return []
   }
-}
-
-/** Активные оси из готовой сводки (там уже есть строка «активные оси качества: …»). */
-function deriveActiveFromSummary(summary: string): string[] {
-  const m = summary.match(/активные оси качества:\s*(.+)/)
-  return m ? m[1].split(',').map((s) => s.trim()).filter(Boolean) : []
-}
-
-/** Классы артефактов из секции «Состав проекта» сводки (грубо, по подписям). */
-function inferClassesFromSummary(summary: string): ArtifactClass[] {
-  const map: Array<[RegExp, ArtifactClass]> = [
-    [/код —/, 'код'], [/контент\/тексты —/, 'контент'], [/разметка\/стили —/, 'разметка-стили'],
-    [/данные —/, 'данные'], [/конфиг\/инфра —/, 'конфиг-инфра'], [/дизайн\/графика —/, 'дизайн'],
-    [/офис-документы —/, 'офис'], [/медиа —/, 'медиа'],
-  ]
-  const out = map.filter(([re]) => re.test(summary)).map(([, c]) => c)
-  return out.length > 0 ? out : ['код'] // дефолт — код, если состав не распознан
 }
 
 /** Не-код артефакты как выборка (для не-код проектов). Приоритет по плотности

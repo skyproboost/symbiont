@@ -6,7 +6,7 @@
 
 **Claude Code stops being a guest in your codebase. Symbiont reads your code and its history, derives the project's own rules and hands them to the model at the moment they matter. It never asks you anything — it observes.**
 
-![version](https://img.shields.io/badge/version-0.100-6e56cf) ![tests](https://img.shields.io/badge/tests-802-2ea043) ![channels](https://img.shields.io/badge/channels-8%2F8-2ea043) ![output](https://img.shields.io/badge/output-EN%20%2F%20RU-6e56cf) ![runtime](https://img.shields.io/badge/runtime-Node%2022.13%2B%20%7C%20Bun-000) ![license](https://img.shields.io/badge/license-proprietary-lightgrey)
+![version](https://img.shields.io/badge/version-0.101-6e56cf) ![tests](https://img.shields.io/badge/tests-804-2ea043) ![channels](https://img.shields.io/badge/channels-8%2F8-2ea043) ![output](https://img.shields.io/badge/output-EN%20%2F%20RU-6e56cf) ![runtime](https://img.shields.io/badge/runtime-Node%2022.13%2B%20%7C%20Bun-000) ![license](https://img.shields.io/badge/license-proprietary-lightgrey)
 
 <br/>
 

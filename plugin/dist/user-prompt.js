@@ -2,7 +2,7 @@ import {
   claimNode,
   ensureFeedLog,
   nodeBrief
-} from "./session-start-6dbvrdva.js";
+} from "./session-start-6eh1yzf8.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -15,21 +15,24 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-a4kc6fyf.js";
+} from "./session-start-gm8x32p0.js";
 import {
   FactStore,
   beat,
   effectiveHeat,
   hotFiles,
   initLang,
+  init_i18n,
   observePrompt,
   openDb,
   reachableUndirected,
   readHeatRows,
   shouldFeed,
   slugOf,
+  statement,
+  t,
   taskRelevantNeighbors
-} from "./session-start-8nd3663h.js";
+} from "./session-start-spcqe6t1.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/user-prompt.ts
@@ -38,6 +41,7 @@ import { join as join2 } from "node:path";
 // src/hooks/user-prompt-core.ts
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+init_i18n();
 
 // src/passport/roles.ts
 var ROLE_CATALOG = {
@@ -127,7 +131,7 @@ var MAX_NODES = 3;
 var MIN_TOKEN_LEN = 4;
 function promptTokens(prompt) {
   const tokens = prompt.toLowerCase().match(/[\w$][\w$.\-/]*[\w$]/g) ?? [];
-  return [...new Set(tokens.filter((t) => t.length >= MIN_TOKEN_LEN))];
+  return [...new Set(tokens.filter((t2) => t2.length >= MIN_TOKEN_LEN))];
 }
 var base = (file) => {
   const b = file.slice(file.lastIndexOf("/") + 1).toLowerCase();
@@ -185,14 +189,14 @@ function handleUserPrompt(input, dataRoot) {
             const allNodes = nodes.map((n) => n.file);
             const ranked = taskRelevantNeighbors(allNodes, edgeList, seeds, neighborhood, 8);
             const related = [];
-            for (const t of ranked) {
+            for (const cand of ranked) {
               if (related.length >= 3)
                 break;
-              if (claimNode(db, sid, t.file, "related"))
-                related.push(t.file);
+              if (claimNode(db, sid, cand.file, "related"))
+                related.push(cand.file);
             }
             if (related.length > 0) {
-              relatedBlock = `Symbiont · связано с задачей (по связям проекта, а не по совпадению слов): ${related.join(", ")}`;
+              relatedBlock = `Symbiont · ${t("связано с задачей (по связям проекта, а не по совпадению слов)", "related to the task (by the project's links, not by word overlap)")}: ${related.join(", ")}`;
             }
           }
         }
@@ -204,7 +208,7 @@ function handleUserPrompt(input, dataRoot) {
         if (freshZones.length > 0) {
           const lessons = lessonsForZones(db, freshZones, 2);
           if (lessons.length > 0) {
-            lessonBlock = `Symbiont · уроки по зоне (из прошлых поправок владельца — не повтори): ${lessons.map((l) => l.statement).join(" · ")}`;
+            lessonBlock = `Symbiont · ${t("уроки по зоне (из прошлых поправок владельца — не повтори)", "lessons for this area (from the owner's past corrections — do not repeat them)")}: ${lessons.map((l) => statement(l.statement)).join(" · ")}`;
           }
         }
       }
@@ -212,9 +216,10 @@ function handleUserPrompt(input, dataRoot) {
         return {};
       const DEEP_THRESHOLD = 30;
       const deep = fresh.filter((n) => n.in_deg >= DEEP_THRESHOLD);
-      const depthNote = deep.length > 0 ? `
-Узлы глубокого влияния (${deep.map((n) => `${n.file}: вход ${n.in_deg}`).join("; ")}) — правки таких узлов многофайловые по последствиям.` : "";
-      const graphBlock = lines.length > 0 ? `Symbiont · срез графа по упомянутым файлам (полный радиус: passport_impact):
+      const depthNote = deep.length > 0 ? t(`
+Узлы глубокого влияния (${deep.map((n) => `${n.file}: вход ${n.in_deg}`).join("; ")}) — правки таких узлов многофайловые по последствиям.`, `
+Deep-influence nodes (${deep.map((n) => `${n.file}: in ${n.in_deg}`).join("; ")}) — changes to these have multi-file consequences.`) : "";
+      const graphBlock = lines.length > 0 ? `Symbiont · ${t("срез графа по упомянутым файлам (полный радиус: passport_impact)", "graph slice for the files you mentioned (full radius: passport_impact)")}:
 ${lines.join(`
 `)}${depthNote}` : "";
       return {

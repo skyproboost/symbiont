@@ -12,6 +12,7 @@
  * (/pricing) может генерироваться кодом — молчим, а не шумим (анти-шум рубрики).
  */
 import { dirname, join, normalize } from 'node:path/posix'
+import { t } from '../core/i18n'
 
 /** Сущности контента; расширения-артефакты (png/js) сущностями не являются. */
 export const ENTITY_EXT = new Set(['.md', '.mdx', '.markdown', '.html', '.htm', '.yaml', '.yml'])
@@ -308,15 +309,18 @@ export function buildEntityGraph(files: Array<{ rel: string; ext: string; conten
 export function renderEntityBlock(g: EntityGraph): string {
   if (g.nodes.length < 5 || g.edges.length < 3) return ''
   const lines = [
-    '## Контент-граф (сущности и перелинковка; детали: passport_orphans / passport_reach)',
+    t(
+      '## Контент-граф (сущности и перелинковка; детали: passport_orphans / passport_reach)',
+      '## Content graph (entities and interlinking; details: passport_orphans / passport_reach)',
+    ),
     '',
-    `- сущностей: ${g.nodes.length} · перелинковок: ${g.edges.length} · хабов: ${g.hubs.length}`,
+    `- ${t('сущностей', 'entities')}: ${g.nodes.length} · ${t('перелинковок', 'links')}: ${g.edges.length} · ${t('хабов', 'hubs')}: ${g.hubs.length}`,
   ]
   const issues: string[] = []
-  if (g.orphans.length > 0) issues.push(`сироты (0 входящих): ${g.orphans.length}`)
-  if (g.unreachable.length > 0) issues.push(`недостижимы из хабов: ${g.unreachable.length}`)
-  if (g.broken.length > 0) issues.push(`битые внутренние ссылки: ${g.broken.length}`)
-  if (g.dupAnchors.length > 0) issues.push(`анкоры на разные цели: ${g.dupAnchors.length}`)
+  if (g.orphans.length > 0) issues.push(`${t('сироты (0 входящих)', 'orphans (0 inbound)')}: ${g.orphans.length}`)
+  if (g.unreachable.length > 0) issues.push(`${t('недостижимы из хабов', 'unreachable from hubs')}: ${g.unreachable.length}`)
+  if (g.broken.length > 0) issues.push(`${t('битые внутренние ссылки', 'broken internal links')}: ${g.broken.length}`)
+  if (g.dupAnchors.length > 0) issues.push(`${t('анкоры на разные цели', 'anchors pointing to different targets')}: ${g.dupAnchors.length}`)
   if (issues.length > 0) lines.push(`- ⚠ ${issues.join(' · ')}`)
   lines.push('')
   return lines.join('\n')

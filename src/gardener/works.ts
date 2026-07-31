@@ -12,6 +12,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { join, relative, basename, dirname } from 'node:path'
 import { FactStore } from '../core/store'
+import { t } from '../core/i18n'
 import type { Work, WorkContext } from './scheduler'
 import { auditTruth, healProjections } from './truth'
 import { renderDriftReport, computeHealth, computeDrift, hotspotsFromGit } from './drift'
@@ -78,8 +79,15 @@ const truthWork: Work = {
     const healed = healProjections(ctx.db, ctx.projectRoot)
     const lying = issues.filter((i) => !i.healable)
     const parts: string[] = []
-    if (healed.removed > 0) parts.push(`карта почищена: ${healed.removed} мёртвых записей`)
-    if (lying.length > 0) parts.push(`сводка расходится с журналом (${lying[0].count}) — пересборка назначена`)
+    if (healed.removed > 0) parts.push(t(`карта почищена: ${healed.removed} мёртвых записей`, `map cleaned: ${healed.removed} dead records`))
+    if (lying.length > 0) {
+      parts.push(
+        t(
+          `сводка расходится с журналом (${lying[0].count}) — пересборка назначена`,
+          `the summary disagrees with the journal (${lying[0].count}) — a rebuild is scheduled`,
+        ),
+      )
+    }
     return parts.length > 0 ? parts.join(', ') : null
   },
 }
@@ -109,7 +117,10 @@ const repairWork: Work = {
     } catch {
       return null // нет Salsa-таблиц — чинить нечего
     }
-    return 'проекции помечены к пересчёту (сводка пересоберётся при следующем старте)'
+    return t(
+      'проекции помечены к пересчёту (сводка пересоберётся при следующем старте)',
+      'projections marked for recomputation (the summary will be rebuilt at the next start)',
+    )
   },
 }
 
@@ -155,9 +166,9 @@ const driftWork: Work = {
     const near = findNearClones(codeInputs)
 
     const parts: string[] = []
-    if (hotspots.length > 0) parts.push(`чаще всего чинят: ${hotspots[0].file} (${hotspots[0].fixes} починок × ${hotspots[0].size} строк)`)
-    if (clones.length > 0) parts.push(`клоны: блок ×${clones[0].count} (${clones[0].lines} строк)`)
-    if (near.length > 0) parts.push(`почти-дубли: ${near[0].a.file} ≈ ${near[0].b.file}`)
+    if (hotspots.length > 0) parts.push(t(`чаще всего чинят: ${hotspots[0].file} (${hotspots[0].fixes} починок × ${hotspots[0].size} строк)`, `repaired most often: ${hotspots[0].file} (${hotspots[0].fixes} fixes × ${hotspots[0].size} lines)`))
+    if (clones.length > 0) parts.push(t(`клоны: блок ×${clones[0].count} (${clones[0].lines} строк)`, `clones: a block ×${clones[0].count} (${clones[0].lines} lines)`))
+    if (near.length > 0) parts.push(t(`почти-дубли: ${near[0].a.file} ≈ ${near[0].b.file}`, `near-duplicates: ${near[0].a.file} ≈ ${near[0].b.file}`))
     return parts.length > 0 ? parts.join(' · ') : null
   },
 }
@@ -180,7 +191,7 @@ const verbalizeWork: Work = {
     const v = runVerbalize(ctx.projectRoot, ctx.dataDir, deepCaller(ctx, 'вербализация конвенций', tried))
     if (!v.model) throw new Error(explainNoAnswer(tried))
     if (v.journal.born === 0 && v.journal.updated === 0) return null
-    return `правил +${v.journal.born}, подтверждено ${v.journal.updated}`
+    return t(`правил +${v.journal.born}, подтверждено ${v.journal.updated}`, `rules +${v.journal.born}, confirmed ${v.journal.updated}`)
   },
 }
 
@@ -193,7 +204,7 @@ const correctionsWork: Work = {
   due: (ctx) => countOf(ctx, 'SELECT COUNT(*) n FROM corrections WHERE analyzed=0') > 0,
   run: (ctx) => {
     const c = analyzeCorrections(ctx.db, ctx.projectRoot, deepCaller(ctx, 'разбор поправок владельца'))
-    return c.analyzed > 0 ? `поправок разобрано ${c.analyzed} → правил ${c.born}` : null
+    return c.analyzed > 0 ? t(`поправок разобрано ${c.analyzed} → правил ${c.born}`, `corrections analysed ${c.analyzed} → rules ${c.born}`) : null
   },
 }
 
@@ -206,7 +217,7 @@ const zsummaryWork: Work = {
   due: (ctx) => pendingSummaries(ctx.db, contentHashes(ctx.db), 1).length > 0,
   run: (ctx) => {
     const z = runZSummaries(ctx.db, ctx.projectRoot, routineCaller(ctx, 'роли узлов'), new Date().toISOString(), undefined, ctx.dataDir)
-    return z.stored > 0 ? `ролей выведено +${z.stored}` : null
+    return z.stored > 0 ? t(`ролей выведено +${z.stored}`, `roles derived +${z.stored}`) : null
   },
 }
 
@@ -245,7 +256,7 @@ const contractRulesWork: Work = {
     if (!res) throw new Error(explainNoAnswer(outcome.tried))
     const rules = parseRules(res.text, res.model)
     const stored = storeRules(ctx.db, rules)
-    return stored > 0 ? `правил среды выведено +${stored} (из ${entries.length} настроек проекта)` : null
+    return stored > 0 ? t(`правил среды выведено +${stored} (из ${entries.length} настроек проекта)`, `environment rules derived +${stored} (from ${entries.length} project settings)`) : null
   },
 }
 
@@ -303,7 +314,7 @@ const unknownMaterialWork: Work = {
     if (rules.length === 0) return null
     const facts = rules.map((r) => ruleToFact(r, samples.length))
     const journal = new FactStore(ctx.db).assertAll(facts, `llm:material:${kind}`)
-    return journal.born > 0 ? `материал ${kind}: выведено правил +${journal.born}` : null
+    return journal.born > 0 ? t(`материал ${kind}: выведено правил +${journal.born}`, `material ${kind}: rules derived +${journal.born}`) : null
   },
 }
 
@@ -371,7 +382,7 @@ const compositionWork: Work = {
     const rules = parseVerbalized(res.text, 2)
     if (rules.length === 0) return null
     const journal = new FactStore(ctx.db).assertAll(rules.map((r) => ruleToFact(r, composition.formats.length)), 'llm:composition')
-    return journal.born > 0 ? `устройство продукта: правил +${journal.born} (видов материала ${composition.formats.length})` : null
+    return journal.born > 0 ? t(`устройство продукта: правил +${journal.born} (видов материала ${composition.formats.length})`, `product shape: rules +${journal.born} (${composition.formats.length} kinds of material)`) : null
   },
 }
 
@@ -412,7 +423,9 @@ const groundingWork: Work = {
     if (!answer) return null
     const nowIso = new Date().toISOString()
     storeGrounding(ctx.db, { domain, checkedAt: nowIso, correction: answer.changed ? answer.correction : '', source: answer.source })
-    return answer.changed ? `стандарты «${domain}»: есть изменения — ${answer.correction.slice(0, 120)}` : `стандарты «${domain}»: подтверждены без изменений`
+    return answer.changed
+      ? t(`стандарты «${domain}»: есть изменения — ${answer.correction.slice(0, 120)}`, `“${domain}” standards: there are changes — ${answer.correction.slice(0, 120)}`)
+      : t(`стандарты «${domain}»: подтверждены без изменений`, `“${domain}” standards: confirmed unchanged`)
   },
 }
 

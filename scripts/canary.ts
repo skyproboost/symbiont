@@ -38,12 +38,21 @@ writeFileSync(join(proj, 'core.js'), LEGACY.repeat(12))
 writeFileSync(join(proj, 'README.md'), 'Сервис: производительность важна.')
 spawnSync('git', ['init', '-b', 'main'], { cwd: proj, encoding: 'utf8' })
 
-function hook(entry: string, input: unknown): { out: Record<string, unknown> | null; raw: string } {
-  const r = spawnSync(RUNNER, [entryPath('hooks', entry), '--data', dataRoot], {
+/**
+ * Язык подачи задаётся ЯВНО, а не наследуется от машины.
+ *
+ * Symbiont выводит язык из окружения (сообщения владельца, комментарии, доки,
+ * локаль системы). У владельца она русская, у машины CI — английская, поэтому
+ * проверка, прибитая к русской формулировке, красила канарейку в цвет локали
+ * хоста, а не в состояние канала: локально зелено, в CI красно на том же коде.
+ */
+function hook(entry: string, input: unknown, lang: 'ru' | 'en' = 'ru', root: string = dataRoot): { out: Record<string, unknown> | null; raw: string } {
+  const r = spawnSync(RUNNER, [entryPath('hooks', entry), '--data', root], {
     input: JSON.stringify(input),
     encoding: 'utf8',
     timeout: 60_000,
     cwd: proj,
+    env: { ...process.env, SYMBIONT_LANG: lang },
   })
   const raw = (r.stdout ?? '').trim()
   if (r.status !== 0) return { out: null, raw: `exit=${r.status} stderr=${(r.stderr ?? '').slice(0, 300)}` }
@@ -59,11 +68,32 @@ const slug = (await import(join(ROOT, 'src', 'hooks', 'session-start-core.ts')))
 const dataDir = join(dataRoot, slug)
 const sid = 'canary-1'
 
-// 1) SessionStart: сводка с законами и профилем
+// 1) SessionStart: сводка с законами и профилем — на обоих языках подачи
 {
-  const { out, raw } = hook('session-start.ts', { cwd: proj, source: 'startup', session_id: sid })
-  const ctx = String((out?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext ?? '')
-  check('SessionStart', !!out && ctx.includes('только var') && ctx.includes('Профиль качества'), out ? `сводка ${ctx.length} симв.` : raw)
+  const ctxOf = (r: { out: Record<string, unknown> | null }): string =>
+    String((r.out?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext ?? '')
+  const ru = hook('session-start.ts', { cwd: proj, source: 'startup', session_id: sid }, 'ru')
+  // Английская проба — в СВОЁМ корне данных: вход в сессию отцепляет фоновую
+  // работу, и два таких входа на один корень дерутся за SQLite. Гонка убивала
+  // не ту проверку, которая её создала (мигали PreCompact и MCP).
+  const enRoot = mkdtempSync(join(tmpdir(), 'symbiont-canary-en-'))
+  const en = hook('session-start.ts', { cwd: proj, source: 'startup', session_id: `${sid}-en` }, 'en', enRoot)
+  const ctxRu = ctxOf(ru)
+  const ctxEn = ctxOf(en)
+  const okRu = !!ru.out && ctxRu.includes('только var') && ctxRu.includes('Профиль качества')
+  // Английская подача проверяется не только по наличию английских формулировок,
+  // но и по ОТСУТСТВИЮ кириллицы: полупереведённая сводка (заголовки английские,
+  // строки русские) проходила бы проверку на подстроку и уезжала владельцу такой.
+  // Мир канарейки синтетический — своего русского текста в нём нет.
+  const leak = ctxEn.split('\n').filter((l) => /[а-яё]/i.test(l))
+  const okEn = !!en.out && ctxEn.includes('var only') && ctxEn.includes('Quality profile') && leak.length === 0
+  const note = !ru.out ? ru.raw : !en.out ? en.raw : okEn ? `сводка ${ctxRu.length} симв. · ru+en` : `английская подача течёт: ${leak[0]?.slice(0, 90)}`
+  check('SessionStart', okRu && okEn, okRu ? note : `русская подача: ${ctxRu.slice(0, 90)}`)
+  try {
+    rmSync(enRoot, { recursive: true, force: true })
+  } catch {
+    /* временный каталог приберёт ОС */
+  }
 }
 
 // 2) UserPromptSubmit: JIT-срез по упомянутому файлу

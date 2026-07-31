@@ -18,6 +18,7 @@
  * бюджет времени. Дорогое — по триггеру (аксиома §3.7), никогда «на всём».
  */
 import type { Database } from '../core/db'
+import { t } from '../core/i18n'
 
 export type WorkCost = 'cheap' | 'llm'
 
@@ -113,6 +114,13 @@ export function lastRun(db: Database, id: string): WorkMeta | null {
   }
 }
 
+/**
+ * Заметка работы пишется на языке подачи ТОГО прогона — в отличие от фактов
+ * журнала, которые хранятся по-русски и переводятся на последней миле. Разница
+ * намеренная: заметка эфемерна (живёт до следующего прогона той же работы) и не
+ * имеет ключа идентичности, поэтому образцы перевода на неё — цена без выгоды.
+ * Смена языка догоняет заметки со следующим прогоном фона.
+ */
 export function recordRun(db: Database, id: string, ok: boolean, note: string, nowIso: string): void {
   try {
     ensureMeta(db)
@@ -240,10 +248,18 @@ export function renderGardenerSilence(db: Database, nowMs: number, quietDays = 7
 
     ensureMeta(db)
     const last = (db.query(`SELECT MAX(at) AS at FROM ${META_TABLE}`).get() as { at: string | null } | null)?.at
-    if (!last) return '- ⚠ фоновое обслуживание ни разу не отрабатывало: паспорт не углубляется (проверьте рантайм и learn.json)'
+    if (!last) {
+      return t(
+        '- ⚠ фоновое обслуживание ни разу не отрабатывало: паспорт не углубляется (проверьте рантайм и learn.json)',
+        '- ⚠ background maintenance has never run: the passport is not deepening (check the runtime and learn.json)',
+      )
+    }
     const quiet = (nowMs - Date.parse(last)) / 86_400_000
     if (!Number.isFinite(quiet) || quiet < quietDays) return ''
-    return `- ⚠ фоновое обслуживание молчит ${Math.round(quiet)}д: паспорт перестал углубляться (проверьте рантайм и learn.json)`
+    return t(
+      `- ⚠ фоновое обслуживание молчит ${Math.round(quiet)}д: паспорт перестал углубляться (проверьте рантайм и learn.json)`,
+      `- ⚠ background maintenance has been silent for ${Math.round(quiet)}d: the passport stopped deepening (check the runtime and learn.json)`,
+    )
   } catch {
     return '' // нет таблиц — диагностировать нечего, а падать тут нельзя
   }
@@ -272,12 +288,12 @@ export function renderBackground(db: Database, ids: string[], nowMs: number): st
     const fate = last.ok
       ? ''
       : last.nextAt !== null
-        ? ` — повтор назначен (попытка ${last.attempts + 1} из ${MAX_FAST_RETRIES + 1})`
-        : ' — быстрые повторы исчерпаны, вернулось к обычному расписанию'
+        ? t(` — повтор назначен (попытка ${last.attempts + 1} из ${MAX_FAST_RETRIES + 1})`, ` — a retry is scheduled (attempt ${last.attempts + 1} of ${MAX_FAST_RETRIES + 1})`)
+        : t(' — быстрые повторы исчерпаны, вернулось к обычному расписанию', ' — fast retries are spent, back on the normal schedule')
     parts.push(`${last.ok ? '' : '⚠ '}${last.note}${fate}`)
   }
   if (parts.length === 0) return ''
   // «Садовник» — наше внутреннее имя механизма, владельцу оно ничего не говорит:
   // строку читает человек, а не разработчик этого файла (замечание владельца)
-  return `- фоновая работа: ${parts.join(' · ')}`
+  return `- ${t('фоновая работа', 'background work')}: ${parts.join(' · ')}`
 }

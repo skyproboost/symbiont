@@ -1,7 +1,7 @@
 {
   "name": "symbiont",
   "displayName": "Symbiont",
-  "version": "0.100.0",
+  "version": "0.101.0",
   "description": "Живой паспорт проекта: конвенции, прецеденты и профиль качества — выводятся из кода и подаются в каждую сессию.",
   "author": { "name": "skyproboost" }
 }

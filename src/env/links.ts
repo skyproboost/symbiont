@@ -17,6 +17,7 @@
  */
 import type { Database } from '../core/db'
 import { isConfigFile, lexicalLinks, historicalLinks, type ConfigEntry, type ConfigLink } from './config-graph'
+import { t } from '../core/i18n'
 
 /** Больше — уже не связь, а общее место: настройка, влияющая на полпроекта. */
 const MAX_CODE_PER_CONFIG = 12
@@ -118,10 +119,16 @@ export function collectConfigLinks(
 export function renderConfigInfluence(rows: ConfigEdgeRow[]): string {
   if (rows.length === 0) return ''
   const parts = rows.slice(0, 3).map((r) => {
-    const why = r.via === 'история' ? 'правились вместе' : r.token ? `упоминание «${r.token}»` : 'связь по содержимому'
-    return `${r.configFile}${r.key !== '(файл целиком)' ? ` · ${r.key}` : ''} (${why})`
+    const why =
+      r.via === 'история'
+        ? t('правились вместе', 'changed together')
+        : r.token
+          ? t(`упоминание «${r.token}»`, `mention of “${r.token}”`)
+          : t('связь по содержимому', 'linked by content')
+    const key = r.key !== '(файл целиком)' ? ` · ${r.key}` : ''
+    return `${r.configFile}${key} (${why})`
   })
-  return `Symbiont · этим кодом управляет конфигурация: ${parts.join(' · ')}`
+  return `Symbiont · ${t('этим кодом управляет конфигурация', 'this code is governed by configuration')}: ${parts.join(' · ')}`
 }
 
 /** Только конфигурационные файлы среди путей проекта — для сбора записей. */

@@ -30,6 +30,10 @@ function world(summary = SUMMARY_MIXED, withGraph = true) {
   if (withGraph) {
     mkdirSync(join(proj, 'src'))
     writeFileSync(join(proj, 'src', 'core.ts'), "export const load = () => 1\n")
+    // Состав проекта считается по НАСТОЯЩИМ файлам, а не по тексту сводки,
+    // поэтому смешанный материал в мире теста настоящий: тексты и данные.
+    for (let i = 0; i < 3; i++) writeFileSync(join(proj, `doc${i}.md`), `# заметка ${i}\n\nтекст\n`)
+    for (let i = 0; i < 3; i++) writeFileSync(join(proj, `data${i}.json`), `{"n": ${i}}\n`)
     db.query('INSERT INTO graph_nodes(file,rank,in_deg,out_deg) VALUES(?,?,?,?)').run('src/core.ts', 0.5, 3, 0)
   }
   db.close()
@@ -37,7 +41,7 @@ function world(summary = SUMMARY_MIXED, withGraph = true) {
 }
 
 describe('buildContext', () => {
-  it('выводит классы и оси из сводки; собирает выборку из графа', () => {
+  it('выводит классы и оси из материала проекта; собирает выборку из графа', () => {
     const { proj, dataDir } = world()
     const ctx = buildContext(proj, dataDir)
     const axes = ctx.rubric.map((a) => a.axis)
@@ -45,8 +49,10 @@ describe('buildContext', () => {
     expect(axes).toContain('производительность') // код есть
     expect(axes).toContain('целостность данных') // данные есть
     expect(ctx.activeAxes).toContain('безопасность')
-    expect(ctx.samples.length).toBe(1)
+    // Первым идёт самый связный файл графа, дальше выборка добирается не-кодом:
+    // проект смешанный, и аудит по одному .ts судил бы о нём не по материалу.
     expect(ctx.samples[0].file).toBe('src/core.ts')
+    expect(ctx.samples.some((s) => s.file.endsWith('.md'))).toBe(true)
     rmrf(proj)
     rmrf(dataDir)
   })

@@ -145,17 +145,51 @@ export function fileDomains(rel: string): string[] {
   return DOMAIN_DETECTORS.filter((d) => (d.signal ? SIGNALS[d.signal].paths?.test(rel) : d.paths?.test(rel))).map((d) => d.name)
 }
 
+/**
+ * Имя направления и основание срабатывания — на языке подачи. Ключи остаются
+ * русскими: по ним ходят доменные плейбуки и снимок стека в паспорте, а имя
+ * фреймворка (nuxt, redis) не переводится вовсе — это данные проекта.
+ */
+const domainName = (ru: string): string =>
+  t(
+    ru,
+    ({
+      'база данных': 'database',
+      фронтенд: 'frontend',
+      тестирование: 'testing',
+      'деплой/инфра': 'deploy/infra',
+      'веб-сервер': 'web server',
+      'фоновые задачи': 'background jobs',
+      платежи: 'payments',
+      аутентификация: 'authentication',
+      'оркестрация/масштабирование': 'orchestration/scaling',
+      'дизайн-ассеты': 'design assets',
+      документы: 'documents',
+    })[ru] ?? ru,
+  )
+
+const whyName = (ru: string): string =>
+  t(
+    ru,
+    ({
+      'сигнал направления': 'direction signal',
+      'зависимость в манифесте': 'dependency in the manifest',
+      'файл конфигурации в корне': 'config file in the root',
+      'пути файлов проекта': 'project file paths',
+    })[ru] ?? ru,
+  )
+
 /** Секция «Стек и направления» для сводки. */
 export function renderStack(s: StackSignals): string {
   if (s.frameworks.length === 0 && s.infra.length === 0 && s.domains.length === 0 && s.otherDeps.length === 0) return ''
   // Каждое имя — с основанием: читатель не должен догадываться, откуда вывод
   // Основание может отсутствовать (старый снимок, ручной вызов) — тогда просто имя
   const withWhy = (names: string[]): string =>
-    names.map((n) => (s.evidence?.[n] ? `${n} (${s.evidence[n]})` : n)).join(', ')
+    names.map((n) => (s.evidence?.[n] ? `${domainName(n)} (${whyName(s.evidence[n])})` : domainName(n))).join(', ')
   const lines = [t('## Стек и направления (обнаружено по сигналам; активирует доменную экспертизу)', '## Stack and directions (detected by signals; switches on domain expertise)'), '']
-  if (s.frameworks.length > 0) lines.push(`- фреймворки: ${withWhy(s.frameworks)}`)
-  if (s.infra.length > 0) lines.push(`- инфра/хранилища: ${withWhy(s.infra)}`)
-  if (s.domains.length > 0) lines.push(`- направления: ${withWhy(s.domains)}`)
-  if (s.otherDeps.length > 0) lines.push(`- прочие ключевые зависимости: ${s.otherDeps.slice(0, 15).join(', ')}`)
+  if (s.frameworks.length > 0) lines.push(`- ${t('фреймворки', 'frameworks')}: ${withWhy(s.frameworks)}`)
+  if (s.infra.length > 0) lines.push(`- ${t('инфра/хранилища', 'infra/storage')}: ${withWhy(s.infra)}`)
+  if (s.domains.length > 0) lines.push(`- ${t('направления', 'directions')}: ${withWhy(s.domains)}`)
+  if (s.otherDeps.length > 0) lines.push(`- ${t('прочие ключевые зависимости', 'other key dependencies')}: ${s.otherDeps.slice(0, 15).join(', ')}`)
   return lines.join('\n')
 }

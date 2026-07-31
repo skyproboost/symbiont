@@ -9,6 +9,7 @@
  */
 import type { Database } from '../core/db'
 import { markVisited, summaryFor, contentHashOf } from '../graph/zsummary'
+import { t } from '../core/i18n'
 import { noteSurfaced, noteUsed, type FeedKind } from '../gardener/utility'
 import { readConfigEdges, renderConfigInfluence } from '../env/links'
 
@@ -82,14 +83,21 @@ export function nodeBrief(db: Database, node: GraphNode): string {
       to_file: string
     }>
   ).map((r) => r.to_file)
-  const parts = [`${node.file} · вход:${node.in_deg} исход:${node.out_deg}`]
-  if (z1) parts.push(`роль: ${z1}`)
+  const parts = [`${node.file} · ${t('вход', 'in')}:${node.in_deg} ${t('исход', 'out')}:${node.out_deg}`]
+  if (z1) parts.push(`${t('роль', 'role')}: ${z1}`)
   // Какая настройка управляет этим кодом. Связи нет ни в одном импорте, но
   // именно она объясняет отказы в проде — поэтому идёт рядом со связями кода.
   const influence = renderConfigInfluence(readConfigEdges(db, node.file))
-  if (influence) parts.push(influence.replace('Symbiont · этим кодом управляет конфигурация: ', 'управляет конфигурация: '))
-  if (deps.length > 0) parts.push(`зависят: ${deps.join(', ')}${node.in_deg > deps.length ? ', …' : ''}`)
-  if (outs.length > 0) parts.push(`зависит от: ${outs.join(', ')}${node.out_deg > outs.length ? ', …' : ''}`)
+  if (influence) {
+    parts.push(
+      influence.replace(
+        t('Symbiont · этим кодом управляет конфигурация: ', 'Symbiont · this code is governed by configuration: '),
+        t('управляет конфигурация: ', 'governed by configuration: '),
+      ),
+    )
+  }
+  if (deps.length > 0) parts.push(`${t('зависят', 'depended on by')}: ${deps.join(', ')}${node.in_deg > deps.length ? ', …' : ''}`)
+  if (outs.length > 0) parts.push(`${t('зависит от', 'depends on')}: ${outs.join(', ')}${node.out_deg > outs.length ? ', …' : ''}`)
   const hasCochange =
     (db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='cochange'").get() as { n: number }).n > 0
   if (hasCochange) {
@@ -101,7 +109,7 @@ export function nodeBrief(db: Database, node: GraphNode): string {
         )
         .all(node.file, node.file, node.file) as Array<{ partner: string; n: number }>
     ).map((r) => `${r.partner} (${r.n})`)
-    if (rel.length > 0) parts.push(`исторически правятся вместе: ${rel.join(', ')}`)
+    if (rel.length > 0) parts.push(`${t('исторически правятся вместе', 'historically changed together')}: ${rel.join(', ')}`)
   }
   return parts.join(' · ')
 }

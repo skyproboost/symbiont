@@ -6,7 +6,7 @@ import {
   contentVerifierActive,
   loadEntityResolver,
   runContentVerifiers
-} from "./session-start-sdf4tkky.js";
+} from "./session-start-kqmsgabj.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -19,19 +19,22 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-a4kc6fyf.js";
+} from "./session-start-gm8x32p0.js";
 import {
   ENTITY_EXT,
   FactStore,
   beat,
+  init_i18n,
   isConfigFile,
   openDb,
   parseConfigFile,
   reachableUndirected,
   sha1,
   slugOf,
-  snapshotContent
-} from "./session-start-8nd3663h.js";
+  snapshotContent,
+  statement,
+  t
+} from "./session-start-spcqe6t1.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts
@@ -580,6 +583,7 @@ function checkContract(content, policies, learned = []) {
 }
 
 // src/hooks/stop-core.ts
+init_i18n();
 var FUSE_LIMIT = 8;
 var JS_FAMILY = new Set([".ts", ".js", ".mjs", ".cjs", ".tsx", ".jsx", ".vue"]);
 var GATED_EXT = new Set([...JS_FAMILY, ...ENTITY_EXT]);
@@ -760,7 +764,7 @@ function handleStop(input, dataRoot) {
         }
       } catch {}
       const observations = [...focusLines, ...budgetLines, parallelLine].filter(Boolean);
-      const freshLines = all.filter((v) => Number(dedup.run(sid, v.file, v.law).changes) > 0).map((v) => `- ${v.file} · «${v.law}» · ${v.detail}`);
+      const freshLines = all.filter((v) => Number(dedup.run(sid, v.file, v.law).changes) > 0).map((v) => `- ${v.file} · ${t(`«${statement(v.law)}»`, `“${statement(v.law)}”`)} · ${v.detail}`);
       db.run("CREATE TABLE IF NOT EXISTS gate_fuse(session_id TEXT PRIMARY KEY, streak INTEGER NOT NULL DEFAULT 0, released INTEGER NOT NULL DEFAULT 0)");
       const fuse = db.query("SELECT streak, released FROM gate_fuse WHERE session_id=?").get(sid) ?? { streak: 0, released: 0 };
       if (all.length === 0) {
@@ -770,7 +774,7 @@ function handleStop(input, dataRoot) {
           return {
             hookSpecificOutput: {
               hookEventName: "Stop",
-              additionalContext: `Symbiont · наблюдение о ходе работы (факт, не требование):
+              additionalContext: `Symbiont · ${t("наблюдение о ходе работы (факт, не требование)", "an observation about how the work is going (a fact, not a demand)")}:
 ${observations.join(`
 `)}`
             }
@@ -787,25 +791,31 @@ ${observations.join(`
           return {
             hookSpecificOutput: {
               hookEventName: "Stop",
-              additionalContext: `Symbiont · предохранитель гейта: ${FUSE_LIMIT} блокировок подряд — гейт снят до конца сессии (похоже на цикл; ` + `нарушения остаются фактом): ${all.map((v) => `${v.file}: «${v.law}»`).join("; ")}.`
+              additionalContext: t(`Symbiont · предохранитель гейта: ${FUSE_LIMIT} блокировок подряд — гейт снят до конца сессии (похоже на цикл; ` + `нарушения остаются фактом): ${all.map((v) => `${v.file}: «${statement(v.law)}»`).join("; ")}.`, `Symbiont · gate fuse: ${FUSE_LIMIT} blocks in a row — the gate is off until the end of the session (this looks like a loop; ` + `the violations remain a fact): ${all.map((v) => `${v.file}: “${statement(v.law)}”`).join("; ")}.`)
             }
           };
         }
         return {
           decision: "block",
-          reason: `Гейт Symbiont (режим блокировки, ${streak}/${FUSE_LIMIT}): изменённые файлы нарушают правила паспорта ` + `(законы формы + верификаторы направления) — приведи их к конвенциям проекта и закончи ход:
-` + all.map((v) => `- ${v.file} · «${v.law}» · ${v.detail}`).join(`
+          reason: t(`Гейт Symbiont (режим блокировки, ${streak}/${FUSE_LIMIT}): изменённые файлы нарушают правила паспорта ` + `(законы формы + верификаторы направления) — приведи их к конвенциям проекта и закончи ход:
+` + all.map((v) => `- ${v.file} · «${statement(v.law)}» · ${v.detail}`).join(`
 `) + `
-Правила выведены из репозитория (passport_conventions/passport_orphans); если отклонение намеренное — скажи об этом владельцу явно.`
+Правила выведены из репозитория (passport_conventions/passport_orphans); если отклонение намеренное — скажи об этом владельцу явно.`, `Symbiont gate (blocking mode, ${streak}/${FUSE_LIMIT}): the changed files break the passport's rules ` + `(form laws + direction verifiers) — bring them in line with the project's conventions and finish the turn:
+` + all.map((v) => `- ${v.file} · “${statement(v.law)}” · ${v.detail}`).join(`
+`) + `
+The rules are derived from this repository (passport_conventions/passport_orphans); if the deviation is deliberate, say so to the owner explicitly.`)
         };
       }
       if (freshLines.length === 0 && observations.length === 0)
         return {};
-      const gateBlock = freshLines.length > 0 ? `Symbiont · dry-run гейта (наблюдение, не блокировка): изменённые файлы нарушают правила паспорта ` + `(законы формы + верификаторы направления):
-` + `${freshLines.join(`
+      const gateBlock = freshLines.length > 0 ? t(`Symbiont · dry-run гейта (наблюдение, не блокировка): изменённые файлы нарушают правила паспорта ` + `(законы формы + верификаторы направления):
+${freshLines.join(`
 `)}
-` + `Правила выведены из репозитория (passport_conventions/passport_orphans).` : "";
-      const focusBlock = observations.length > 0 ? `Symbiont · наблюдение о ходе работы (факт, не требование):
+` + `Правила выведены из репозитория (passport_conventions/passport_orphans).`, `Symbiont · gate dry-run (an observation, not a block): the changed files break the passport's rules ` + `(form laws + direction verifiers):
+${freshLines.join(`
+`)}
+` + `The rules are derived from this repository (passport_conventions/passport_orphans).`) : "";
+      const focusBlock = observations.length > 0 ? `Symbiont · ${t("наблюдение о ходе работы (факт, не требование)", "an observation about how the work is going (a fact, not a demand)")}:
 ${observations.join(`
 `)}` : "";
       return {

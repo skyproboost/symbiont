@@ -15,6 +15,7 @@
 import type { Fact } from '../miner/facts'
 import type { ProfileProbe } from './profile'
 import { SIGNALS } from './signals'
+import { axisName, pattern } from '../core/i18n'
 
 export interface CommitInfo {
   subject: string
@@ -104,6 +105,39 @@ export function deriveSignals(commits: CommitInfo[]): DerivedSignals {
     valueMentions: countValueMentions(commits.map((c) => c.subject)),
   }
 }
+
+/**
+ * Английская форма выведенной конституции. Формулировки — факты журнала (в базе
+ * по-русски, ключ вытеснения считается по ним), поэтому перевод живёт образцами
+ * на последней миле: русская запись неприкосновенна, наружу уходит английская.
+ */
+const labelEn = (ru: string): string =>
+  ({
+    'развитие функций': 'feature development',
+    'надёжность и устранение дефектов': 'reliability and defect fixing',
+    'поисковая видимость': 'search visibility',
+    'чистота архитектуры': 'architectural cleanliness',
+    проверяемость: 'testability',
+  })[ru] ?? axisName(ru)
+
+pattern(/^приоритет: (.+) — ось качества с наибольшим числом сигналов в проекте$/, (m) => `priority: ${axisName(m[1])} — the quality axis with the most signals in this project`)
+pattern(/^фокус работы: (.+) — преобладающий тип коммитов \((\d+) из (\d+)\)$/, (m) => `focus of work: ${labelEn(m[1])} — the prevailing commit type (${m[2]} of ${m[3]})`)
+pattern(
+  /^ценность: (.+) — владелец возвращается к ней в формулировках работы \((\d+) из (\d+) коммитов\)$/,
+  (m) => `value: ${labelEn(m[1])} — the owner keeps returning to it when describing the work (${m[2]} of ${m[3]} commits)`,
+)
+pattern(
+  /^ограничение: зона (.+) — хрупкая \((\d+) правок-починок в истории\), менять осторожно и с проверкой$/,
+  (m) => `constraint: the ${m[1]} area is fragile (${m[2]} fix commits in history) — change it carefully and with verification`,
+)
+pattern(
+  /^ограничение: в истории есть откаты \((\d+)\) — рискованные правки проверять до коммита \(регрессии тут случались\)$/,
+  (m) => `constraint: history contains reverts (${m[1]}) — verify risky changes before committing (regressions have happened here)`,
+)
+pattern(
+  /^ограничение: защитные слои \((.+)\) не ослаблять без явного решения владельца$/,
+  (m) => `constraint: protective layers (${m[1]}) must not be weakened without the owner's explicit decision`,
+)
 
 const CONSTRAINT_MIN_FIXES = 4 // зона считается хрупкой от стольких fix-коммитов
 const AXIS_LABEL: Record<string, string> = {

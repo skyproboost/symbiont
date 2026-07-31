@@ -14,6 +14,37 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Fact } from '../miner/facts'
 import { SIGNALS, readManifestDeps, type Signal } from './signals'
+import { axisName, pattern } from '../core/i18n'
+
+/**
+ * Основание оси — тоже текст, и в английской подаче оно обязано быть английским.
+ * Переводятся только СВОИ формулировки; пути, имена зависимостей и «CI» — данные
+ * проекта и остаются как есть.
+ */
+const evidenceEn = (ru: string): string =>
+  ru === 'заявлено в доках'
+    ? 'declared in the docs'
+    : ru.startsWith('тестовых файлов: ')
+      ? `test files: ${ru.slice('тестовых файлов: '.length)}`
+      : ru
+
+const evidenceListEn = (ru: string, sep: string): string => ru.split(sep).map(evidenceEn).join(sep)
+
+// Формулировки профиля — факты журнала (в базе по-русски), поэтому английская
+// форма собирается на последней миле по образцу, а не второй строкой в базе.
+pattern(
+  /^безопасность — защитные слои: (.+) \(их ослабление — не рядовая правка\)$/,
+  (m) => `security — protective layers: ${m[1]} (weakening them is not an ordinary change)`,
+)
+pattern(
+  /^безопасность — явных защитных слоёв не обнаружено \(появятся — станут неприкосновенными\)$/,
+  () => 'security — no explicit protective layers found (once they appear, they become inviolable)',
+)
+pattern(
+  /^(.+) — заявлена в доках, в коде проекта не обнаружена$/,
+  (m) => `${axisName(m[1])} — declared in the docs, not found in the project's code`,
+)
+pattern(/^(.+) — ось качества здесь \((.+)\)$/, (m) => `${axisName(m[1])} — a quality axis here (${evidenceListEn(m[2], '; ')})`)
 
 export interface ProfileProbe {
   axis: string

@@ -8,7 +8,7 @@
  * оси-качества × типы-артефактов начинается здесь.
  */
 
-import { t } from '../core/i18n'
+import { t, axisList } from '../core/i18n'
 
 export type ArtifactClass =
   | 'код'
@@ -112,10 +112,20 @@ export function activeAxes(profile: ArtifactProfile): string[] {
   return [...axes]
 }
 
-const CLASS_LABEL: Record<ArtifactClass, string> = {
-  'код': 'код', 'контент': 'контент/тексты', 'разметка-стили': 'разметка/стили', 'данные': 'данные',
-  'конфиг-инфра': 'конфиг/инфра', 'дизайн': 'дизайн/графика', 'офис': 'офис-документы', 'медиа': 'медиа', 'прочее': 'прочее',
-}
+// Ярлык вида материала — только для показа: ключ класса остаётся русским
+// (по нему ходят таблица осей и рубрика возвышения).
+const classLabel = (c: ArtifactClass): string =>
+  ({
+    'код': t('код', 'code'),
+    'контент': t('контент/тексты', 'content/texts'),
+    'разметка-стили': t('разметка/стили', 'markup/styles'),
+    'данные': t('данные', 'data'),
+    'конфиг-инфра': t('конфиг/инфра', 'config/infra'),
+    'дизайн': t('дизайн/графика', 'design/graphics'),
+    'офис': t('офис-документы', 'office documents'),
+    'медиа': t('медиа', 'media'),
+    'прочее': t('прочее', 'other'),
+  })[c]
 
 /**
  * Стоячая стойка качества: пара «амбиция + сдержанность» (аксиома §9 концепта).
@@ -128,8 +138,11 @@ export function renderQualityStance(profile: ArtifactProfile): string {
   return [
     t('## Стойка качества (стоячая; действует без повторения в промптах)', '## Quality stance (standing; applies without being repeated in prompts)'),
     '',
-    `- цель: топ-1 по осям, применимым к этому проекту — ${axes.join(', ')}`,
-    '- ограничение: улучшения сверх задачи — предлагать, не делать; если правка описывается одним предложением — без церемоний',
+    `- ${t('цель', 'goal')}: ${t('топ-1 по осям, применимым к этому проекту', 'best in class on the axes that apply to this project')} — ${axisList(axes)}`,
+    `- ${t('ограничение', 'constraint')}: ${t(
+      'улучшения сверх задачи — предлагать, не делать; если правка описывается одним предложением — без церемоний',
+      'improvements beyond the task — propose, do not perform; if a change fits in one sentence, no ceremony',
+    )}`,
   ].join('\n')
 }
 
@@ -140,8 +153,8 @@ export function renderArtifacts(profile: ArtifactProfile): string {
   for (const c of profile.present) {
     const n = profile.counts[c]
     const pct = Math.round((n / profile.total) * 100)
-    lines.push(`- ${CLASS_LABEL[c]} — ${n} файлов (${pct}%)`)
+    lines.push(`- ${classLabel(c)} — ${n} ${t('файлов', 'files')} (${pct}%)`)
   }
-  lines.push(`- активные оси качества: ${activeAxes(profile).join(', ')}`)
+  lines.push(`- ${t('активные оси качества', 'active quality axes')}: ${axisList(activeAxes(profile))}`)
   return lines.join('\n')
 }

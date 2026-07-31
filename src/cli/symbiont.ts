@@ -153,23 +153,39 @@ try {
     // и том же разное — «hotspot: data-root.ts» против «hotspot-ов нет».
     console.log(renderDriftReport(computeHealth(db), computeDrift(db), hotspotsFromGit(root)))
     console.log('\n' + renderTruth(auditTruth(db, root, dataDir)))
-    console.log('\n_куда всё ползёт относительно прошлых замеров; выправляется фоном само, команда лишь показывает_')
+    console.log(
+      '\n' +
+        t(
+          '_куда всё ползёт относительно прошлых замеров; выправляется фоном само, команда лишь показывает_',
+          '_where things are drifting relative to earlier snapshots; the background fixes it by itself, the command only shows_',
+        ),
+    )
   } else {
     console.log(buildStatusReport(dataDir))
     // Что делает фон вместо удалённых команд — видно здесь же
     const bg = REPORTED_WORKS.map((id) => ({ id, last: lastRun(db, id) })).filter((r) => r.last !== null)
     if (bg.length > 0) {
-      console.log(' Фоновая работа (идёт сама, команд не требует)')
+      console.log(' ' + t('Фоновая работа (идёт сама, команд не требует)', 'Background work (runs on its own, needs no commands)'))
       for (const r of bg) {
         const ageH = Math.round((Date.now() - Date.parse(r.last!.at)) / 3_600_000)
-        const age = ageH < 1 ? 'меньше часа назад' : ageH < 48 ? `${ageH}ч назад` : `${Math.round(ageH / 24)}д назад`
+        const age =
+          ageH < 1
+            ? t('меньше часа назад', 'less than an hour ago')
+            : ageH < 48
+              ? t(`${ageH}ч назад`, `${ageH}h ago`)
+              : t(`${Math.round(ageH / 24)}д назад`, `${Math.round(ageH / 24)}d ago`)
         console.log(`   ${r.id.padEnd(12)}${r.last!.ok ? ' ' : '⚠'} ${age} · ${r.last!.note}`)
       }
       console.log('')
     }
     const util = renderUtility(rankKinds(db))
     if (util) console.log(` ${util}\n`)
-    console.log('_смежное: /symbiont:graph — интерактивная карта · /symbiont:health — что уползло и можно ли верить паспорту_')
+    console.log(
+      t(
+        '_смежное: /symbiont:graph — интерактивная карта · /symbiont:health — что уползло и можно ли верить паспорту_',
+        '_nearby: /symbiont:graph — the interactive map · /symbiont:health — what drifted and whether the passport can be trusted_',
+      ),
+    )
   }
 } finally {
   db.close()

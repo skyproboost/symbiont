@@ -3,6 +3,7 @@
  * Fail-open: нет git / не репозиторий / таймаут — возвращаем null, сводка без блока.
  */
 import { spawnSync } from 'node:child_process'
+import { t } from '../core/i18n'
 
 export interface GitState {
   branch: string
@@ -47,15 +48,20 @@ function asData(s: string, limit = 120): string {
 }
 
 export function renderGitBlock(g: GitState, reconciledDirty: number): string {
-  const lines = ['## Состояние', '']
+  const lines = [t('## Состояние', '## State'), '']
   lines.push(
-    `- ветка: ${g.branch} · незакоммичено: ${g.dirtyCount}${
+    `- ${t('ветка', 'branch')}: ${g.branch} · ${t('незакоммичено', 'uncommitted')}: ${g.dirtyCount}${
       g.dirtyCount > 0 ? ` (${g.dirtyTop.map((f) => asData(f, 80)).join(', ')}${g.dirtyCount > 5 ? ', …' : ''})` : ''
     }`,
   )
-  if (g.lastCommit) lines.push(`- последний коммит: ${asData(g.lastCommit)}`)
+  if (g.lastCommit) lines.push(`- ${t('последний коммит', 'last commit')}: ${asData(g.lastCommit)}`)
   if (reconciledDirty > 0) {
-    lines.push(`- прошлая сессия (${reconciledDirty} шт.) оборвалась без завершения — обрыв учтён`)
+    lines.push(
+      t(
+        `- прошлая сессия (${reconciledDirty} шт.) оборвалась без завершения — обрыв учтён`,
+        `- ${reconciledDirty} previous session(s) died without finishing — the break has been accounted for`,
+      ),
+    )
   }
   return lines.join('\n')
 }

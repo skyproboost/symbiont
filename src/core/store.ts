@@ -10,6 +10,7 @@
  */
 import type { Database } from './db'
 import type { Fact } from '../miner/facts'
+import { t } from './i18n'
 import { initRating, confirmRating, effectiveDeviation, liveTier } from './ratings'
 import { initialStability, retrievability, confirmStability, isDue } from './schedule'
 
@@ -40,9 +41,12 @@ export interface FactRow extends Fact {
 export function factBasis(fact: { source?: string; positive: number; total: number; prevalence: number }): string {
   const pct = Math.round(fact.prevalence * 100)
   if (typeof fact.source === 'string' && fact.source.startsWith('llm:')) {
-    return `выведено по ${fact.total} образцам (уверенность ${pct}%, не измерено)`
+    return t(
+      `выведено по ${fact.total} образцам (уверенность ${pct}%, не измерено)`,
+      `inferred from ${fact.total} samples (confidence ${pct}%, not measured)`,
+    )
   }
-  return `${fact.positive} из ${fact.total} (${pct}%)`
+  return `${fact.positive} ${t('из', 'of')} ${fact.total} (${pct}%)`
 }
 
 /** Ключ факта: «область|предмет» — часть утверждения до тире. */

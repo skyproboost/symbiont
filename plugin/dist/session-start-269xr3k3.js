@@ -7,17 +7,19 @@ import {
   readAvailability,
   recordOutcome,
   resolveVector
-} from "./session-start-2ac08kse.js";
+} from "./session-start-8tcn3fb2.js";
 import {
   internalEnv
 } from "./session-start-5s7r4262.js";
 import {
+  init_i18n,
   readFrame,
   t
-} from "./session-start-8nd3663h.js";
+} from "./session-start-spcqe6t1.js";
 
 // src/layer2/llm.ts
 import { spawnSync } from "node:child_process";
+init_i18n();
 
 // src/domains/refusal.ts
 var REFUSAL_MARKERS = [

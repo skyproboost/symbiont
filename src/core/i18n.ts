@@ -305,11 +305,65 @@ export function pair(ru: string, en: string): string {
   return ru
 }
 
+/**
+ * Шаблонные формулировки: «<ось> — заявлена в доках…», «приоритет: <ось> — …».
+ *
+ * Пара строк не годится там, где в формулировку подставлены данные проекта:
+ * зарегистрировать все варианты нельзя, а без перевода факт уходит наружу
+ * по-русски. Поэтому рядом с таблицей пар живёт таблица образцов: регулярка
+ * ловит форму, функция собирает английскую формулировку из тех же групп.
+ * Регистрируется, как и пары, при загрузке модуля-владельца формулировки.
+ */
+const PATTERNS: Array<{ re: RegExp; en: (m: RegExpMatchArray) => string }> = []
+
+/** Объявить образец формулировки. Возвращает ничего — русская строка строится на месте. */
+export function pattern(re: RegExp, en: (m: RegExpMatchArray) => string): void {
+  PATTERNS.push({ re, en })
+}
+
+/**
+ * Название оси качества. Оси — ВНУТРЕННИЕ КЛЮЧИ: по ним ходят правила, рубрика
+ * возвышения и профиль, они лежат в журнале. Поэтому ключ остаётся русским
+ * всегда, а перевод случается в момент показа — как у яруса и области.
+ */
+export const axisName = (ru: string): string =>
+  current === 'en'
+    ? ({
+        безопасность: 'security',
+        корректность: 'correctness',
+        производительность: 'performance',
+        поддерживаемость: 'maintainability',
+        отказоустойчивость: 'resilience',
+        наблюдаемость: 'observability',
+        'находимость/SEO': 'findability/SEO',
+        'связность/перелинковка': 'connectedness/interlinking',
+        'полнота/покрытие': 'completeness/coverage',
+        доступность: 'accessibility',
+        'легитимность/контекст': 'legitimacy/context',
+        совместимость: 'compatibility',
+        'целостность данных': 'data integrity',
+        поставляемость: 'deliverability',
+        'масштабируемость (горизонт+вертикаль)': 'scalability (horizontal + vertical)',
+        согласованность: 'consistency',
+        'UX/эргономика': 'UX/ergonomics',
+        стоимость: 'cost',
+        приватность: 'privacy',
+        SEO: 'SEO',
+      } as Record<string, string>)[ru] ?? ru
+    : ru
+
+/** Список осей на языке подачи (порядок сохраняется — он несёт вес сигналов). */
+export const axisList = (axes: string[]): string => axes.map(axisName).join(', ')
+
 /** Формулировка факта на текущем языке; незнакомая (от модели) — как есть. */
 export function statement(ru: string): string {
   if (current !== 'en') return ru
   const known = STATEMENTS.get(ru)
   if (known) return known
+  for (const p of PATTERNS) {
+    const m = ru.match(p.re)
+    if (m) return p.en(m)
+  }
   // Шаблонная формулировка: «венгерская нотация — префиксы типа: s* (12), a* (4)».
   // Переводится голова до двоеточия, хвост с числами остаётся как есть — он и
   // так на языке кода

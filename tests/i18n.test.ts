@@ -14,6 +14,10 @@ import { join } from 'node:path'
 import { letters, observePrompt, observeComments, chooseLang, readState, statement, tier, pair, setLang, lang } from '../src/core/i18n'
 import { deriveFacts } from '../src/miner/facts'
 import { analyzeFile, aggregate } from '../src/miner/analyze'
+import { artifactProfile, renderArtifacts, renderQualityStance } from '../src/passport/artifacts'
+import { profileFacts } from '../src/passport/profile'
+import { deriveConstitutionFacts } from '../src/passport/constitution-derive'
+import { factBasis } from '../src/core/store'
 
 const world = (): string => mkdtempSync(join(tmpdir(), 'symbiont-lang-'))
 
@@ -144,5 +148,54 @@ describe('перевод формулировок — на последней м
       setLang('ru')
     }
     rmrf(dir)
+  })
+})
+
+describe('английская подача — полная, а не наполовину', () => {
+  // Полупереведённый вывод (заголовки английские, строки русские) — худший из
+  // исходов: он выглядит рабочим и проходит проверки на подстроку. Поэтому
+  // проверяется ОТСУТСТВИЕ кириллицы в том, что плагин говорит от себя.
+  const cyr = /[а-яё]/i
+
+  it('стойка качества, состав, профиль и конституция — без кириллицы', () => {
+    const profile = artifactProfile([
+      { name: 'a.ts', ext: '.ts' },
+      { name: 'b.ts', ext: '.ts' },
+      { name: 'c.md', ext: '.md' },
+      { name: 'd.json', ext: '.json' },
+    ])
+    const probes = [
+      { axis: 'корректность', evidence: ['тестовых файлов: 12', 'CI', 'заявлено в доках'] },
+      { axis: 'приватность', evidence: ['заявлено в доках'] },
+      { axis: 'безопасность', evidence: [] as string[] },
+    ]
+    setLang('en')
+    try {
+      expect(cyr.test(renderQualityStance(profile))).toBe(false)
+      expect(cyr.test(renderArtifacts(profile))).toBe(false)
+      for (const f of profileFacts(probes)) expect(cyr.test(statement(f.statement))).toBe(false)
+      const consts = deriveConstitutionFacts(
+        { commitTypes: { fix: 30 }, reverts: 3, fixZones: { 'src/core': 9 }, totalCommits: 60, valueMentions: { performance: 12 } },
+        probes,
+      )
+      expect(consts.length).toBeGreaterThan(0)
+      for (const f of consts) expect(cyr.test(statement(f.statement))).toBe(false)
+      expect(factBasis({ positive: 5, total: 7, prevalence: 0.71 })).toBe('5 of 7 (71%)')
+    } finally {
+      setLang('ru')
+    }
+  })
+
+  it('оси качества переводятся, но ключ факта остаётся русским', () => {
+    const probes = [{ axis: 'целостность данных', evidence: ['заявлено в доках'] }]
+    const fact = profileFacts(probes)[0]
+    // В журнале — русская формулировка: по ней считается ключ вытеснения
+    expect(fact.statement.startsWith('целостность данных')).toBe(true)
+    setLang('en')
+    try {
+      expect(statement(fact.statement)).toBe("data integrity — declared in the docs, not found in the project's code")
+    } finally {
+      setLang('ru')
+    }
   })
 })

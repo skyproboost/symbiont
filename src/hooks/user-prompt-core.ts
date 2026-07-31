@@ -11,7 +11,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDb } from '../core/db'
-import { observePrompt, initLang } from '../core/i18n'
+import { observePrompt, initLang, t, statement } from '../core/i18n'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
 import { ensureFeedLog, claimNode, nodeBrief } from './node-brief'
@@ -126,12 +126,16 @@ export function handleUserPrompt(input: UserPromptInput, dataRoot: string): Prom
             // подавляет god-узлы, поднимает специфично притянутое сидом.
             const ranked = taskRelevantNeighbors(allNodes, edgeList, seeds, neighborhood, 8)
             const related: string[] = []
-            for (const t of ranked) {
+            // Имя `cand`, а не `t`: короткое `t` затенило бы функцию перевода.
+            for (const cand of ranked) {
               if (related.length >= 3) break
-              if (claimNode(db, sid, t.file, 'related')) related.push(t.file) // дедуп на сессию
+              if (claimNode(db, sid, cand.file, 'related')) related.push(cand.file) // дедуп на сессию
             }
             if (related.length > 0) {
-              relatedBlock = `Symbiont · связано с задачей (по связям проекта, а не по совпадению слов): ${related.join(', ')}`
+              relatedBlock = `Symbiont · ${t(
+                'связано с задачей (по связям проекта, а не по совпадению слов)',
+                "related to the task (by the project's links, not by word overlap)",
+              )}: ${related.join(', ')}`
             }
           }
         }
@@ -146,7 +150,10 @@ export function handleUserPrompt(input: UserPromptInput, dataRoot: string): Prom
         if (freshZones.length > 0) {
           const lessons = lessonsForZones(db, freshZones, 2)
           if (lessons.length > 0) {
-            lessonBlock = `Symbiont · уроки по зоне (из прошлых поправок владельца — не повтори): ${lessons.map((l) => l.statement).join(' · ')}`
+            lessonBlock = `Symbiont · ${t(
+              'уроки по зоне (из прошлых поправок владельца — не повтори)',
+              "lessons for this area (from the owner's past corrections — do not repeat them)",
+            )}: ${lessons.map((l) => statement(l.statement)).join(' · ')}`
           }
         }
       }
@@ -158,12 +165,18 @@ export function handleUserPrompt(input: UserPromptInput, dataRoot: string): Prom
       const deep = fresh.filter((n) => n.in_deg >= DEEP_THRESHOLD)
       const depthNote =
         deep.length > 0
-          ? `\nУзлы глубокого влияния (${deep.map((n) => `${n.file}: вход ${n.in_deg}`).join('; ')}) — правки таких узлов многофайловые по последствиям.`
+          ? t(
+              `\nУзлы глубокого влияния (${deep.map((n) => `${n.file}: вход ${n.in_deg}`).join('; ')}) — правки таких узлов многофайловые по последствиям.`,
+              `\nDeep-influence nodes (${deep.map((n) => `${n.file}: in ${n.in_deg}`).join('; ')}) — changes to these have multi-file consequences.`,
+            )
           : ''
 
       const graphBlock =
         lines.length > 0
-          ? `Symbiont · срез графа по упомянутым файлам (полный радиус: passport_impact):\n${lines.join('\n')}${depthNote}`
+          ? `Symbiont · ${t(
+              'срез графа по упомянутым файлам (полный радиус: passport_impact)',
+              'graph slice for the files you mentioned (full radius: passport_impact)',
+            )}:\n${lines.join('\n')}${depthNote}`
           : ''
       return {
         hookSpecificOutput: {

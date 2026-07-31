@@ -5,6 +5,243 @@ import {
   __toCommonJS
 } from "./session-start-70d7ckvt.js";
 
+// src/core/i18n.ts
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+function letters(text) {
+  let cyr = 0;
+  let lat = 0;
+  for (const ch of text) {
+    if (ch >= "а" && ch <= "я")
+      cyr++;
+    else if (ch >= "А" && ch <= "Я")
+      cyr++;
+    else if (ch === "ё" || ch === "Ё")
+      cyr++;
+    else if (ch >= "a" && ch <= "z" || ch >= "A" && ch <= "Z")
+      lat++;
+  }
+  return { cyr, lat };
+}
+function readState(dataDir) {
+  try {
+    const p = join(dataDir, FILE);
+    if (!existsSync(p))
+      return { ...EMPTY };
+    const raw = JSON.parse(readFileSync(p, "utf8"));
+    return {
+      choice: raw.choice === "ru" || raw.choice === "en" ? raw.choice : null,
+      prompts: { ...EMPTY.prompts, ...raw.prompts ?? {} },
+      comments: { ...EMPTY.comments, ...raw.comments ?? {} },
+      lang: raw.lang === "en" ? "en" : "ru",
+      source: raw.source ?? "default",
+      at: raw.at ?? ""
+    };
+  } catch {
+    return { ...EMPTY };
+  }
+}
+function writeState(dataDir, s) {
+  try {
+    writeFileSync(join(dataDir, FILE), `${JSON.stringify(s, null, 2)}
+`, "utf8");
+  } catch {}
+}
+function langFromSystem() {
+  try {
+    const locale = process.env.LANG ?? process.env.LC_ALL ?? Intl.DateTimeFormat().resolvedOptions().locale ?? "";
+    if (/^ru/i.test(locale))
+      return "ru";
+    return /^[a-z]{2}/i.test(locale) ? "en" : null;
+  } catch {
+    return null;
+  }
+}
+function langFromDocs(projectRoot) {
+  const names = ["README.md", "readme.md", "README.txt", "CONTRIBUTING.md", "docs/README.md"];
+  let text = "";
+  for (const n of names) {
+    try {
+      const p = join(projectRoot, n);
+      if (existsSync(p))
+        text += readFileSync(p, "utf8").slice(0, 20000);
+    } catch {
+      continue;
+    }
+  }
+  const l = letters(text);
+  return l.cyr + l.lat < 200 ? null : decide(l.cyr, l.lat);
+}
+function langFromCommits(projectRoot) {
+  try {
+    const r = spawnSync("git", ["log", "--format=%s", "-n", "120"], { cwd: projectRoot, encoding: "utf8", timeout: 4000, windowsHide: true });
+    if (r.status !== 0 || !r.stdout)
+      return null;
+    const l = letters(r.stdout);
+    return l.cyr + l.lat < 100 ? null : decide(l.cyr, l.lat);
+  } catch {
+    return null;
+  }
+}
+function decideFrom(state, projectRoot) {
+  if (state.choice)
+    return { lang: state.choice, source: "choice" };
+  if (enough(state.prompts, 25))
+    return { lang: decide(state.prompts.cyr, state.prompts.lat), source: "prompts" };
+  if (enough(state.comments, 200))
+    return { lang: decide(state.comments.cyr, state.comments.lat), source: "comments" };
+  if (projectRoot) {
+    const docs = langFromDocs(projectRoot);
+    if (docs)
+      return { lang: docs, source: "docs" };
+  }
+  const sys = langFromSystem();
+  if (sys)
+    return { lang: sys, source: "system" };
+  if (projectRoot) {
+    const commits = langFromCommits(projectRoot);
+    if (commits)
+      return { lang: commits, source: "commits" };
+  }
+  return { lang: "en", source: "default" };
+}
+function initLang(dataDir, projectRoot) {
+  const env = envLang();
+  if (env) {
+    setLang(env);
+    return { lang: env, source: "env" };
+  }
+  if (!dataDir)
+    return { lang: current, source: "default" };
+  const state = readState(dataDir);
+  const verdict = decideFrom(state, projectRoot);
+  setLang(verdict.lang);
+  if (state.lang !== verdict.lang || state.source !== verdict.source) {
+    writeState(dataDir, { ...state, lang: verdict.lang, source: verdict.source, at: new Date().toISOString() });
+  }
+  return verdict;
+}
+function observePrompt(dataDir, text) {
+  const l = letters(text);
+  if (l.cyr + l.lat < 5)
+    return;
+  const state = readState(dataDir);
+  const decay = 0.7;
+  state.prompts = {
+    cyr: Math.round((state.prompts.cyr * decay + l.cyr) * 100) / 100,
+    lat: Math.round((state.prompts.lat * decay + l.lat) * 100) / 100,
+    n: state.prompts.n + 1
+  };
+  const verdict = decideFrom(state, null);
+  state.lang = verdict.lang;
+  state.source = verdict.source;
+  state.at = new Date().toISOString();
+  writeState(dataDir, state);
+}
+function observeComments(dataDir, cyr, lat) {
+  if (cyr + lat < 50)
+    return;
+  const state = readState(dataDir);
+  if (state.comments.cyr === cyr && state.comments.lat === lat)
+    return;
+  state.comments = { cyr, lat, n: 1 };
+  const verdict = decideFrom(state, null);
+  state.lang = verdict.lang;
+  state.source = verdict.source;
+  state.at = new Date().toISOString();
+  writeState(dataDir, state);
+}
+function chooseLang(dataDir, choice) {
+  const state = readState(dataDir);
+  state.choice = choice;
+  const verdict = decideFrom(state, null);
+  state.lang = verdict.lang;
+  state.source = verdict.source;
+  state.at = new Date().toISOString();
+  writeState(dataDir, state);
+  setLang(verdict.lang);
+  return verdict;
+}
+function pair(ru, en) {
+  STATEMENTS.set(ru, en);
+  return ru;
+}
+function pattern(re, en) {
+  PATTERNS.push({ re, en });
+}
+function statement(ru) {
+  if (current !== "en")
+    return ru;
+  const known = STATEMENTS.get(ru);
+  if (known)
+    return known;
+  for (const p of PATTERNS) {
+    const m = ru.match(p.re);
+    if (m)
+      return p.en(m);
+  }
+  const colon = ru.indexOf(": ");
+  if (colon > 0) {
+    const head = STATEMENTS.get(ru.slice(0, colon));
+    if (head)
+      return `${head}: ${ru.slice(colon + 2)}`;
+  }
+  return ru;
+}
+var FILE = "lang.json", current, lang = () => current, setLang = (l) => {
+  current = l;
+}, t = (ru, en) => current === "en" ? en : ru, RU_SHARE = 0.15, decide = (cyr, lat) => cyr + lat > 0 && cyr / (cyr + lat) >= RU_SHARE ? "ru" : "en", sourceLabel = (key) => ({
+  choice: t("ваш выбор", "your choice"),
+  env: t("переменная окружения", "environment variable"),
+  prompts: t("язык ваших сообщений", "the language you write in"),
+  comments: t("язык комментариев в коде", "the language of code comments"),
+  docs: t("язык документации проекта", "the language of project docs"),
+  system: t("язык системы", "system language"),
+  commits: t("язык коммитов", "the language of commits"),
+  default: t("умолчание", "default")
+})[key], EMPTY, enough = (c, min) => c.cyr + c.lat >= min, envLang = () => {
+  const v = (process.env.SYMBIONT_LANG ?? "").toLowerCase();
+  return v === "ru" || v === "en" ? v : null;
+}, STATEMENTS, PATTERNS, axisName = (ru) => current === "en" ? {
+  безопасность: "security",
+  корректность: "correctness",
+  производительность: "performance",
+  поддерживаемость: "maintainability",
+  отказоустойчивость: "resilience",
+  наблюдаемость: "observability",
+  "находимость/SEO": "findability/SEO",
+  "связность/перелинковка": "connectedness/interlinking",
+  "полнота/покрытие": "completeness/coverage",
+  доступность: "accessibility",
+  "легитимность/контекст": "legitimacy/context",
+  совместимость: "compatibility",
+  "целостность данных": "data integrity",
+  поставляемость: "deliverability",
+  "масштабируемость (горизонт+вертикаль)": "scalability (horizontal + vertical)",
+  согласованность: "consistency",
+  "UX/эргономика": "UX/ergonomics",
+  стоимость: "cost",
+  приватность: "privacy",
+  SEO: "SEO"
+}[ru] ?? ru : ru, axisList = (axes) => axes.map(axisName).join(", "), tier = (ru) => current === "en" ? { закон: "law", привычка: "habit", гипотеза: "hypothesis", "нет консенсуса": "no consensus" }[ru] ?? ru : ru;
+var init_i18n = __esm(() => {
+  current = (() => {
+    const v = (process.env.SYMBIONT_LANG ?? "").toLowerCase();
+    return v === "ru" || v === "en" ? v : "en";
+  })();
+  EMPTY = {
+    choice: null,
+    prompts: { cyr: 0, lat: 0, n: 0 },
+    comments: { cyr: 0, lat: 0, n: 0 },
+    lang: "ru",
+    source: "default",
+    at: ""
+  };
+  STATEMENTS = new Map;
+  PATTERNS = [];
+});
+
 // src/passport/signals.ts
 import { readFileSync as readFileSync3 } from "node:fs";
 import { join as join3 } from "node:path";
@@ -269,11 +506,24 @@ function deriveConstitutionFacts(signals, profile) {
   }
   return facts;
 }
-var CONVENTIONAL, REVERT, CONSTRAINT_MIN_FIXES = 4, AXIS_LABEL;
+var CONVENTIONAL, REVERT, labelEn = (ru) => ({
+  "развитие функций": "feature development",
+  "надёжность и устранение дефектов": "reliability and defect fixing",
+  "поисковая видимость": "search visibility",
+  "чистота архитектуры": "architectural cleanliness",
+  проверяемость: "testability"
+})[ru] ?? axisName(ru), CONSTRAINT_MIN_FIXES = 4, AXIS_LABEL;
 var init_constitution_derive = __esm(() => {
   init_signals();
+  init_i18n();
   CONVENTIONAL = /^(feat|fix|perf|seo|refactor|docs|test|chore|style|build|ci)(\([^)]*\))?!?:/i;
   REVERT = /^revert|откат|\brollback\b/i;
+  pattern(/^приоритет: (.+) — ось качества с наибольшим числом сигналов в проекте$/, (m) => `priority: ${axisName(m[1])} — the quality axis with the most signals in this project`);
+  pattern(/^фокус работы: (.+) — преобладающий тип коммитов \((\d+) из (\d+)\)$/, (m) => `focus of work: ${labelEn(m[1])} — the prevailing commit type (${m[2]} of ${m[3]})`);
+  pattern(/^ценность: (.+) — владелец возвращается к ней в формулировках работы \((\d+) из (\d+) коммитов\)$/, (m) => `value: ${labelEn(m[1])} — the owner keeps returning to it when describing the work (${m[2]} of ${m[3]} commits)`);
+  pattern(/^ограничение: зона (.+) — хрупкая \((\d+) правок-починок в истории\), менять осторожно и с проверкой$/, (m) => `constraint: the ${m[1]} area is fragile (${m[2]} fix commits in history) — change it carefully and with verification`);
+  pattern(/^ограничение: в истории есть откаты \((\d+)\) — рискованные правки проверять до коммита \(регрессии тут случались\)$/, (m) => `constraint: history contains reverts (${m[1]}) — verify risky changes before committing (regressions have happened here)`);
+  pattern(/^ограничение: защитные слои \((.+)\) не ослаблять без явного решения владельца$/, (m) => `constraint: protective layers (${m[1]}) must not be weakened without the owner's explicit decision`);
   AXIS_LABEL = {
     feat: "развитие функций",
     fix: "надёжность и устранение дефектов",
@@ -515,223 +765,12 @@ function mustLoad(runtime, what) {
   return driver;
 }
 
-// src/core/i18n.ts
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { spawnSync } from "node:child_process";
-var FILE = "lang.json";
-var current = (() => {
-  const v = (process.env.SYMBIONT_LANG ?? "").toLowerCase();
-  return v === "ru" || v === "en" ? v : "en";
-})();
-var lang = () => current;
-var setLang = (l) => {
-  current = l;
-};
-var t = (ru, en) => current === "en" ? en : ru;
-function letters(text) {
-  let cyr = 0;
-  let lat = 0;
-  for (const ch of text) {
-    if (ch >= "а" && ch <= "я")
-      cyr++;
-    else if (ch >= "А" && ch <= "Я")
-      cyr++;
-    else if (ch === "ё" || ch === "Ё")
-      cyr++;
-    else if (ch >= "a" && ch <= "z" || ch >= "A" && ch <= "Z")
-      lat++;
-  }
-  return { cyr, lat };
-}
-var RU_SHARE = 0.15;
-var decide = (cyr, lat) => cyr + lat > 0 && cyr / (cyr + lat) >= RU_SHARE ? "ru" : "en";
-var sourceLabel = (key) => ({
-  choice: t("ваш выбор", "your choice"),
-  env: t("переменная окружения", "environment variable"),
-  prompts: t("язык ваших сообщений", "the language you write in"),
-  comments: t("язык комментариев в коде", "the language of code comments"),
-  docs: t("язык документации проекта", "the language of project docs"),
-  system: t("язык системы", "system language"),
-  commits: t("язык коммитов", "the language of commits"),
-  default: t("умолчание", "default")
-})[key];
-var EMPTY = {
-  choice: null,
-  prompts: { cyr: 0, lat: 0, n: 0 },
-  comments: { cyr: 0, lat: 0, n: 0 },
-  lang: "ru",
-  source: "default",
-  at: ""
-};
-function readState(dataDir) {
-  try {
-    const p = join(dataDir, FILE);
-    if (!existsSync(p))
-      return { ...EMPTY };
-    const raw = JSON.parse(readFileSync(p, "utf8"));
-    return {
-      choice: raw.choice === "ru" || raw.choice === "en" ? raw.choice : null,
-      prompts: { ...EMPTY.prompts, ...raw.prompts ?? {} },
-      comments: { ...EMPTY.comments, ...raw.comments ?? {} },
-      lang: raw.lang === "en" ? "en" : "ru",
-      source: raw.source ?? "default",
-      at: raw.at ?? ""
-    };
-  } catch {
-    return { ...EMPTY };
-  }
-}
-function writeState(dataDir, s) {
-  try {
-    writeFileSync(join(dataDir, FILE), `${JSON.stringify(s, null, 2)}
-`, "utf8");
-  } catch {}
-}
-function langFromSystem() {
-  try {
-    const locale = process.env.LANG ?? process.env.LC_ALL ?? Intl.DateTimeFormat().resolvedOptions().locale ?? "";
-    if (/^ru/i.test(locale))
-      return "ru";
-    return /^[a-z]{2}/i.test(locale) ? "en" : null;
-  } catch {
-    return null;
-  }
-}
-function langFromDocs(projectRoot) {
-  const names = ["README.md", "readme.md", "README.txt", "CONTRIBUTING.md", "docs/README.md"];
-  let text = "";
-  for (const n of names) {
-    try {
-      const p = join(projectRoot, n);
-      if (existsSync(p))
-        text += readFileSync(p, "utf8").slice(0, 20000);
-    } catch {
-      continue;
-    }
-  }
-  const l = letters(text);
-  return l.cyr + l.lat < 200 ? null : decide(l.cyr, l.lat);
-}
-function langFromCommits(projectRoot) {
-  try {
-    const r = spawnSync("git", ["log", "--format=%s", "-n", "120"], { cwd: projectRoot, encoding: "utf8", timeout: 4000, windowsHide: true });
-    if (r.status !== 0 || !r.stdout)
-      return null;
-    const l = letters(r.stdout);
-    return l.cyr + l.lat < 100 ? null : decide(l.cyr, l.lat);
-  } catch {
-    return null;
-  }
-}
-var enough = (c, min) => c.cyr + c.lat >= min;
-function decideFrom(state, projectRoot) {
-  if (state.choice)
-    return { lang: state.choice, source: "choice" };
-  if (enough(state.prompts, 25))
-    return { lang: decide(state.prompts.cyr, state.prompts.lat), source: "prompts" };
-  if (enough(state.comments, 200))
-    return { lang: decide(state.comments.cyr, state.comments.lat), source: "comments" };
-  if (projectRoot) {
-    const docs = langFromDocs(projectRoot);
-    if (docs)
-      return { lang: docs, source: "docs" };
-  }
-  const sys = langFromSystem();
-  if (sys)
-    return { lang: sys, source: "system" };
-  if (projectRoot) {
-    const commits = langFromCommits(projectRoot);
-    if (commits)
-      return { lang: commits, source: "commits" };
-  }
-  return { lang: "en", source: "default" };
-}
-var envLang = () => {
-  const v = (process.env.SYMBIONT_LANG ?? "").toLowerCase();
-  return v === "ru" || v === "en" ? v : null;
-};
-function initLang(dataDir, projectRoot) {
-  const env = envLang();
-  if (env) {
-    setLang(env);
-    return { lang: env, source: "env" };
-  }
-  if (!dataDir)
-    return { lang: current, source: "default" };
-  const state = readState(dataDir);
-  const verdict = decideFrom(state, projectRoot);
-  setLang(verdict.lang);
-  if (state.lang !== verdict.lang || state.source !== verdict.source) {
-    writeState(dataDir, { ...state, lang: verdict.lang, source: verdict.source, at: new Date().toISOString() });
-  }
-  return verdict;
-}
-function observePrompt(dataDir, text) {
-  const l = letters(text);
-  if (l.cyr + l.lat < 5)
-    return;
-  const state = readState(dataDir);
-  const decay = 0.7;
-  state.prompts = {
-    cyr: Math.round((state.prompts.cyr * decay + l.cyr) * 100) / 100,
-    lat: Math.round((state.prompts.lat * decay + l.lat) * 100) / 100,
-    n: state.prompts.n + 1
-  };
-  const verdict = decideFrom(state, null);
-  state.lang = verdict.lang;
-  state.source = verdict.source;
-  state.at = new Date().toISOString();
-  writeState(dataDir, state);
-}
-function observeComments(dataDir, cyr, lat) {
-  if (cyr + lat < 50)
-    return;
-  const state = readState(dataDir);
-  if (state.comments.cyr === cyr && state.comments.lat === lat)
-    return;
-  state.comments = { cyr, lat, n: 1 };
-  const verdict = decideFrom(state, null);
-  state.lang = verdict.lang;
-  state.source = verdict.source;
-  state.at = new Date().toISOString();
-  writeState(dataDir, state);
-}
-function chooseLang(dataDir, choice) {
-  const state = readState(dataDir);
-  state.choice = choice;
-  const verdict = decideFrom(state, null);
-  state.lang = verdict.lang;
-  state.source = verdict.source;
-  state.at = new Date().toISOString();
-  writeState(dataDir, state);
-  setLang(verdict.lang);
-  return verdict;
-}
-var STATEMENTS = new Map;
-function pair(ru, en) {
-  STATEMENTS.set(ru, en);
-  return ru;
-}
-function statement(ru) {
-  if (current !== "en")
-    return ru;
-  const known = STATEMENTS.get(ru);
-  if (known)
-    return known;
-  const colon = ru.indexOf(": ");
-  if (colon > 0) {
-    const head = STATEMENTS.get(ru.slice(0, colon));
-    if (head)
-      return `${head}: ${ru.slice(colon + 2)}`;
-  }
-  return ru;
-}
-var tier = (ru) => current === "en" ? { закон: "law", привычка: "habit", гипотеза: "hypothesis", "нет консенсуса": "no consensus" }[ru] ?? ru : ru;
-
 // src/gardener/truth.ts
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 import { join as join2 } from "node:path";
+
+// src/core/store.ts
+init_i18n();
 
 // src/core/ratings.ts
 var clamp = (x, lo, hi) => Math.min(Math.max(x, lo), hi);
@@ -798,9 +837,9 @@ function isDue(stabilityDays, seenAtIso, nowMs = Date.now()) {
 function factBasis(fact) {
   const pct = Math.round(fact.prevalence * 100);
   if (typeof fact.source === "string" && fact.source.startsWith("llm:")) {
-    return `выведено по ${fact.total} образцам (уверенность ${pct}%, не измерено)`;
+    return t(`выведено по ${fact.total} образцам (уверенность ${pct}%, не измерено)`, `inferred from ${fact.total} samples (confidence ${pct}%, not measured)`);
   }
-  return `${fact.positive} из ${fact.total} (${pct}%)`;
+  return `${fact.positive} ${t("из", "of")} ${fact.total} (${pct}%)`;
 }
 function keyOf(fact) {
   const subject = fact.statement.split("—")[0].trim();
@@ -1038,6 +1077,7 @@ function renderTruth(issues) {
 }
 
 // src/gardener/drift.ts
+init_i18n();
 var num = (db, sql) => {
   try {
     const r = db.query(sql).get();
@@ -1336,6 +1376,7 @@ class Engine {
 init_walk();
 
 // src/miner/packs.ts
+init_i18n();
 var AXES = [
   {
     id: "py-strings",
@@ -1534,6 +1575,7 @@ function addAxes(into, from) {
 }
 
 // src/miner/analyze.ts
+init_i18n();
 var emptyJsStats = () => ({
   decl: { var: 0, let: 0, const: 0 },
   fn: { arrow: 0, decl: 0 },
@@ -1845,6 +1887,7 @@ function aggregate(obs, allExts) {
 }
 
 // src/miner/facts.ts
+init_i18n();
 function tierOf(prevalence, total) {
   if (prevalence >= 0.95 && total >= 30)
     return "закон";
@@ -2688,6 +2731,7 @@ function nodeStats(g) {
 }
 
 // src/graph/entities.ts
+init_i18n();
 import { dirname as dirname2, join as join6, normalize as normalize3 } from "node:path/posix";
 var ENTITY_EXT = new Set([".md", ".mdx", ".markdown", ".html", ".htm", ".yaml", ".yml"]);
 var EXTERNAL_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
@@ -2900,19 +2944,19 @@ function renderEntityBlock(g) {
   if (g.nodes.length < 5 || g.edges.length < 3)
     return "";
   const lines = [
-    "## Контент-граф (сущности и перелинковка; детали: passport_orphans / passport_reach)",
+    t("## Контент-граф (сущности и перелинковка; детали: passport_orphans / passport_reach)", "## Content graph (entities and interlinking; details: passport_orphans / passport_reach)"),
     "",
-    `- сущностей: ${g.nodes.length} · перелинковок: ${g.edges.length} · хабов: ${g.hubs.length}`
+    `- ${t("сущностей", "entities")}: ${g.nodes.length} · ${t("перелинковок", "links")}: ${g.edges.length} · ${t("хабов", "hubs")}: ${g.hubs.length}`
   ];
   const issues = [];
   if (g.orphans.length > 0)
-    issues.push(`сироты (0 входящих): ${g.orphans.length}`);
+    issues.push(`${t("сироты (0 входящих)", "orphans (0 inbound)")}: ${g.orphans.length}`);
   if (g.unreachable.length > 0)
-    issues.push(`недостижимы из хабов: ${g.unreachable.length}`);
+    issues.push(`${t("недостижимы из хабов", "unreachable from hubs")}: ${g.unreachable.length}`);
   if (g.broken.length > 0)
-    issues.push(`битые внутренние ссылки: ${g.broken.length}`);
+    issues.push(`${t("битые внутренние ссылки", "broken internal links")}: ${g.broken.length}`);
   if (g.dupAnchors.length > 0)
-    issues.push(`анкоры на разные цели: ${g.dupAnchors.length}`);
+    issues.push(`${t("анкоры на разные цели", "anchors pointing to different targets")}: ${g.dupAnchors.length}`);
   if (issues.length > 0)
     lines.push(`- ⚠ ${issues.join(" · ")}`);
   lines.push("");
@@ -2922,8 +2966,15 @@ function renderEntityBlock(g) {
 
 // src/passport/profile.ts
 init_signals();
+init_i18n();
 import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
 import { join as join7 } from "node:path";
+var evidenceEn = (ru) => ru === "заявлено в доках" ? "declared in the docs" : ru.startsWith("тестовых файлов: ") ? `test files: ${ru.slice("тестовых файлов: ".length)}` : ru;
+var evidenceListEn = (ru, sep) => ru.split(sep).map(evidenceEn).join(sep);
+pattern(/^безопасность — защитные слои: (.+) \(их ослабление — не рядовая правка\)$/, (m) => `security — protective layers: ${m[1]} (weakening them is not an ordinary change)`);
+pattern(/^безопасность — явных защитных слоёв не обнаружено \(появятся — станут неприкосновенными\)$/, () => "security — no explicit protective layers found (once they appear, they become inviolable)");
+pattern(/^(.+) — заявлена в доках, в коде проекта не обнаружена$/, (m) => `${axisName(m[1])} — declared in the docs, not found in the project's code`);
+pattern(/^(.+) — ось качества здесь \((.+)\)$/, (m) => `${axisName(m[1])} — a quality axis here (${evidenceListEn(m[2], "; ")})`);
 var DETECTORS = [
   { axis: "корректность", signal: "testing" },
   { axis: "производительность", signal: "performance" },
@@ -3327,6 +3378,7 @@ function readConfigEntries(root, relPaths, read = (p) => readFileSync6(p, "utf8"
 }
 
 // src/env/links.ts
+init_i18n();
 var MAX_CODE_PER_CONFIG = 12;
 function ensureConfigEdgeTable(db) {
   db.run(`CREATE TABLE IF NOT EXISTS config_edges(
@@ -3388,14 +3440,16 @@ function renderConfigInfluence(rows) {
   if (rows.length === 0)
     return "";
   const parts = rows.slice(0, 3).map((r) => {
-    const why = r.via === "история" ? "правились вместе" : r.token ? `упоминание «${r.token}»` : "связь по содержимому";
-    return `${r.configFile}${r.key !== "(файл целиком)" ? ` · ${r.key}` : ""} (${why})`;
+    const why = r.via === "история" ? t("правились вместе", "changed together") : r.token ? t(`упоминание «${r.token}»`, `mention of “${r.token}”`) : t("связь по содержимому", "linked by content");
+    const key = r.key !== "(файл целиком)" ? ` · ${r.key}` : "";
+    return `${r.configFile}${key} (${why})`;
   });
-  return `Symbiont · этим кодом управляет конфигурация: ${parts.join(" · ")}`;
+  return `Symbiont · ${t("этим кодом управляет конфигурация", "this code is governed by configuration")}: ${parts.join(" · ")}`;
 }
 var configPathsOf = (relPaths) => relPaths.filter(isConfigFile);
 
 // src/passport/artifacts.ts
+init_i18n();
 var EXT_CLASS = {
   ".ts": "код",
   ".js": "код",
@@ -3520,17 +3574,17 @@ function activeAxes(profile) {
       axes.add(a);
   return [...axes];
 }
-var CLASS_LABEL = {
-  "код": "код",
-  "контент": "контент/тексты",
-  "разметка-стили": "разметка/стили",
-  "данные": "данные",
-  "конфиг-инфра": "конфиг/инфра",
-  "дизайн": "дизайн/графика",
-  "офис": "офис-документы",
-  "медиа": "медиа",
-  "прочее": "прочее"
-};
+var classLabel = (c) => ({
+  "код": t("код", "code"),
+  "контент": t("контент/тексты", "content/texts"),
+  "разметка-стили": t("разметка/стили", "markup/styles"),
+  "данные": t("данные", "data"),
+  "конфиг-инфра": t("конфиг/инфра", "config/infra"),
+  "дизайн": t("дизайн/графика", "design/graphics"),
+  "офис": t("офис-документы", "office documents"),
+  "медиа": t("медиа", "media"),
+  "прочее": t("прочее", "other")
+})[c];
 function renderQualityStance(profile) {
   if (profile.present.length === 0)
     return "";
@@ -3538,8 +3592,8 @@ function renderQualityStance(profile) {
   return [
     t("## Стойка качества (стоячая; действует без повторения в промптах)", "## Quality stance (standing; applies without being repeated in prompts)"),
     "",
-    `- цель: топ-1 по осям, применимым к этому проекту — ${axes.join(", ")}`,
-    "- ограничение: улучшения сверх задачи — предлагать, не делать; если правка описывается одним предложением — без церемоний"
+    `- ${t("цель", "goal")}: ${t("топ-1 по осям, применимым к этому проекту", "best in class on the axes that apply to this project")} — ${axisList(axes)}`,
+    `- ${t("ограничение", "constraint")}: ${t("улучшения сверх задачи — предлагать, не делать; если правка описывается одним предложением — без церемоний", "improvements beyond the task — propose, do not perform; if a change fits in one sentence, no ceremony")}`
   ].join(`
 `);
 }
@@ -3550,15 +3604,16 @@ function renderArtifacts(profile) {
   for (const c of profile.present) {
     const n = profile.counts[c];
     const pct = Math.round(n / profile.total * 100);
-    lines.push(`- ${CLASS_LABEL[c]} — ${n} файлов (${pct}%)`);
+    lines.push(`- ${classLabel(c)} — ${n} ${t("файлов", "files")} (${pct}%)`);
   }
-  lines.push(`- активные оси качества: ${activeAxes(profile).join(", ")}`);
+  lines.push(`- ${t("активные оси качества", "active quality axes")}: ${axisList(activeAxes(profile))}`);
   return lines.join(`
 `);
 }
 
 // src/passport/stack.ts
 init_signals();
+init_i18n();
 import { existsSync as existsSync4 } from "node:fs";
 import { join as join9 } from "node:path";
 var DETECTORS2 = [
@@ -3651,24 +3706,44 @@ function detectStack(projectRoot, relPaths) {
 function fileDomains(rel) {
   return DOMAIN_DETECTORS.filter((d) => d.signal ? SIGNALS[d.signal].paths?.test(rel) : d.paths?.test(rel)).map((d) => d.name);
 }
+var domainName = (ru) => t(ru, {
+  "база данных": "database",
+  фронтенд: "frontend",
+  тестирование: "testing",
+  "деплой/инфра": "deploy/infra",
+  "веб-сервер": "web server",
+  "фоновые задачи": "background jobs",
+  платежи: "payments",
+  аутентификация: "authentication",
+  "оркестрация/масштабирование": "orchestration/scaling",
+  "дизайн-ассеты": "design assets",
+  документы: "documents"
+}[ru] ?? ru);
+var whyName = (ru) => t(ru, {
+  "сигнал направления": "direction signal",
+  "зависимость в манифесте": "dependency in the manifest",
+  "файл конфигурации в корне": "config file in the root",
+  "пути файлов проекта": "project file paths"
+}[ru] ?? ru);
 function renderStack(s) {
   if (s.frameworks.length === 0 && s.infra.length === 0 && s.domains.length === 0 && s.otherDeps.length === 0)
     return "";
-  const withWhy = (names2) => names2.map((n) => s.evidence?.[n] ? `${n} (${s.evidence[n]})` : n).join(", ");
+  const withWhy = (names2) => names2.map((n) => s.evidence?.[n] ? `${domainName(n)} (${whyName(s.evidence[n])})` : domainName(n)).join(", ");
   const lines = [t("## Стек и направления (обнаружено по сигналам; активирует доменную экспертизу)", "## Stack and directions (detected by signals; switches on domain expertise)"), ""];
   if (s.frameworks.length > 0)
-    lines.push(`- фреймворки: ${withWhy(s.frameworks)}`);
+    lines.push(`- ${t("фреймворки", "frameworks")}: ${withWhy(s.frameworks)}`);
   if (s.infra.length > 0)
-    lines.push(`- инфра/хранилища: ${withWhy(s.infra)}`);
+    lines.push(`- ${t("инфра/хранилища", "infra/storage")}: ${withWhy(s.infra)}`);
   if (s.domains.length > 0)
-    lines.push(`- направления: ${withWhy(s.domains)}`);
+    lines.push(`- ${t("направления", "directions")}: ${withWhy(s.domains)}`);
   if (s.otherDeps.length > 0)
-    lines.push(`- прочие ключевые зависимости: ${s.otherDeps.slice(0, 15).join(", ")}`);
+    lines.push(`- ${t("прочие ключевые зависимости", "other key dependencies")}: ${s.otherDeps.slice(0, 15).join(", ")}`);
   return lines.join(`
 `);
 }
 
 // src/passport/maturity.ts
+init_i18n();
 var clamp01 = (x) => Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0;
 function binaryEntropy(p) {
   if (p <= 0 || p >= 1)
@@ -4151,6 +4226,7 @@ function readFrame(dataDir) {
 }
 
 // src/passport/build.ts
+init_i18n();
 var tierSections = () => [
   ["закон", t("Законы стиля (в этом репозитории соблюдаются практически всегда)", "Style laws (in this repository they hold almost always)")],
   ["привычка", t("Преобладающий стиль (возможны легитимные исключения)", "Prevailing style (legitimate exceptions possible)")]
@@ -4228,7 +4304,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-590f7a643ddf";
+    return "bundle-3d0b69c4e5fd";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -4675,6 +4751,7 @@ function beat(dataDir, channel, extra = {}) {
 }
 
 // src/gardener/scheduler.ts
+init_i18n();
 var META_TABLE = "gardener_meta";
 var RETRY_DELAYS_MS = [5 * 60000, 30 * 60000, 2 * 3600000];
 var MAX_FAST_RETRIES = RETRY_DELAYS_MS.length;
@@ -4776,12 +4853,13 @@ function renderGardenerSilence(db, nowMs, quietDays = 7) {
       return "";
     ensureMeta(db);
     const last = db.query(`SELECT MAX(at) AS at FROM ${META_TABLE}`).get()?.at;
-    if (!last)
-      return "- ⚠ фоновое обслуживание ни разу не отрабатывало: паспорт не углубляется (проверьте рантайм и learn.json)";
+    if (!last) {
+      return t("- ⚠ фоновое обслуживание ни разу не отрабатывало: паспорт не углубляется (проверьте рантайм и learn.json)", "- ⚠ background maintenance has never run: the passport is not deepening (check the runtime and learn.json)");
+    }
     const quiet = (nowMs - Date.parse(last)) / 86400000;
     if (!Number.isFinite(quiet) || quiet < quietDays)
       return "";
-    return `- ⚠ фоновое обслуживание молчит ${Math.round(quiet)}д: паспорт перестал углубляться (проверьте рантайм и learn.json)`;
+    return t(`- ⚠ фоновое обслуживание молчит ${Math.round(quiet)}д: паспорт перестал углубляться (проверьте рантайм и learn.json)`, `- ⚠ background maintenance has been silent for ${Math.round(quiet)}d: the passport stopped deepening (check the runtime and learn.json)`);
   } catch {
     return "";
   }
@@ -4796,12 +4874,12 @@ function renderBackground(db, ids, nowMs) {
     const hours = (nowMs - Date.parse(last.at)) / 3600000;
     if (!Number.isFinite(hours) || hours > 72)
       continue;
-    const fate = last.ok ? "" : last.nextAt !== null ? ` — повтор назначен (попытка ${last.attempts + 1} из ${MAX_FAST_RETRIES + 1})` : " — быстрые повторы исчерпаны, вернулось к обычному расписанию";
+    const fate = last.ok ? "" : last.nextAt !== null ? t(` — повтор назначен (попытка ${last.attempts + 1} из ${MAX_FAST_RETRIES + 1})`, ` — a retry is scheduled (attempt ${last.attempts + 1} of ${MAX_FAST_RETRIES + 1})`) : t(" — быстрые повторы исчерпаны, вернулось к обычному расписанию", " — fast retries are spent, back on the normal schedule");
     parts.push(`${last.ok ? "" : "⚠ "}${last.note}${fate}`);
   }
   if (parts.length === 0)
     return "";
-  return `- фоновая работа: ${parts.join(" · ")}`;
+  return `- ${t("фоновая работа", "background work")}: ${parts.join(" · ")}`;
 }
 
 // src/gardener/utility.ts
@@ -4877,6 +4955,7 @@ import { mkdirSync as mkdirSync3, readFileSync as readFileSync12, appendFileSync
 import { basename as basename2, join as join15 } from "node:path";
 
 // src/hooks/git-state.ts
+init_i18n();
 import { spawnSync as spawnSync3 } from "node:child_process";
 function git(cwd, args) {
   try {
@@ -4908,12 +4987,12 @@ function asData(s, limit = 120) {
   return "`" + cut + (firstLine.length > limit ? "…" : "") + "`";
 }
 function renderGitBlock(g, reconciledDirty) {
-  const lines = ["## Состояние", ""];
-  lines.push(`- ветка: ${g.branch} · незакоммичено: ${g.dirtyCount}${g.dirtyCount > 0 ? ` (${g.dirtyTop.map((f) => asData(f, 80)).join(", ")}${g.dirtyCount > 5 ? ", …" : ""})` : ""}`);
+  const lines = [t("## Состояние", "## State"), ""];
+  lines.push(`- ${t("ветка", "branch")}: ${g.branch} · ${t("незакоммичено", "uncommitted")}: ${g.dirtyCount}${g.dirtyCount > 0 ? ` (${g.dirtyTop.map((f) => asData(f, 80)).join(", ")}${g.dirtyCount > 5 ? ", …" : ""})` : ""}`);
   if (g.lastCommit)
-    lines.push(`- последний коммит: ${asData(g.lastCommit)}`);
+    lines.push(`- ${t("последний коммит", "last commit")}: ${asData(g.lastCommit)}`);
   if (reconciledDirty > 0) {
-    lines.push(`- прошлая сессия (${reconciledDirty} шт.) оборвалась без завершения — обрыв учтён`);
+    lines.push(t(`- прошлая сессия (${reconciledDirty} шт.) оборвалась без завершения — обрыв учтён`, `- ${reconciledDirty} previous session(s) died without finishing — the break has been accounted for`));
   }
   return lines.join(`
 `);
@@ -5040,6 +5119,7 @@ function renderDiagnosis(silent) {
 }
 
 // src/hooks/session-start-core.ts
+init_i18n();
 function detectCorrections(db, cwd, currentSid) {
   const hasState = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='model_state'").get().n > 0;
   if (!hasState)
@@ -5100,31 +5180,32 @@ function handleSessionStart(input, dataRoot) {
       try {
         const muted = mutedKinds(db);
         if (muted.length > 0) {
-          utilLine = `- подача адаптирована: ${muted.map((m) => `${m.kind} (${m.used}/${m.surfaced} окупаемость)`).join(", ")} — здесь не окупалось, приглушено; периодически перепроверяется`;
+          utilLine = t(`- подача адаптирована: ${muted.map((m) => `${m.kind} (${m.used}/${m.surfaced} окупаемость)`).join(", ")} — здесь не окупалось, приглушено; периодически перепроверяется`, `- delivery adapted: ${muted.map((m) => `${m.kind} (${m.used}/${m.surfaced} payoff)`).join(", ")} — it did not pay off here and was dimmed; re-checked from time to time`);
         }
       } catch {}
       const hasGateLog = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='gate_log'").get().n > 0;
       if (hasGateLog) {
         const top = db.query("SELECT law, COUNT(*) n FROM gate_log GROUP BY law HAVING n >= 3 ORDER BY n DESC LIMIT 1").get();
-        if (top)
-          gateLine = `- гейт чаще всего ловит: «${top.law}» — ${top.n} поимок (это правило здесь нарушается регулярно)`;
+        if (top) {
+          gateLine = t(`- гейт чаще всего ловит: «${statement(top.law)}» — ${top.n} поимок (это правило здесь нарушается регулярно)`, `- the gate catches this most often: “${statement(top.law)}” — ${top.n} catches (this rule is broken here regularly)`);
+        }
       }
       const hasThreads = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='session_threads'").get().n > 0;
       if (hasThreads) {
         const tcols = db.query("PRAGMA table_info(session_threads)").all().map((c) => c.name);
         const sel = tcols.includes("commits") ? "files, updated_at, commits" : "files, updated_at";
-        const t2 = db.query(`SELECT ${sel} FROM session_threads WHERE session_id != ? ORDER BY updated_at DESC LIMIT 1`).get(sid);
-        if (t2) {
-          const files = JSON.parse(t2.files);
-          const ageH = Math.max(0, Math.round((Date.now() - Date.parse(t2.updated_at)) / 3600000));
-          const age = ageH < 1 ? "меньше часа назад" : ageH < 48 ? `${ageH}ч назад` : `${Math.round(ageH / 24)}д назад`;
-          threadLine = `- нить прошлой сессии (${age}): ${files.slice(0, 5).join(", ")}${files.length > 5 ? `, … (+${files.length - 5})` : ""}`;
+        const th = db.query(`SELECT ${sel} FROM session_threads WHERE session_id != ? ORDER BY updated_at DESC LIMIT 1`).get(sid);
+        if (th) {
+          const files = JSON.parse(th.files);
+          const ageH = Math.max(0, Math.round((Date.now() - Date.parse(th.updated_at)) / 3600000));
+          const age = ageH < 1 ? t("меньше часа назад", "less than an hour ago") : ageH < 48 ? t(`${ageH}ч назад`, `${ageH}h ago`) : t(`${Math.round(ageH / 24)}д назад`, `${Math.round(ageH / 24)}d ago`);
+          threadLine = `- ${t("нить прошлой сессии", "thread of the previous session")} (${age}): ${files.slice(0, 5).join(", ")}${files.length > 5 ? `, … (+${files.length - 5})` : ""}`;
           threadFiles = files;
-          const commits = t2.commits ? JSON.parse(t2.commits) : [];
+          const commits = th.commits ? JSON.parse(th.commits) : [];
           if (commits.length > 0) {
             const shown = commits.slice(0, 3).map((c) => c.replace(/`/g, "'").slice(0, 90));
             threadLine += `
-- прошлая сессия сделала: ${shown.join("; ")}${commits.length > 3 ? `, … (+${commits.length - 3})` : ""}`;
+- ${t("прошлая сессия сделала", "the previous session did")}: ${shown.join("; ")}${commits.length > 3 ? `, … (+${commits.length - 3})` : ""}`;
           }
         }
       }
@@ -5149,12 +5230,12 @@ ${renderConstitution(constitution)}
     }
     let stateBlock = g ? `
 ${renderGitBlock(g, reconciled)}` : "";
-    const compactNote = input.source === "compact" ? "- контекст был сжат — паспорт восстановлен (то, что компакция могла выронить)" : input.source === "fork" ? "- сессия форкнута — паспорт подан форку (сабагенты не наследуют контекст родителя)" : "";
+    const compactNote = input.source === "compact" ? t("- контекст был сжат — паспорт восстановлен (то, что компакция могла выронить)", "- the context was compacted — the passport has been restored (what compaction could have dropped)") : input.source === "fork" ? t("- сессия форкнута — паспорт подан форку (сабагенты не наследуют контекст родителя)", "- the session was forked — the passport was delivered to the fork (subagents do not inherit the parent context)") : "";
     for (const line of [runtimeLine, compactNote, threadLine, bgLine, utilLine, gateLine, diagLine]) {
       if (line)
         stateBlock += `${stateBlock ? `
 ` : `
-## Состояние
+${t("## Состояние", "## State")}
 
 `}${line}`;
     }
@@ -5172,12 +5253,12 @@ ${entryBlock}
 ${frame}
 `;
     } catch {}
-    const freshness = r.factsExecuted ? "свежий пересчёт" : "кэш (код не менялся)";
+    const freshness = r.factsExecuted ? t("свежий пересчёт", "freshly recomputed") : t("кэш (код не менялся)", "cache (the code has not changed)");
     return {
       hookSpecificOutput: {
         hookEventName: "SessionStart",
         additionalContext: `${summary}${constBlock}${frameSection}${stateBlock}${entrySection}
-_Symbiont · ${freshness} · подробнее по требованию: passport_conventions / passport_history_`
+_Symbiont · ${freshness} · ${t("подробнее по требованию", "more on demand")}: passport_conventions / passport_history_`
       }
     };
   } catch (e) {
@@ -5189,4 +5270,4 @@ _Symbiont · ${freshness} · подробнее по требованию: passp
   }
 }
 
-export { silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, t, sourceLabel, initLang, observePrompt, chooseLang, pair, tier, analyzeJs, detectIndent, GENERATED_LINE_CHARS, tierOf, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, extractContentLinks, buildResolveIndex, resolveContentTarget, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, detectStack, fileDomains, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };
+export { silentSpawnOptions, openDb, t, sourceLabel, initLang, observePrompt, chooseLang, pair, statement, tier, init_i18n, isDue, factBasis, keyOf, FactStore, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, tierOf, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, extractContentLinks, buildResolveIndex, resolveContentTarget, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };

@@ -4,10 +4,13 @@ import {
   buildResolveIndex,
   detectIndent,
   extractContentLinks,
-  resolveContentTarget
-} from "./session-start-8nd3663h.js";
+  init_i18n,
+  resolveContentTarget,
+  t
+} from "./session-start-spcqe6t1.js";
 
 // src/gates/checks.ts
+init_i18n();
 var JS_FAMILY = new Set([".ts", ".js", ".mjs", ".cjs", ".tsx", ".jsx", ".vue"]);
 function checkAgainstLaws(content, ext, laws) {
   if (!JS_FAMILY.has(ext))
@@ -31,41 +34,43 @@ function checkAgainstLaws(content, ext, laws) {
         add(law, `var: ${s.decl.var}`);
     } else if (st.includes("стрелочные функции — не используются")) {
       if (s.fn.arrow > 0)
-        add(law, `стрелочных: ${s.fn.arrow}`);
+        add(law, `${t("стрелочных", "arrow functions")}: ${s.fn.arrow}`);
     } else if (st.includes("filter/map/reduce — не используются")) {
       const n = s.fmr.filter + s.fmr.map + s.fmr.reduce;
       if (n > 0)
         add(law, `filter/map/reduce: ${n}`);
     } else if (st.includes("деструктуризация в параметрах — не используется")) {
       if (s.destructuredParams > 0)
-        add(law, `деструктуризаций в параметрах: ${s.destructuredParams}`);
+        add(law, `${t("деструктуризаций в параметрах", "destructured parameters")}: ${s.destructuredParams}`);
     } else if (st.includes("отступы — табы")) {
       if (indent === "s2" || indent === "s4")
-        add(law, "отступы пробелами");
+        add(law, t("отступы пробелами", "indented with spaces"));
     } else if (st.includes("отступы — 2 пробела")) {
-      if (indent === "tab" || indent === "s4")
-        add(law, indent === "tab" ? "отступы табами" : "отступы 4 пробелами");
+      if (indent === "tab" || indent === "s4") {
+        add(law, indent === "tab" ? t("отступы табами", "indented with tabs") : t("отступы 4 пробелами", "indented with 4 spaces"));
+      }
     } else if (st.includes("отступы — 4 пробела")) {
-      if (indent === "tab" || indent === "s2")
-        add(law, indent === "tab" ? "отступы табами" : "отступы 2 пробелами");
+      if (indent === "tab" || indent === "s2") {
+        add(law, indent === "tab" ? t("отступы табами", "indented with tabs") : t("отступы 2 пробелами", "indented with 2 spaces"));
+      }
     } else if (st.includes("кавычки — одинарные")) {
       if (quoteVerdict === "double")
-        add(law, `двойные кавычки: ${q.double}`);
+        add(law, `${t("двойные кавычки", "double quotes")}: ${q.double}`);
     } else if (st.includes("кавычки — двойные")) {
       if (quoteVerdict === "single")
-        add(law, `одинарные кавычки: ${q.single}`);
+        add(law, `${t("одинарные кавычки", "single quotes")}: ${q.single}`);
     } else if (st.includes("точки с запятой — используются")) {
       if (semiVerdict === "without")
-        add(law, `строк без ;: ${sm.without}`);
+        add(law, `${t("строк без ;", "lines without ;")}: ${sm.without}`);
     } else if (st.includes("точки с запятой — не используются")) {
       if (semiVerdict === "with")
-        add(law, `строк с ;: ${sm.with}`);
+        add(law, `${t("строк с ;", "lines with ;")}: ${sm.with}`);
     } else if (st.includes("<script setup>")) {
       if (ext === ".vue" && /<script(?![^>]*\bsetup\b)[^>]*>/.test(content))
-        add(law, "компонент без <script setup>");
+        add(law, t("компонент без <script setup>", "component without <script setup>"));
     } else if (st.includes("Options API")) {
       if (ext === ".vue" && /<script[^>]*\bsetup\b/.test(content))
-        add(law, "компонент на <script setup>");
+        add(law, t("компонент на <script setup>", "component using <script setup>"));
     }
   }
   return out;
@@ -113,7 +118,7 @@ function checkAlphabetPurity(content) {
   const bad = mixedScriptTokens(content);
   if (bad.length === 0)
     return [];
-  const examples = bad.slice(0, MAX_EXAMPLES).map((t) => `«${t}»`).join(", ");
+  const examples = bad.slice(0, MAX_EXAMPLES).map((t2) => `«${t2}»`).join(", ");
   return [
     {
       verifier: "чистота алфавита (кир/лат микс в слове)",
@@ -151,7 +156,7 @@ function checkContentLinks(rel, content, ext, resolve) {
   if (broken.length > 0) {
     out.push({
       verifier: "битая внутренняя ссылка",
-      detail: `${broken.length}: ${broken.slice(0, MAX_EXAMPLES).map((t) => `→ ${t}`).join(", ")}${broken.length > MAX_EXAMPLES ? " …" : ""}`
+      detail: `${broken.length}: ${broken.slice(0, MAX_EXAMPLES).map((t2) => `→ ${t2}`).join(", ")}${broken.length > MAX_EXAMPLES ? " …" : ""}`
     });
   }
   const dup = [...anchorTargets.entries()].filter((pair) => pair[1].size >= 2);
@@ -164,7 +169,7 @@ function checkContentLinks(rel, content, ext, resolve) {
   if (emptyAnchors.length > 0) {
     out.push({
       verifier: "ссылка без текста (a11y/SEO)",
-      detail: `${emptyAnchors.length}: ${emptyAnchors.map((t) => `→ ${t}`).join(", ")}`
+      detail: `${emptyAnchors.length}: ${emptyAnchors.map((t2) => `→ ${t2}`).join(", ")}`
     });
   }
   return out;

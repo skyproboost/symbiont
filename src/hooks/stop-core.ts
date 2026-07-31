@@ -28,6 +28,7 @@ import { readGateMode } from '../gates/config'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
 import { sha1 } from '../core/salsa'
+import { t, statement } from '../core/i18n'
 
 /** Предохранитель ralph-loop: столько блокировок подряд снимают гейт до конца сессии. */
 const FUSE_LIMIT = 8
@@ -334,9 +335,11 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       const observations = [...focusLines, ...budgetLines, parallelLine].filter(Boolean)
 
       // Статистика поимок — всегда (усиливает подачу правила в сводке)
+      // Закон показывается через statement(): в журнале он записан по-русски
+      // (по формулировке считается ключ вытеснения), наружу уходит на языке подачи.
       const freshLines = all
         .filter((v) => Number(dedup.run(sid, v.file, v.law).changes) > 0)
-        .map((v) => `- ${v.file} · «${v.law}» · ${v.detail}`)
+        .map((v) => `- ${v.file} · ${t(`«${statement(v.law)}»`, `“${statement(v.law)}”`)} · ${v.detail}`)
 
       db.run(
         'CREATE TABLE IF NOT EXISTS gate_fuse(session_id TEXT PRIMARY KEY, streak INTEGER NOT NULL DEFAULT 0, released INTEGER NOT NULL DEFAULT 0)',
@@ -356,7 +359,7 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
           return {
             hookSpecificOutput: {
               hookEventName: 'Stop',
-              additionalContext: `Symbiont · наблюдение о ходе работы (факт, не требование):\n${observations.join('\n')}`,
+              additionalContext: `Symbiont · ${t('наблюдение о ходе работы (факт, не требование)', 'an observation about how the work is going (a fact, not a demand)')}:\n${observations.join('\n')}`,
             },
           }
         }
@@ -374,31 +377,46 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
           return {
             hookSpecificOutput: {
               hookEventName: 'Stop',
-              additionalContext:
+              additionalContext: t(
                 `Symbiont · предохранитель гейта: ${FUSE_LIMIT} блокировок подряд — гейт снят до конца сессии (похоже на цикл; ` +
-                `нарушения остаются фактом): ${all.map((v) => `${v.file}: «${v.law}»`).join('; ')}.`,
+                  `нарушения остаются фактом): ${all.map((v) => `${v.file}: «${statement(v.law)}»`).join('; ')}.`,
+                `Symbiont · gate fuse: ${FUSE_LIMIT} blocks in a row — the gate is off until the end of the session (this looks like a loop; ` +
+                  `the violations remain a fact): ${all.map((v) => `${v.file}: “${statement(v.law)}”`).join('; ')}.`,
+              ),
             },
           }
         }
         return {
           decision: 'block',
-          reason:
+          reason: t(
             `Гейт Symbiont (режим блокировки, ${streak}/${FUSE_LIMIT}): изменённые файлы нарушают правила паспорта ` +
-            `(законы формы + верификаторы направления) — приведи их к конвенциям проекта и закончи ход:\n` +
-            all.map((v) => `- ${v.file} · «${v.law}» · ${v.detail}`).join('\n') +
-            `\nПравила выведены из репозитория (passport_conventions/passport_orphans); если отклонение намеренное — скажи об этом владельцу явно.`,
+              `(законы формы + верификаторы направления) — приведи их к конвенциям проекта и закончи ход:\n` +
+              all.map((v) => `- ${v.file} · «${statement(v.law)}» · ${v.detail}`).join('\n') +
+              `\nПравила выведены из репозитория (passport_conventions/passport_orphans); если отклонение намеренное — скажи об этом владельцу явно.`,
+            `Symbiont gate (blocking mode, ${streak}/${FUSE_LIMIT}): the changed files break the passport's rules ` +
+              `(form laws + direction verifiers) — bring them in line with the project's conventions and finish the turn:\n` +
+              all.map((v) => `- ${v.file} · “${statement(v.law)}” · ${v.detail}`).join('\n') +
+              `\nThe rules are derived from this repository (passport_conventions/passport_orphans); if the deviation is deliberate, say so to the owner explicitly.`,
+          ),
         }
       }
 
       if (freshLines.length === 0 && observations.length === 0) return {}
       const gateBlock =
         freshLines.length > 0
-          ? `Symbiont · dry-run гейта (наблюдение, не блокировка): изменённые файлы нарушают правила паспорта ` +
-            `(законы формы + верификаторы направления):\n` +
-            `${freshLines.join('\n')}\n` +
-            `Правила выведены из репозитория (passport_conventions/passport_orphans).`
+          ? t(
+              `Symbiont · dry-run гейта (наблюдение, не блокировка): изменённые файлы нарушают правила паспорта ` +
+                `(законы формы + верификаторы направления):\n${freshLines.join('\n')}\n` +
+                `Правила выведены из репозитория (passport_conventions/passport_orphans).`,
+              `Symbiont · gate dry-run (an observation, not a block): the changed files break the passport's rules ` +
+                `(form laws + direction verifiers):\n${freshLines.join('\n')}\n` +
+                `The rules are derived from this repository (passport_conventions/passport_orphans).`,
+            )
           : ''
-      const focusBlock = observations.length > 0 ? `Symbiont · наблюдение о ходе работы (факт, не требование):\n${observations.join('\n')}` : ''
+      const focusBlock =
+        observations.length > 0
+          ? `Symbiont · ${t('наблюдение о ходе работы (факт, не требование)', 'an observation about how the work is going (a fact, not a demand)')}:\n${observations.join('\n')}`
+          : ''
       return {
         hookSpecificOutput: {
           hookEventName: 'Stop',

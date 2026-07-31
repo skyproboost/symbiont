@@ -1,8 +1,8 @@
 import {
   WORKS
-} from "./session-start-z5r7nxgr.js";
-import"./session-start-0hbm8nsh.js";
-import"./session-start-2ac08kse.js";
+} from "./session-start-vy3nn64z.js";
+import"./session-start-269xr3k3.js";
+import"./session-start-8tcn3fb2.js";
 import"./session-start-0xyqxcjv.js";
 import"./session-start-jfm8hzf3.js";
 import"./session-start-8ychq3hk.js";
@@ -15,20 +15,22 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-a4kc6fyf.js";
+} from "./session-start-gm8x32p0.js";
 import {
   buildPassport,
   initLang,
+  init_i18n,
   openDb,
   runWorks,
   slugOf,
   t
-} from "./session-start-8nd3663h.js";
+} from "./session-start-spcqe6t1.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/init.ts
 import { join, basename, resolve } from "node:path";
 import { existsSync } from "node:fs";
+init_i18n();
 var PRESEED_NODES = 24;
 var FULL_WORDS = /^(re|redo|fresh|full|force|заново|полностью)$/i;
 var full = FULL_WORDS.test(stripDataFlag(process.argv.slice(2)).join(" ").trim());

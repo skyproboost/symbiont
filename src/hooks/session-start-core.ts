@@ -19,6 +19,7 @@ import { sha1 } from '../core/salsa'
 import { renderBackground, renderGardenerSilence, REPORTED_WORKS } from '../gardener/scheduler'
 import { mutedKinds } from '../gardener/utility'
 import { inspectRuntime, renderRuntimeWarning } from '../core/runtime'
+import { t, statement } from '../core/i18n'
 
 /**
  * Детекция поправок владельца: файлы, которые человек изменил ПОСЛЕ последнего
@@ -132,7 +133,10 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
       try {
         const muted = mutedKinds(db)
         if (muted.length > 0) {
-          utilLine = `- подача адаптирована: ${muted.map((m) => `${m.kind} (${m.used}/${m.surfaced} окупаемость)`).join(', ')} — здесь не окупалось, приглушено; периодически перепроверяется`
+          utilLine = t(
+            `- подача адаптирована: ${muted.map((m) => `${m.kind} (${m.used}/${m.surfaced} окупаемость)`).join(', ')} — здесь не окупалось, приглушено; периодически перепроверяется`,
+            `- delivery adapted: ${muted.map((m) => `${m.kind} (${m.used}/${m.surfaced} payoff)`).join(', ')} — it did not pay off here and was dimmed; re-checked from time to time`,
+          )
         }
       } catch {
         /* статистики нет — молчим */
@@ -145,7 +149,12 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
         const top = db
           .query('SELECT law, COUNT(*) n FROM gate_log GROUP BY law HAVING n >= 3 ORDER BY n DESC LIMIT 1')
           .get() as { law: string; n: number } | null
-        if (top) gateLine = `- гейт чаще всего ловит: «${top.law}» — ${top.n} поимок (это правило здесь нарушается регулярно)`
+        if (top) {
+          gateLine = t(
+            `- гейт чаще всего ловит: «${statement(top.law)}» — ${top.n} поимок (это правило здесь нарушается регулярно)`,
+            `- the gate catches this most often: “${statement(top.law)}” — ${top.n} catches (this rule is broken here regularly)`,
+          )
+        }
       }
 
       const hasThreads =
@@ -153,20 +162,27 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
       if (hasThreads) {
         const tcols = (db.query('PRAGMA table_info(session_threads)').all() as Array<{ name: string }>).map((c) => c.name)
         const sel = tcols.includes('commits') ? 'files, updated_at, commits' : 'files, updated_at'
-        const t = db
+        // Имя `th`, а не `t`: короткое `t` затенило бы функцию перевода из i18n,
+        // и строки этого блока молча ушли бы наружу по-русски.
+        const th = db
           .query(`SELECT ${sel} FROM session_threads WHERE session_id != ? ORDER BY updated_at DESC LIMIT 1`)
           .get(sid) as { files: string; updated_at: string; commits?: string } | null
-        if (t) {
-          const files = JSON.parse(t.files) as string[]
-          const ageH = Math.max(0, Math.round((Date.now() - Date.parse(t.updated_at)) / 3600_000))
-          const age = ageH < 1 ? 'меньше часа назад' : ageH < 48 ? `${ageH}ч назад` : `${Math.round(ageH / 24)}д назад`
-          threadLine = `- нить прошлой сессии (${age}): ${files.slice(0, 5).join(', ')}${files.length > 5 ? `, … (+${files.length - 5})` : ''}`
+        if (th) {
+          const files = JSON.parse(th.files) as string[]
+          const ageH = Math.max(0, Math.round((Date.now() - Date.parse(th.updated_at)) / 3600_000))
+          const age =
+            ageH < 1
+              ? t('меньше часа назад', 'less than an hour ago')
+              : ageH < 48
+                ? t(`${ageH}ч назад`, `${ageH}h ago`)
+                : t(`${Math.round(ageH / 24)}д назад`, `${Math.round(ageH / 24)}d ago`)
+          threadLine = `- ${t('нить прошлой сессии', 'thread of the previous session')} (${age}): ${files.slice(0, 5).join(', ')}${files.length > 5 ? `, … (+${files.length - 5})` : ''}`
           threadFiles = files
           // Что СДЕЛАНО (коммиты сессии) — untrusted, подаём как данные (бэктики убраны, лимит)
-          const commits = t.commits ? (JSON.parse(t.commits) as string[]) : []
+          const commits = th.commits ? (JSON.parse(th.commits) as string[]) : []
           if (commits.length > 0) {
             const shown = commits.slice(0, 3).map((c) => c.replace(/`/g, "'").slice(0, 90))
-            threadLine += `\n- прошлая сессия сделала: ${shown.join('; ')}${commits.length > 3 ? `, … (+${commits.length - 3})` : ''}`
+            threadLine += `\n- ${t('прошлая сессия сделала', 'the previous session did')}: ${shown.join('; ')}${commits.length > 3 ? `, … (+${commits.length - 3})` : ''}`
           }
         }
       }
@@ -202,12 +218,18 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
     // паспорта при компакции; для сабагентов форка — впервые). Честная пометка.
     const compactNote =
       input.source === 'compact'
-        ? '- контекст был сжат — паспорт восстановлен (то, что компакция могла выронить)'
+        ? t(
+            '- контекст был сжат — паспорт восстановлен (то, что компакция могла выронить)',
+            '- the context was compacted — the passport has been restored (what compaction could have dropped)',
+          )
         : input.source === 'fork'
-          ? '- сессия форкнута — паспорт подан форку (сабагенты не наследуют контекст родителя)'
+          ? t(
+              '- сессия форкнута — паспорт подан форку (сабагенты не наследуют контекст родителя)',
+              '- the session was forked — the passport was delivered to the fork (subagents do not inherit the parent context)',
+            )
           : ''
     for (const line of [runtimeLine, compactNote, threadLine, bgLine, utilLine, gateLine, diagLine]) {
-      if (line) stateBlock += `${stateBlock ? '\n' : '\n## Состояние\n\n'}${line}`
+      if (line) stateBlock += `${stateBlock ? '\n' : `\n${t('## Состояние', '## State')}\n\n`}${line}`
     }
     if (stateBlock) stateBlock += '\n'
 
@@ -222,11 +244,11 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
     } catch {
       /* нет рамки — молчим */
     }
-    const freshness = r.factsExecuted ? 'свежий пересчёт' : 'кэш (код не менялся)'
+    const freshness = r.factsExecuted ? t('свежий пересчёт', 'freshly recomputed') : t('кэш (код не менялся)', 'cache (the code has not changed)')
     return {
       hookSpecificOutput: {
         hookEventName: 'SessionStart',
-        additionalContext: `${summary}${constBlock}${frameSection}${stateBlock}${entrySection}\n_Symbiont · ${freshness} · подробнее по требованию: passport_conventions / passport_history_`,
+        additionalContext: `${summary}${constBlock}${frameSection}${stateBlock}${entrySection}\n_Symbiont · ${freshness} · ${t('подробнее по требованию', 'more on demand')}: passport_conventions / passport_history_`,
       },
     }
   } catch (e) {

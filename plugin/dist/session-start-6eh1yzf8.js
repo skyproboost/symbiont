@@ -4,13 +4,16 @@ import {
   summaryFor
 } from "./session-start-nkwfkq7m.js";
 import {
+  init_i18n,
   noteSurfaced,
   noteUsed,
   readConfigEdges,
-  renderConfigInfluence
-} from "./session-start-8nd3663h.js";
+  renderConfigInfluence,
+  t
+} from "./session-start-spcqe6t1.js";
 
 // src/hooks/node-brief.ts
+init_i18n();
 function ensureFeedLog(db) {
   db.run("CREATE TABLE IF NOT EXISTS jit_log(session_id TEXT NOT NULL, file TEXT NOT NULL, PRIMARY KEY(session_id, file))");
   const cols = db.query("PRAGMA table_info(jit_log)").all().map((c) => c.name);
@@ -44,22 +47,23 @@ function nodeBrief(db, node) {
   const z1 = summaryFor(db, node.file, contentHashOf(db, node.file));
   const deps = db.query("SELECT from_file FROM graph_edges WHERE to_file = ? ORDER BY from_file LIMIT 6").all(node.file).map((r) => r.from_file);
   const outs = db.query("SELECT to_file FROM graph_edges WHERE from_file = ? ORDER BY to_file LIMIT 6").all(node.file).map((r) => r.to_file);
-  const parts = [`${node.file} · вход:${node.in_deg} исход:${node.out_deg}`];
+  const parts = [`${node.file} · ${t("вход", "in")}:${node.in_deg} ${t("исход", "out")}:${node.out_deg}`];
   if (z1)
-    parts.push(`роль: ${z1}`);
+    parts.push(`${t("роль", "role")}: ${z1}`);
   const influence = renderConfigInfluence(readConfigEdges(db, node.file));
-  if (influence)
-    parts.push(influence.replace("Symbiont · этим кодом управляет конфигурация: ", "управляет конфигурация: "));
+  if (influence) {
+    parts.push(influence.replace(t("Symbiont · этим кодом управляет конфигурация: ", "Symbiont · this code is governed by configuration: "), t("управляет конфигурация: ", "governed by configuration: ")));
+  }
   if (deps.length > 0)
-    parts.push(`зависят: ${deps.join(", ")}${node.in_deg > deps.length ? ", …" : ""}`);
+    parts.push(`${t("зависят", "depended on by")}: ${deps.join(", ")}${node.in_deg > deps.length ? ", …" : ""}`);
   if (outs.length > 0)
-    parts.push(`зависит от: ${outs.join(", ")}${node.out_deg > outs.length ? ", …" : ""}`);
+    parts.push(`${t("зависит от", "depends on")}: ${outs.join(", ")}${node.out_deg > outs.length ? ", …" : ""}`);
   const hasCochange = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='cochange'").get().n > 0;
   if (hasCochange) {
     const rel = db.query(`SELECT CASE WHEN file_a = ? THEN file_b ELSE file_a END AS partner, n
            FROM cochange WHERE file_a = ? OR file_b = ? ORDER BY n DESC LIMIT 3`).all(node.file, node.file, node.file).map((r) => `${r.partner} (${r.n})`);
     if (rel.length > 0)
-      parts.push(`исторически правятся вместе: ${rel.join(", ")}`);
+      parts.push(`${t("исторически правятся вместе", "historically changed together")}: ${rel.join(", ")}`);
   }
   return parts.join(" · ");
 }

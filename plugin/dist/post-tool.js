@@ -3,13 +3,13 @@ import {
   ensureFeedLog,
   markUsed,
   nodeBrief
-} from "./session-start-6dbvrdva.js";
+} from "./session-start-6eh1yzf8.js";
 import {
   checkAgainstLaws,
   contentVerifierActive,
   loadEntityResolver,
   runContentVerifiers
-} from "./session-start-sdf4tkky.js";
+} from "./session-start-kqmsgabj.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -29,27 +29,31 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-a4kc6fyf.js";
+} from "./session-start-gm8x32p0.js";
 import {
   FactStore,
   beat,
   bumpHeat,
   effectiveProfile,
   fileDomains,
+  init_i18n,
   openDb,
   readZoneProfiles,
   renderEffective,
   rootAxesFromFacts,
   shouldFeed,
   slugOf,
+  statement,
+  t,
   zoneAncestors
-} from "./session-start-8nd3663h.js";
+} from "./session-start-spcqe6t1.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/post-tool.ts
 import { join as join2 } from "node:path";
 
 // src/hooks/post-tool-core.ts
+init_i18n();
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 var WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -112,14 +116,14 @@ function handlePostTool(input, dataRoot) {
           for (const v of checkAgainstLaws(content, ext, laws)) {
             if (Number(dedup.run(sid, rel, v.law).changes) === 0)
               continue;
-            lines.push(`- отклонение от закона «${v.law}» · ${v.detail}`);
+            lines.push(t(`- отклонение от закона «${statement(v.law)}» · ${v.detail}`, `- deviation from the law “${statement(v.law)}” · ${v.detail}`));
           }
           if (contentVerifierActive(ext)) {
             const resolve = loadEntityResolver(db);
             for (const v of runContentVerifiers(rel, content, ext, { resolve })) {
               if (Number(dedup.run(sid, rel, v.verifier).changes) === 0)
                 continue;
-              lines.push(`- верификатор «${v.verifier}» · ${v.detail}`);
+              lines.push(t(`- верификатор «${v.verifier}» · ${v.detail}`, `- verifier “${v.verifier}” · ${v.detail}`));
             }
           }
         }

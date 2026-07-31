@@ -12,6 +12,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
+import { t, statement } from '../core/i18n'
 import { openDb, type Database } from '../core/db'
 import { FactStore } from '../core/store'
 import { checkAgainstLaws } from '../gates/checks'
@@ -136,14 +137,14 @@ export function handlePostTool(input: PostToolInput, dataRoot: string): PostTool
           const laws = new FactStore(db).active().filter((f) => f.tier === 'закон')
           for (const v of checkAgainstLaws(content, ext, laws)) {
             if (Number(dedup.run(sid, rel, v.law).changes) === 0) continue
-            lines.push(`- отклонение от закона «${v.law}» · ${v.detail}`)
+            lines.push(t(`- отклонение от закона «${statement(v.law)}» · ${v.detail}`, `- deviation from the law “${statement(v.law)}” · ${v.detail}`))
           }
           // Верификаторы направления «контент» (чистота алфавита, целостность ссылок)
           if (contentVerifierActive(ext)) {
             const resolve = loadEntityResolver(db)
             for (const v of runContentVerifiers(rel, content, ext, { resolve })) {
               if (Number(dedup.run(sid, rel, v.verifier).changes) === 0) continue
-              lines.push(`- верификатор «${v.verifier}» · ${v.detail}`)
+              lines.push(t(`- верификатор «${v.verifier}» · ${v.detail}`, `- verifier “${v.verifier}” · ${v.detail}`))
             }
           }
         }

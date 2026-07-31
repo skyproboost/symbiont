@@ -5,7 +5,7 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-2ac08kse.js";
+} from "./session-start-8tcn3fb2.js";
 import {
   contentHashOf,
   countLessons,
@@ -16,7 +16,7 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-a4kc6fyf.js";
+} from "./session-start-gm8x32p0.js";
 import {
   REPORTED_WORKS,
   auditTruth,
@@ -26,6 +26,7 @@ import {
   effectiveHeat,
   hotspotsFromGit,
   initLang,
+  init_i18n,
   isDue,
   lastRun,
   openDb,
@@ -40,7 +41,7 @@ import {
   sourceLabel,
   t,
   tier
-} from "./session-start-8nd3663h.js";
+} from "./session-start-spcqe6t1.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -52,6 +53,7 @@ import { existsSync as existsSync2, writeFileSync } from "node:fs";
 // src/cli/reports.ts
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+init_i18n();
 var ago = (iso) => {
   const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
   if (!Number.isFinite(mins) || mins < 0)
@@ -739,6 +741,7 @@ resize(); fit(); loop();
 }
 
 // src/cli/symbiont.ts
+init_i18n();
 function openInBrowser(file) {
   try {
     const { spawn } = __require("node:child_process");
@@ -823,15 +826,15 @@ try {
     console.log(`
 ` + renderTruth(auditTruth(db, root, dataDir)));
     console.log(`
-_куда всё ползёт относительно прошлых замеров; выправляется фоном само, команда лишь показывает_`);
+` + t("_куда всё ползёт относительно прошлых замеров; выправляется фоном само, команда лишь показывает_", "_where things are drifting relative to earlier snapshots; the background fixes it by itself, the command only shows_"));
   } else {
     console.log(buildStatusReport(dataDir));
     const bg = REPORTED_WORKS.map((id) => ({ id, last: lastRun(db, id) })).filter((r) => r.last !== null);
     if (bg.length > 0) {
-      console.log(" Фоновая работа (идёт сама, команд не требует)");
+      console.log(" " + t("Фоновая работа (идёт сама, команд не требует)", "Background work (runs on its own, needs no commands)"));
       for (const r of bg) {
         const ageH = Math.round((Date.now() - Date.parse(r.last.at)) / 3600000);
-        const age = ageH < 1 ? "меньше часа назад" : ageH < 48 ? `${ageH}ч назад` : `${Math.round(ageH / 24)}д назад`;
+        const age = ageH < 1 ? t("меньше часа назад", "less than an hour ago") : ageH < 48 ? t(`${ageH}ч назад`, `${ageH}h ago`) : t(`${Math.round(ageH / 24)}д назад`, `${Math.round(ageH / 24)}d ago`);
         console.log(`   ${r.id.padEnd(12)}${r.last.ok ? " " : "⚠"} ${age} · ${r.last.note}`);
       }
       console.log("");
@@ -840,7 +843,7 @@ _куда всё ползёт относительно прошлых замер
     if (util)
       console.log(` ${util}
 `);
-    console.log("_смежное: /symbiont:graph — интерактивная карта · /symbiont:health — что уползло и можно ли верить паспорту_");
+    console.log(t("_смежное: /symbiont:graph — интерактивная карта · /symbiont:health — что уползло и можно ли верить паспорту_", "_nearby: /symbiont:graph — the interactive map · /symbiont:health — what drifted and whether the passport can be trusted_"));
   }
 } finally {
   db.close();

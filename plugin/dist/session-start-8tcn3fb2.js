@@ -1,8 +1,10 @@
 import {
+  init_i18n,
   t
-} from "./session-start-8nd3663h.js";
+} from "./session-start-spcqe6t1.js";
 
 // src/core/models.ts
+init_i18n();
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 var FAMILY_PRIORITY = {

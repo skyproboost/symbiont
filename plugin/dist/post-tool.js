@@ -3,10 +3,10 @@ import {
   ensureFeedLog,
   markUsed,
   nodeBrief
-} from "./session-start-yqm7a0jr.js";
+} from "./session-start-kxxjz7qr.js";
 import {
   checkAgainstLaws
-} from "./session-start-htqt7re3.js";
+} from "./session-start-hthpggb3.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -26,7 +26,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-kk0478rx.js";
+} from "./session-start-aqk1c5nv.js";
 import {
   FactStore,
   beat,
@@ -46,7 +46,7 @@ import {
   statement,
   t,
   zoneAncestors
-} from "./session-start-drdkvesf.js";
+} from "./session-start-8w88p7pt.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/post-tool.ts

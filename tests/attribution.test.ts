@@ -1,6 +1,6 @@
 import { rmrf } from './_helpers'
 import { describe, it, expect } from 'bun:test'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -83,7 +83,20 @@ describe('авторство правок: чужая сессия не прип
     db.close()
 
     handleSessionStart({ cwd: proj, source: 'startup', session_id: 'a3' }, dataRoot)
-    writeFileSync(join(proj, 'solo.js'), 'var solo = 4\n')
+    const solo = join(proj, 'solo.js')
+    writeFileSync(solo, 'var solo = 4\n')
+    // Время правки задаётся явно, а не берётся у файловой системы. Stop отбрасывает
+    // файлы с mtime раньше старта сессии, а гранулярность файлового времени на
+    // Windows ~15 мс: запись сразу после старта получала метку, округлённую ВНИЗ,
+    // и файл отбрасывался как «менялся не в этой сессии». Тест падал примерно раз
+    // на семь прогонов — то есть прятался в зелёной батарее. Отвергнут сон на
+    // 20 мс: он маскирует гонку задержкой, а не убирает её, и на медленной машине
+    // возвращается. Здесь же порядок событий задан, а не выпрошен у планировщика.
+    const started = openDb(dbPath(), { readonly: true })
+    const row = started.query('SELECT started_at FROM sessions WHERE session_id=?').get('a3') as { started_at: string } | null
+    started.close()
+    const after = new Date(new Date(row!.started_at).getTime() + 2000)
+    utimesSync(solo, after, after)
     handleStop({ cwd: proj, session_id: 'a3' }, dataRoot)
 
     // Соседей нет и авторство подтверждать нечем — правка владельца руками

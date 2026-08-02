@@ -2,7 +2,7 @@ import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./session-start-jtjf810w.js";
+} from "./session-start-sx7pmssx.js";
 import {
   addMetrics,
   astSupported,
@@ -55,7 +55,7 @@ import {
   sha1,
   t,
   walkFiles
-} from "./session-start-drdkvesf.js";
+} from "./session-start-8w88p7pt.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";

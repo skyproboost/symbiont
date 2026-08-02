@@ -194,7 +194,11 @@ There are deliberately few: a command you have to remember is a tax on the human
 
 ## Worth knowing
 
-**Your code never leaves.** Not a single external request: everything is computed on your machine and stored on your machine.
+**Your data stays on your machine.** The passport, the journal and every projection live in your data directory. Symbiont has no server, no account, no telemetry and no third-party services of its own — it never opens a connection by itself.
+
+**Where code does go.** The deterministic half — mining, the link map, gates, roles, search — runs fully offline and needs no network at all. The model passes (unwritten rules, file roles, `/symbiont:elevate`) run through *your* Claude Code and send representative code samples along with the prompt, to exactly the place your ordinary conversations already go. No separate channel and no other recipient.
+
+**What travels with a shared session.** The passport summary is injected into the session, so it is part of the transcript. `/feedback`, `/bug`, `/share` and the "can Anthropic look at your session?" prompt carry it along — including whatever you recorded with `/symbiont:charter`. That is prose, and secret redaction does not cover prose. Worth knowing before you answer Yes on a sensitive project.
 
 **It speaks your language.** English or Russian — Symbiont works it out from how you write to the model and from the comments in your code. To switch by hand: `/symbiont:status lang ru` (back to automatic — `lang auto`).
 

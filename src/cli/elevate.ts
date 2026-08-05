@@ -124,12 +124,24 @@ if (verb === 'решения') {
   // Внешнее заземление (опционально, дорого): --ground
   if (args.includes('--ground') && r.proposals.length > 0) {
     const needs = r.proposals.map((p) => `${p.axis}: ${p.proposal}`).slice(0, 6)
-    console.log('\n— Внешнее заземление (research + синтез с внутренним проекта; веб-инструменты)…')
+    console.log(
+      t(
+        '\n— Внешнее заземление (research + синтез с внутренним проекта; веб-инструменты)…',
+        '\n— External grounding (research plus synthesis with the project’s own internals; web tools)…',
+      ),
+    )
     const g = runGround(root, needs, (prompt) => callClaudeWithTools(prompt, { intent: 'deep', dataDir }))
     if (g.model) {
-      console.log(`\nЗаземление (модель ${g.model}):\n${g.text}`)
+      console.log(t(`\nЗаземление (модель ${g.model}):\n${g.text}`, `\nGrounding (model ${g.model}):\n${g.text}`))
     } else {
-      console.log('\nЗаземление недоступно (нет интернета/инструментов) — предложения выше стоят на априори модели.')
+      // Причину называем как есть и НЕ виним модель: в закрытом контуре запрос
+      // падает на проверке домена перед выборкой, а не на её результате
+      console.log(
+        t(
+          '\nЗаземление недоступно (нет интернета/инструментов) — предложения выше стоят на априори модели.',
+          '\nGrounding unavailable (no internet or no web tools) — the proposals above rest on the model’s prior alone.',
+        ),
+      )
     }
   }
 }

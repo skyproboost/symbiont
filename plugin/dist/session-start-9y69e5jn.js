@@ -1,3 +1,7 @@
+import {
+  jsonOnly
+} from "./session-start-15k5a1x7.js";
+
 // src/domains/grounding.ts
 var GROUNDING_TTL_DAYS = 90;
 function ensureGroundingTable(db) {
@@ -48,8 +52,7 @@ function buildGroundingPrompt(domain, checklist, thresholds, source) {
     "",
     "Найди в вебе АКТУАЛЬНОЕ состояние этих стандартов и ответь строго по делу: что из перечисленного изменилось, какие числа стали другими, что признано устаревшим, что добавилось важного.",
     "",
-    "Ответ — ТОЛЬКО валидный JSON без markdown:",
-    '{"changed": true|false, "correction": "что именно изменилось, с числами", "source": "ссылка или название источника"}',
+    jsonOnly('{"changed": true|false, "correction": "что именно изменилось, с числами", "source": "ссылка или название источника"}'),
     "",
     "Если ничего существенного не изменилось — верни changed: false и пустую correction. Это нормальный и ожидаемый ответ: стандарты меняются редко, и подтверждение не менее ценно, чем поправка."
   ].join(`

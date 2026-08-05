@@ -2,7 +2,7 @@ import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./session-start-vz8fk2e3.js";
+} from "./session-start-2bjn9vg8.js";
 import {
   addMetrics,
   astSupported,
@@ -14,7 +14,7 @@ import {
   dueForGrounding,
   parseGrounding,
   storeGrounding
-} from "./session-start-jfm8hzf3.js";
+} from "./session-start-9y69e5jn.js";
 import {
   PLAYBOOKS
 } from "./session-start-8ychq3hk.js";
@@ -24,12 +24,12 @@ import {
   recordLesson,
   runZSummaries,
   zoneOf
-} from "./session-start-305kkwpz.js";
+} from "./session-start-5zvjmsx7.js";
 import {
   buildRulesPrompt,
   parseRules,
   storeRules
-} from "./session-start-24y7fezg.js";
+} from "./session-start-4f4yyj4d.js";
 import {
   CODE_EXT,
   CSVX,
@@ -49,6 +49,7 @@ import {
   init_i18n,
   init_walk,
   isConfigFile,
+  jsonOnly,
   keyOf,
   mergeLearnedMaterials,
   openDb,
@@ -57,7 +58,7 @@ import {
   sha1,
   t,
   walkFiles
-} from "./session-start-p2v9f776.js";
+} from "./session-start-15k5a1x7.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -295,8 +296,7 @@ function buildCompositionPrompt(c, projectName) {
     ] : [],
     "Задача: описать УСТРОЙСТВО этого продукта как системы. Что здесь источник, а что производное от него; какие виды файлов создаются только парой; что меняется вместе и почему; что здесь главное, а что вспомогательное; какие зависимости между видами существуют.",
     "",
-    "Ответ — ТОЛЬКО валидный JSON-массив без пояснений и markdown:",
-    '[{"area": "устройство продукта", "statement": "предмет — вердикт", "evidence": ["вид1", "вид2"], "confidence": 0.8}]',
+    jsonOnly('[{"area": "устройство продукта", "statement": "предмет — вердикт", "evidence": ["вид1", "вид2"], "confidence": 0.8}]'),
     "",
     "Правила: утверждать только то, что следует из карты; формулировать фактом («стили — создаются парой к компоненту»), а не советом; не опираться на общеизвестные сведения о форматах, если карта их не подтверждает; если система не просматривается — вернуть пустой массив, это честный ответ."
   ].join(`
@@ -358,13 +358,13 @@ function buildSample(projectRoot, dataDir) {
 }
 function buildPrompt(laws, samples, dueStatements = []) {
   return [
-    "Ты анализируешь кодовую базу проекта, чтобы вывести НЕПИСАНЫЕ конвенции, которые не видны простой статистике.",
+    "Ты анализируешь кодовую базу проекта, чтобы вывести неписаные конвенции — те, что не видны простой статистике.",
     "",
-    "Уже известные законы проекта (НЕ повторяй их и их следствия):",
+    "Уже известные законы проекта. Выводи только то, чего в этом списке нет, и что из него не следует:",
     ...laws.map((l) => `- ${l}`),
     ...dueStatements.length > 0 ? [
       "",
-      "Правила, выведенные ранее, — им пора переподтверждение. Те, что образец ПОДТВЕРЖДАЕТ, включи в ответ (той же формулировкой, со свежими evidence); неподтверждающиеся — просто НЕ включай:",
+      "Правила, выведенные ранее, — им пора переподтверждение. Включи в ответ те, что образец подтверждает: той же формулировкой, со свежими evidence. Остальные просто опусти:",
       ...dueStatements.map((s) => `- ${s}`)
     ] : [],
     "",
@@ -372,10 +372,10 @@ function buildPrompt(laws, samples, dueStatements = []) {
     documentsBlock(samples),
     "",
     "Выведи 3–8 дополнительных конвенций: обработка ошибок, семантика именования, архитектурные привычки, паттерны API, структура модулей.",
-    "Правила только с подтверждением минимум в 3 файлах образца. Формулируй фактами в формате «предмет — вердикт» (как «ошибки — возвращаются значением, не бросаются»).",
+    "Правила только с подтверждением минимум в 3 файлах образца: правило, увиденное дважды, ещё неотличимо от совпадения, а этот вывод уходит в постоянный журнал проекта.",
+    "Формулируй фактами в формате «предмет — вердикт» (как «ошибки — возвращаются значением, не бросаются»).",
     "",
-    "Ответ — ТОЛЬКО валидный JSON-массив без пояснений и markdown:",
-    '[{"area": "область", "statement": "предмет — вердикт", "evidence": ["файл1", "файл2", "файл3"], "confidence": 0.85}]'
+    jsonOnly('[{"area": "область", "statement": "предмет — вердикт", "evidence": ["файл1", "файл2", "файл3"], "confidence": 0.85}]')
   ].join(`
 `);
 }
@@ -518,8 +518,7 @@ function buildCorrectionsPrompt(items) {
     revisionsBlock(items.map((c) => ({ file: c.file, before: c.before.slice(0, MAX_CHARS), after: c.after.slice(0, MAX_CHARS) }))),
     "",
     "Выведи правила, которые объясняют эти правки (1–4 правила). Только то, что реально следует из диффов, без домыслов.",
-    "Ответ — ТОЛЬКО валидный JSON-массив:",
-    '[{"area": "область", "statement": "правило, которое нарушил ассистент и восстановил владелец", "evidence": ["файл1"], "confidence": 0.7}]'
+    jsonOnly('[{"area": "область", "statement": "правило, которое нарушил ассистент и восстановил владелец", "evidence": ["файл1"], "confidence": 0.7}]')
   ].join(`
 `);
 }

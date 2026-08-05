@@ -60,7 +60,7 @@ describe('runVerbalize с фейковым LLM', () => {
     const samples = buildSample(proj, dataDir)
     expect(samples.length).toBeGreaterThan(0)
     const prompt = buildPrompt(['переменные — только var'], samples)
-    expect(prompt).toContain('НЕ повторяй')
+    expect(prompt).toContain('чего в этом списке нет')
     expect(prompt).toContain('переменные — только var')
     expect(prompt).toContain('<document_content>')
     expect(prompt).toContain('JSON')

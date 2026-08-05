@@ -16,7 +16,7 @@
  * наблюдаемые правила, они ложатся в журнал фактами и живут по общим законам —
  * стареют, подтверждаются, умирают.
  */
-import { documentsBlock } from '../layer2/prompt'
+import { documentsBlock, jsonOnly } from '../layer2/prompt'
 
 export interface MaterialShare {
   /** расширение как маркер вида материала (без точки — «(без расширения)») */
@@ -88,8 +88,7 @@ export function buildUnknownPrompt(kind: string, samples: Array<{ file: string; 
     'Образцы:',
     documentsBlock(samples),
     '',
-    'Ответ — ТОЛЬКО валидный JSON-массив без пояснений и markdown:',
-    '[{"area": "область наблюдения", "statement": "предмет — вердикт", "evidence": ["файл1", "файл2"], "confidence": 0.8}]',
+    jsonOnly('[{"area": "область наблюдения", "statement": "предмет — вердикт", "evidence": ["файл1", "файл2"], "confidence": 0.8}]'),
     '',
     'Правила: только то, что подтверждается минимум двумя образцами; формулировка фактом («имена файлов — дата в начале»), а не советом; если устойчивых правил не видно — верни пустой массив, это честный ответ.',
   ].join('\n')

@@ -5,8 +5,8 @@ import {
 import {
   callClaudeDetailed,
   callClaudeWithTools
-} from "./session-start-vz8fk2e3.js";
-import"./session-start-vd1nr52e.js";
+} from "./session-start-2bjn9vg8.js";
+import"./session-start-ghd7z0t9.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -16,7 +16,7 @@ import {
   renderRootNotice,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-12ctfabv.js";
+} from "./session-start-5ysrdsv8.js";
 import {
   activeAxes,
   artifactProfile,
@@ -28,11 +28,12 @@ import {
   init_i18n,
   init_walk,
   isNonCodeMinable,
+  jsonOnly,
   openDb,
   slugOf,
   t,
   walkFiles
-} from "./session-start-p2v9f776.js";
+} from "./session-start-15k5a1x7.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -229,11 +230,10 @@ ${stackLine}` : "",
     documentsBlock(ctx.samples),
     "",
     "## Что вернуть",
-    "Ранжированный список предложений по возвышению — от самого влиятельного. Для КАЖДОГО обязательна попытка опровержения: если предложение её не переживает — НЕ включай его. Не выдумывай находки ради количества: на здоровой зоне верни пустой список — это достойный ответ.",
-    "Scope: «локальное» | «модуль» | «архитектура» | «концепция» (концепция = переработка самой идеи продукта). Рекомендуй из СОБСТВЕННЫХ конвенций проекта, не из generic best-practice.",
+    "Ранжированный список предложений по возвышению — от самого влиятельного. Каждое предложение сначала попробуй опровергнуть и включи только то, что попытку пережило. На здоровой зоне пустой список — достойный ответ: находки ради количества обесценивают весь аудит.",
+    "Scope: «локальное» | «модуль» | «архитектура» | «концепция» (концепция = переработка самой идеи продукта). Опирайся на конвенции этого проекта, а не на общие best-practice.",
     "",
-    "Ответ — ТОЛЬКО валидный JSON-массив без пояснений и markdown:",
-    '[{"axis":"ось","scope":"локальное","observation":"что наблюдаем в коде/контенте","proposal":"что конкретно изменить","impact":"ожидаемый эффект","effort":"низкое|среднее|высокое","risk":"низкий|средний|высокий","confidence":0-100,"refutation":"как это может быть неверно","survives":true}]'
+    jsonOnly('[{"axis":"ось","scope":"локальное","observation":"что наблюдаем в коде/контенте","proposal":"что конкретно изменить","impact":"ожидаемый эффект","effort":"низкое|среднее|высокое","risk":"низкий|средний|высокий","confidence":0-100,"refutation":"как это может быть неверно","survives":true}]')
   ].join(`
 `);
 }
@@ -462,16 +462,20 @@ Record a decision with: /symbiont:elevate reject N reason… (or "accept N").`))
   }
   if (args.includes("--ground") && r.proposals.length > 0) {
     const needs = r.proposals.map((p) => `${p.axis}: ${p.proposal}`).slice(0, 6);
-    console.log(`
-— Внешнее заземление (research + синтез с внутренним проекта; веб-инструменты)…`);
+    console.log(t(`
+— Внешнее заземление (research + синтез с внутренним проекта; веб-инструменты)…`, `
+— External grounding (research plus synthesis with the project’s own internals; web tools)…`));
     const g = runGround(root, needs, (prompt) => callClaudeWithTools(prompt, { intent: "deep", dataDir }));
     if (g.model) {
-      console.log(`
+      console.log(t(`
 Заземление (модель ${g.model}):
-${g.text}`);
+${g.text}`, `
+Grounding (model ${g.model}):
+${g.text}`));
     } else {
-      console.log(`
-Заземление недоступно (нет интернета/инструментов) — предложения выше стоят на априори модели.`);
+      console.log(t(`
+Заземление недоступно (нет интернета/инструментов) — предложения выше стоят на априори модели.`, `
+Grounding unavailable (no internet or no web tools) — the proposals above rest on the model’s prior alone.`));
     }
   }
 }

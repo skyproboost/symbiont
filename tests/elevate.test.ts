@@ -72,7 +72,7 @@ describe('buildElevatePrompt', () => {
     const prompt = buildElevatePrompt(buildContext(proj, dataDir))
     expect(prompt).toContain('LCP ≤ 2.5с') // порог из рубрики
     expect(prompt).toContain('OWASP') // безопасность всегда
-    expect(prompt).toContain('опровержения') // состязательная проверка
+    expect(prompt).toContain('опровергнуть') // состязательная проверка
     expect(prompt).toContain('пустой список') // молчание — фича
     expect(prompt.toLowerCase()).toContain('собственных конвенций') // анти-карго-культ
     expect(prompt).toContain('src/core.ts') // выборка вложена

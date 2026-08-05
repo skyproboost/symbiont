@@ -3,8 +3,8 @@ import {
 } from "./session-start-7bev5jvd.js";
 import {
   callClaudeDetailed
-} from "./session-start-vz8fk2e3.js";
-import"./session-start-vd1nr52e.js";
+} from "./session-start-2bjn9vg8.js";
+import"./session-start-ghd7z0t9.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -13,18 +13,19 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-12ctfabv.js";
+} from "./session-start-5ysrdsv8.js";
 import {
   FactStore,
   detectStack,
   init_walk,
+  jsonOnly,
   openDb,
   readConstitution,
   renderConstitution,
   slugOf,
   upsertConstitution,
   walkFiles
-} from "./session-start-p2v9f776.js";
+} from "./session-start-15k5a1x7.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/charter.ts
@@ -78,8 +79,7 @@ function buildCharterPrompt(requirements, covered) {
     "## Требования владельца (свободный текст)",
     requirements,
     "",
-    "## Ответ — ТОЛЬКО валидный JSON-массив без пояснений:",
-    '[{"requirement":"исходное требование","status":"уже-покрыто|уникальное|уточнение","coveredBy":"чем (если уже-покрыто)","asWill":"цель — … · ограничение — … (если уникальное/уточнение)"}]'
+    jsonOnly('[{"requirement":"исходное требование","status":"уже-покрыто|уникальное|уточнение","coveredBy":"чем (если уже-покрыто)","asWill":"цель — … · ограничение — … (если уникальное/уточнение)"}]')
   ].join(`
 `);
 }

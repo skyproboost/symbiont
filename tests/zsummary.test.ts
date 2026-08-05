@@ -126,7 +126,7 @@ describe('buildSummaryPrompt', () => {
     const p = buildSummaryPrompt([{ file: 'src/core/store.ts', content: 'export class FactStore {}' }])
     expect(p).toContain('<source>\nsrc/core/store.ts\n</source>')
     expect(p).toContain('export class FactStore {}')
-    expect(p).toContain('ТОЛЬКО валидный JSON-массив')
+    expect(p).toContain('Ответ целиком — один JSON-массив')
   })
 })
 

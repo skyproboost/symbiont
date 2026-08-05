@@ -19,7 +19,7 @@
  * Цена: генерация ТОЛЬКО в детаче (auto-learn), пакетом (один вызов на N узлов);
  * каналы подачи лишь читают готовое из SQLite — латентность хука не растёт.
  */
-import { documentsBlock } from '../layer2/prompt'
+import { documentsBlock, jsonOnly } from '../layer2/prompt'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Database } from '../core/db'
@@ -136,7 +136,7 @@ export function buildSummaryPrompt(samples: Array<{ file: string; content: strin
     'Ты описываешь роль файлов в проекте одной строкой каждый — для карты проекта, которую читает другой инженер.',
     '',
     'Требования к строке:',
-    '- ЗАЧЕМ файл существует и что он держит, а не пересказ кода построчно;',
+    '- зачем файл существует и что он держит: строку читает инженер, которому нужно решить, открывать ли файл, а пересказ кода построчно на этот вопрос не отвечает;',
     '- максимально конкретно: named сущности, ответственность, чем он является для остальных;',
     `- одна строка до ${MAX_Z1_CHARS} символов, без markdown, без имени файла в начале;`,
     '- формулируй фактом, без оценок и советов.',
@@ -144,8 +144,7 @@ export function buildSummaryPrompt(samples: Array<{ file: string; content: strin
     'Файлы:',
     documentsBlock(samples),
     '',
-    'Ответ — ТОЛЬКО валидный JSON-массив без пояснений и markdown:',
-    '[{"file": "путь как в заголовке", "z1": "роль файла одной строкой"}]',
+    jsonOnly('[{"file": "путь как в заголовке", "z1": "роль файла одной строкой"}]'),
   ].join('\n')
 }
 

@@ -7,10 +7,10 @@ import {
 import {
   migrateLegacyPassports,
   resolveDataRoot
-} from "./session-start-12ctfabv.js";
+} from "./session-start-5ysrdsv8.js";
 import {
   handleSessionStart
-} from "./session-start-p2v9f776.js";
+} from "./session-start-15k5a1x7.js";
 import {
   __require,
   __toESM
@@ -27,6 +27,6 @@ var out = handleSessionStart(input, res.root);
 if (out.hookSpecificOutput)
   console.log(JSON.stringify(out));
 try {
-  const { spawnAutoLearnDetached } = await import("./detach-b94ghbqx.js");
+  const { spawnAutoLearnDetached } = await import("./detach-fmysnv98.js");
   spawnAutoLearnDetached(input.cwd ?? process.cwd(), res.root);
 } catch {}

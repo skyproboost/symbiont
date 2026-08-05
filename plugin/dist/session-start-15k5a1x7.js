@@ -3932,6 +3932,12 @@ function renderMaturity(m) {
 }
 
 // src/layer2/prompt.ts
+function jsonOnly(shape) {
+  const array = shape.trimStart().startsWith("[");
+  const head = array ? "Ответ целиком — один JSON-массив: первый символ «[», последний «]». Форма элемента:" : "Ответ целиком — один JSON-объект: первый символ «{», последний «}». Форма:";
+  return `${head}
+${shape}`;
+}
 var OUR_TAGS = /<\/(documents|document_content|document|source|revisions|revision|model_wrote|owner_corrected_to)\b/g;
 var neutralize = (text) => text.replace(OUR_TAGS, "<\\/$1");
 function documentsBlock(samples) {
@@ -3989,8 +3995,7 @@ function buildUnknownPrompt(kind, samples) {
     "Образцы:",
     documentsBlock(samples),
     "",
-    "Ответ — ТОЛЬКО валидный JSON-массив без пояснений и markdown:",
-    '[{"area": "область наблюдения", "statement": "предмет — вердикт", "evidence": ["файл1", "файл2"], "confidence": 0.8}]',
+    jsonOnly('[{"area": "область наблюдения", "statement": "предмет — вердикт", "evidence": ["файл1", "файл2"], "confidence": 0.8}]'),
     "",
     "Правила: только то, что подтверждается минимум двумя образцами; формулировка фактом («имена файлов — дата в начале»), а не советом; если устойчивых правил не видно — верни пустой массив, это честный ответ."
   ].join(`
@@ -4535,7 +4540,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-67013bcd9bc2";
+    return "bundle-22a9ab9f933b";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5530,4 +5535,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { silentSpawnOptions, openDb, t, sourceLabel, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, documentsBlock, revisionsBlock, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };
+export { silentSpawnOptions, openDb, t, sourceLabel, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };

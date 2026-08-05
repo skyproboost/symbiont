@@ -7,6 +7,7 @@
  *
  * Это не «инициализация» (паспорт строится сам): это разовый разговор о воле.
  */
+import { jsonOnly } from '../layer2/prompt'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
@@ -71,8 +72,7 @@ export function buildCharterPrompt(requirements: string, covered: string[]): str
     '## Требования владельца (свободный текст)',
     requirements,
     '',
-    '## Ответ — ТОЛЬКО валидный JSON-массив без пояснений:',
-    '[{"requirement":"исходное требование","status":"уже-покрыто|уникальное|уточнение","coveredBy":"чем (если уже-покрыто)","asWill":"цель — … · ограничение — … (если уникальное/уточнение)"}]',
+    jsonOnly('[{"requirement":"исходное требование","status":"уже-покрыто|уникальное|уточнение","coveredBy":"чем (если уже-покрыто)","asWill":"цель — … · ограничение — … (если уникальное/уточнение)"}]'),
   ].join('\n')
 }
 

@@ -3931,6 +3931,32 @@ function renderMaturity(m) {
 `);
 }
 
+// src/layer2/prompt.ts
+var OUR_TAGS = /<\/(documents|document_content|document|source|revisions|revision|model_wrote|owner_corrected_to)\b/g;
+var neutralize = (text) => text.replace(OUR_TAGS, "<\\/$1");
+function documentsBlock(samples) {
+  if (samples.length === 0)
+    return "";
+  const lines = ["<documents>"];
+  for (let i = 0;i < samples.length; i++) {
+    lines.push(`<document index="${i + 1}">`, "<source>", samples[i].file, "</source>", "<document_content>", neutralize(samples[i].content), "</document_content>", "</document>");
+  }
+  lines.push("</documents>");
+  return lines.join(`
+`);
+}
+function revisionsBlock(items) {
+  if (items.length === 0)
+    return "";
+  const lines = ["<revisions>"];
+  for (let i = 0;i < items.length; i++) {
+    lines.push(`<revision index="${i + 1}">`, "<source>", items[i].file, "</source>", "<model_wrote>", neutralize(items[i].before), "</model_wrote>", "<owner_corrected_to>", neutralize(items[i].after), "</owner_corrected_to>", "</revision>");
+  }
+  lines.push("</revisions>");
+  return lines.join(`
+`);
+}
+
 // src/miner/unknown.ts
 var MIN_FILES = 5;
 var MIN_SHARE = 0.04;
@@ -3961,7 +3987,7 @@ function buildUnknownPrompt(kind, samples) {
     "Что интересует: устойчивая структура (обязательные части, порядок), соглашения об именовании, единицы измерения и форматы значений, что здесь считается полным и законченным файлом, что повторяется из файла в файл.",
     "",
     "Образцы:",
-    ...samples.flatMap((s) => ["", `=== ${s.file} ===`, s.content]),
+    documentsBlock(samples),
     "",
     "Ответ — ТОЛЬКО валидный JSON-массив без пояснений и markdown:",
     '[{"area": "область наблюдения", "statement": "предмет — вердикт", "evidence": ["файл1", "файл2"], "confidence": 0.8}]',
@@ -4509,7 +4535,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-eaf9f7611100";
+    return "bundle-67013bcd9bc2";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5504,4 +5530,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { silentSpawnOptions, openDb, t, sourceLabel, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };
+export { silentSpawnOptions, openDb, t, sourceLabel, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, documentsBlock, revisionsBlock, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };

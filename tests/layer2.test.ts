@@ -62,7 +62,7 @@ describe('runVerbalize с фейковым LLM', () => {
     const prompt = buildPrompt(['переменные — только var'], samples)
     expect(prompt).toContain('НЕ повторяй')
     expect(prompt).toContain('переменные — только var')
-    expect(prompt).toContain('===')
+    expect(prompt).toContain('<document_content>')
     expect(prompt).toContain('JSON')
   })
 

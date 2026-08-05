@@ -19,6 +19,7 @@
  * Цена: генерация ТОЛЬКО в детаче (auto-learn), пакетом (один вызов на N узлов);
  * каналы подачи лишь читают готовое из SQLite — латентность хука не растёт.
  */
+import { documentsBlock } from '../layer2/prompt'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Database } from '../core/db'
@@ -141,7 +142,7 @@ export function buildSummaryPrompt(samples: Array<{ file: string; content: strin
     '- формулируй фактом, без оценок и советов.',
     '',
     'Файлы:',
-    ...samples.flatMap((s) => ['', `=== ${s.file} ===`, s.content]),
+    documentsBlock(samples),
     '',
     'Ответ — ТОЛЬКО валидный JSON-массив без пояснений и markdown:',
     '[{"file": "путь как в заголовке", "z1": "роль файла одной строкой"}]',

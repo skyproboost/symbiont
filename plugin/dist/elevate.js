@@ -5,8 +5,8 @@ import {
 import {
   callClaudeDetailed,
   callClaudeWithTools
-} from "./session-start-sx7pmssx.js";
-import"./session-start-cbve756d.js";
+} from "./session-start-vz8fk2e3.js";
+import"./session-start-vd1nr52e.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -16,12 +16,13 @@ import {
   renderRootNotice,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-aqk1c5nv.js";
+} from "./session-start-12ctfabv.js";
 import {
   activeAxes,
   artifactProfile,
   codeFiles,
   detectStack,
+  documentsBlock,
   extractContent,
   initLang,
   init_i18n,
@@ -31,7 +32,7 @@ import {
   slugOf,
   t,
   walkFiles
-} from "./session-start-8w88p7pt.js";
+} from "./session-start-p2v9f776.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -225,7 +226,7 @@ ${stackLine}` : "",
     ctx.verdictsBlock,
     "",
     "## Фрагменты самых связных файлов",
-    ...ctx.samples.flatMap((s) => [``, `=== ${s.file} ===`, s.content]),
+    documentsBlock(ctx.samples),
     "",
     "## Что вернуть",
     "Ранжированный список предложений по возвышению — от самого влиятельного. Для КАЖДОГО обязательна попытка опровержения: если предложение её не переживает — НЕ включай его. Не выдумывай находки ради количества: на здоровой зоне верни пустой список — это достойный ответ.",

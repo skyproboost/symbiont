@@ -2,7 +2,7 @@ import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./session-start-sx7pmssx.js";
+} from "./session-start-vz8fk2e3.js";
 import {
   addMetrics,
   astSupported,
@@ -24,7 +24,7 @@ import {
   recordLesson,
   runZSummaries,
   zoneOf
-} from "./session-start-nkwfkq7m.js";
+} from "./session-start-305kkwpz.js";
 import {
   buildRulesPrompt,
   parseRules,
@@ -42,6 +42,7 @@ import {
   buildUnknownPrompt,
   codeFiles,
   deriveAstFacts,
+  documentsBlock,
   findUnknownMaterial,
   healProjections,
   hotspotsFromGit,
@@ -52,10 +53,11 @@ import {
   mergeLearnedMaterials,
   openDb,
   readConfigEntries,
+  revisionsBlock,
   sha1,
   t,
   walkFiles
-} from "./session-start-8w88p7pt.js";
+} from "./session-start-p2v9f776.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -367,7 +369,7 @@ function buildPrompt(laws, samples, dueStatements = []) {
     ] : [],
     "",
     "Фрагменты самых связных файлов проекта:",
-    ...samples.flatMap((s) => [``, `=== ${s.file} ===`, s.content]),
+    documentsBlock(samples),
     "",
     "Выведи 3–8 дополнительных конвенций: обработка ошибок, семантика именования, архитектурные привычки, паттерны API, структура модулей.",
     "Правила только с подтверждением минимум в 3 файлах образца. Формулируй фактами в формате «предмет — вердикт» (как «ошибки — возвращаются значением, не бросаются»).",
@@ -513,14 +515,8 @@ function buildCorrectionsPrompt(items) {
   return [
     "Владелец проекта исправил код, написанный ИИ-ассистентом. Каждая правка — сигнал о неписаном правиле проекта, которое ассистент нарушил.",
     "",
-    ...items.flatMap((c) => [
-      `=== ${c.file} ===`,
-      "--- ассистент написал: ---",
-      c.before.slice(0, MAX_CHARS),
-      "--- владелец исправил на: ---",
-      c.after.slice(0, MAX_CHARS),
-      ""
-    ]),
+    revisionsBlock(items.map((c) => ({ file: c.file, before: c.before.slice(0, MAX_CHARS), after: c.after.slice(0, MAX_CHARS) }))),
+    "",
     "Выведи правила, которые объясняют эти правки (1–4 правила). Только то, что реально следует из диффов, без домыслов.",
     "Ответ — ТОЛЬКО валидный JSON-массив:",
     '[{"area": "область", "statement": "правило, которое нарушил ассистент и восстановил владелец", "evidence": ["файл1"], "confidence": 0.7}]'

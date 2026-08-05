@@ -6,6 +6,7 @@
  * рождаются «гипотезами» (мало подтверждений by construction — повторные
  * поправки поднимут); поправки потребляются (analyzed=1), не жуются повторно.
  */
+import { revisionsBlock } from '../layer2/prompt'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Database } from '../core/db'
@@ -30,14 +31,8 @@ export function buildCorrectionsPrompt(
   return [
     'Владелец проекта исправил код, написанный ИИ-ассистентом. Каждая правка — сигнал о неписаном правиле проекта, которое ассистент нарушил.',
     '',
-    ...items.flatMap((c) => [
-      `=== ${c.file} ===`,
-      '--- ассистент написал: ---',
-      c.before.slice(0, MAX_CHARS),
-      '--- владелец исправил на: ---',
-      c.after.slice(0, MAX_CHARS),
-      '',
-    ]),
+    revisionsBlock(items.map((c) => ({ file: c.file, before: c.before.slice(0, MAX_CHARS), after: c.after.slice(0, MAX_CHARS) }))),
+    '',
     'Выведи правила, которые объясняют эти правки (1–4 правила). Только то, что реально следует из диффов, без домыслов.',
     'Ответ — ТОЛЬКО валидный JSON-массив:',
     '[{"area": "область", "statement": "правило, которое нарушил ассистент и восстановил владелец", "evidence": ["файл1"], "confidence": 0.7}]',

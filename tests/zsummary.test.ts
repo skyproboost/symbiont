@@ -124,7 +124,7 @@ describe('parseSummaries', () => {
 describe('buildSummaryPrompt', () => {
   it('несёт файлы образца и требует чистый JSON', () => {
     const p = buildSummaryPrompt([{ file: 'src/core/store.ts', content: 'export class FactStore {}' }])
-    expect(p).toContain('=== src/core/store.ts ===')
+    expect(p).toContain('<source>\nsrc/core/store.ts\n</source>')
     expect(p).toContain('export class FactStore {}')
     expect(p).toContain('ТОЛЬКО валидный JSON-массив')
   })

@@ -1,4 +1,7 @@
 import {
+  documentsBlock
+} from "./session-start-p2v9f776.js";
+import {
   __require
 } from "./session-start-70d7ckvt.js";
 
@@ -81,7 +84,7 @@ function buildSummaryPrompt(samples) {
     "- формулируй фактом, без оценок и советов.",
     "",
     "Файлы:",
-    ...samples.flatMap((s) => ["", `=== ${s.file} ===`, s.content]),
+    documentsBlock(samples),
     "",
     "Ответ — ТОЛЬКО валидный JSON-массив без пояснений и markdown:",
     '[{"file": "путь как в заголовке", "z1": "роль файла одной строкой"}]'

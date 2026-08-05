@@ -22,9 +22,11 @@ describe('анализ поправок → правила-кандидаты', 
 
   it('промпт содержит «до» и «после»', () => {
     const p = buildCorrectionsPrompt([{ file: 'a.js', before: 'var data = 1;', after: 'var oData = 1;' }])
-    expect(p).toContain('ассистент написал')
+    // Стороны диффа разведены полями документа, а не текстовыми разделителями:
+    // разделитель из простого текста неотличим от самого диффа (см. layer2/prompt.ts)
+    expect(p).toContain('<model_wrote>')
     expect(p).toContain('var data = 1;')
-    expect(p).toContain('владелец исправил')
+    expect(p).toContain('<owner_corrected_to>')
     expect(p).toContain('var oData = 1;')
   })
 

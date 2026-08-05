@@ -10,6 +10,7 @@
  *
  * Ничего не применяет. Fail-open парс: мусор = ноль предложений, не мусор.
  */
+import { documentsBlock } from '../layer2/prompt'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDb } from '../core/db'
@@ -192,7 +193,7 @@ export function buildElevatePrompt(ctx: ElevateContext): string {
     ctx.verdictsBlock,
     '',
     '## Фрагменты самых связных файлов',
-    ...ctx.samples.flatMap((s) => [``, `=== ${s.file} ===`, s.content]),
+    documentsBlock(ctx.samples),
     '',
     '## Что вернуть',
     'Ранжированный список предложений по возвышению — от самого влиятельного. Для КАЖДОГО обязательна попытка опровержения: если предложение её не переживает — НЕ включай его. Не выдумывай находки ради количества: на здоровой зоне верни пустой список — это достойный ответ.',

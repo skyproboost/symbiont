@@ -661,6 +661,7 @@ var init_walk = __esm(() => {
 });
 
 // src/core/runtime.ts
+init_i18n();
 import { createRequire } from "node:module";
 var NODE_SQLITE_MIN = "22.13";
 var requireDriver = createRequire(import.meta.url);
@@ -696,6 +697,18 @@ function renderRuntimeWarning(r) {
     "- ⚠ Symbiont не может работать в этом окружении:",
     ...r.problems.map((p) => `  ${p}`),
     "  Плагин ничего не сломает, но паспорт проекта собран не будет."
+  ].join(`
+`);
+}
+function runtimeBlocker(report = inspectRuntime()) {
+  if (report.hasStorage)
+    return null;
+  const have = report.runtime === "неизвестно" ? t("ни Node, ни Bun не обнаружены", "neither Node nor Bun was found") : `${report.runtime} ${report.version}`;
+  return [
+    t("Symbiont: это окружение не поддерживается — работа не начата.", "Symbiont: this environment is not supported — no work was started."),
+    t(`  на машине: ${have}`, `  on this machine: ${have}`),
+    t(`  требуется: Node ${NODE_SQLITE_MIN}+ (в нём node:sqlite встроен) или Bun любой версии`, `  required: Node ${NODE_SQLITE_MIN}+ (it has node:sqlite built in) or Bun, any version`),
+    t("  Ничего не сломано и не изменено: паспорт хранить негде, поэтому плагин молча уступает.", "  Nothing is broken and nothing was changed: there is nowhere to keep the passport, so the plugin steps aside.")
   ].join(`
 `);
 }
@@ -791,8 +804,9 @@ function openDriver(path, options) {
 }
 function mustLoad(runtime, what) {
   const driver = loadSqliteDriver(runtime);
-  if (!driver)
-    throw new Error(`Symbiont: в этом рантайме недоступен ${what}`);
+  if (!driver) {
+    throw new Error(runtimeBlocker() ?? `Symbiont: в этом рантайме недоступен ${what}`);
+  }
   return driver;
 }
 
@@ -4540,7 +4554,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-22a9ab9f933b";
+    return "bundle-ed7ba870f051";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5535,4 +5549,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { silentSpawnOptions, openDb, t, sourceLabel, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };
+export { t, sourceLabel, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, runtimeBlocker, silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };

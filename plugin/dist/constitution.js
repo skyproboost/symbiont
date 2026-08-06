@@ -1,13 +1,14 @@
 import {
   migrateLegacyPassports,
   resolveDataRoot
-} from "./session-start-5ysrdsv8.js";
+} from "./session-start-xsjahv15.js";
 import {
   readConstitution,
   renderConstitution,
+  runtimeBlocker,
   slugOf,
   upsertConstitution
-} from "./session-start-15k5a1x7.js";
+} from "./session-start-mwmgewqe.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/constitution.ts
@@ -16,6 +17,11 @@ import { mkdirSync } from "node:fs";
 var res = resolveDataRoot(join(import.meta.dirname, "..", "..", ".data"));
 migrateLegacyPassports(res);
 var dataDir = join(res.root, slugOf(process.cwd()));
+var blocked = runtimeBlocker();
+if (blocked) {
+  console.log(blocked);
+  process.exit(0);
+}
 mkdirSync(dataDir, { recursive: true });
 var cmd = process.argv[2];
 if (cmd === "set") {

@@ -3,6 +3,7 @@
  * Требования — из аргументов (свободный текст). Сопоставляет с уже покрытым,
  * уникальное фиксирует в конституцию (побеждает выведенное).
  */
+import { runtimeBlocker } from '../core/runtime'
 import { join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { runCharter, verdictsToPairs, renderCharter } from '../elevate/charter'
@@ -15,6 +16,14 @@ const root = process.cwd()
 const res = resolveDataRoot(join(import.meta.dirname, '..', '..', '.data'))
 migrateLegacyPassports(res)
 const dataDir = join(res.root, slugOf(root))
+
+// Предпосылки к окружению — до первой строки работы. Без этого команда уходила
+// прямо в openDb и печатала стек ESM-загрузчика вместо объяснения (см. runtime.ts).
+const blocked = runtimeBlocker()
+if (blocked) {
+  console.log(blocked)
+  process.exit(0)
+}
 mkdirSync(dataDir, { recursive: true })
 
 // Показать уже зафиксированную волю (что владелец заполнял раньше)

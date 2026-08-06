@@ -6,6 +6,7 @@
  * отклонённое снова каждый прогон (см. elevate/verdicts.ts):
  *   отклонить N причина…  ·  принять N  ·  решения (что аудит помнит)
  */
+import { runtimeBlocker } from '../core/runtime'
 import { join } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { runElevate, renderProposals, parseProposals } from '../elevate/engine'
@@ -23,6 +24,14 @@ migrateLegacyPassports(res)
 const dataDir = join(res.root, slugOf(root))
 const dbPath = join(dataDir, 'passport.db')
 initLang(dataDir, root)
+
+// Предпосылки к окружению — до первой строки работы. Без этого команда уходила
+// прямо в openDb и печатала стек ESM-загрузчика вместо объяснения (см. runtime.ts).
+const blocked = runtimeBlocker()
+if (blocked) {
+  console.log(blocked)
+  process.exit(0)
+}
 const args = stripDataFlag(process.argv.slice(2))
 // Ключевые слова принимаются на обоих языках. Описание команды живёт в статичном
 // манифесте, который под язык владельца подстроиться не может в принципе, и

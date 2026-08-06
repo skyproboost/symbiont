@@ -8,6 +8,7 @@
  * Итог виден в стартовой сводке следующей сессии (renderBackground) — знание
  * приходит само, а не по запросу.
  */
+import { runtimeBlocker } from '../core/runtime'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { openDb } from '../core/db'
@@ -19,6 +20,14 @@ import { autoEnabled } from '../gardener/auto-learn'
 
 const root = process.argv[2] ?? process.cwd()
 const dataDir = join(resolveDataRoot(join(import.meta.dirname, '..', '..', '.data')).root, slugOf(root))
+
+// Предпосылки к окружению — до первой строки работы. Без этого команда уходила
+// прямо в openDb и печатала стек ESM-загрузчика вместо объяснения (см. runtime.ts).
+const blocked = runtimeBlocker()
+if (blocked) {
+  console.log(blocked)
+  process.exit(0)
+}
 const dbPath = join(dataDir, 'passport.db')
 if (!existsSync(dbPath)) process.exit(0)
 if (!autoEnabled(dataDir)) process.exit(0) // выключатель владельца: learn.json {"auto": false}

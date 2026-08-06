@@ -5,8 +5,8 @@ import {
 import {
   callClaudeDetailed,
   callClaudeWithTools
-} from "./session-start-2bjn9vg8.js";
-import"./session-start-ghd7z0t9.js";
+} from "./session-start-16a14j5m.js";
+import"./session-start-skf0g8wb.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -16,7 +16,7 @@ import {
   renderRootNotice,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-5ysrdsv8.js";
+} from "./session-start-xsjahv15.js";
 import {
   activeAxes,
   artifactProfile,
@@ -30,10 +30,11 @@ import {
   isNonCodeMinable,
   jsonOnly,
   openDb,
+  runtimeBlocker,
   slugOf,
   t,
   walkFiles
-} from "./session-start-15k5a1x7.js";
+} from "./session-start-mwmgewqe.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -393,6 +394,11 @@ migrateLegacyPassports(res);
 var dataDir = join3(res.root, slugOf(root));
 var dbPath = join3(dataDir, "passport.db");
 initLang(dataDir, root);
+var blocked = runtimeBlocker();
+if (blocked) {
+  console.log(blocked);
+  process.exit(0);
+}
 var args = stripDataFlag(process.argv.slice(2));
 var VERB_ALIAS = { reject: "отклонить", accept: "принять", decisions: "решения" };
 var rawVerb = args.find((a) => /^(отклонить|принять|решения|reject|accept|decisions)$/.test(a)) ?? "";

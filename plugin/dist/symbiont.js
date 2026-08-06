@@ -5,18 +5,18 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-ghd7z0t9.js";
+} from "./session-start-skf0g8wb.js";
 import {
   contentHashOf,
   countLessons,
   summaryFor,
   summaryStats
-} from "./session-start-5zvjmsx7.js";
+} from "./session-start-kq7yws6c.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-5ysrdsv8.js";
+} from "./session-start-xsjahv15.js";
 import {
   REPORTED_WORKS,
   auditTruth,
@@ -36,13 +36,14 @@ import {
   renderDriftReport,
   renderTruth,
   renderUtility,
+  runtimeBlocker,
   silentSpawnOptions,
   slugOf,
   sourceLabel,
   statement,
   t,
   tier
-} from "./session-start-15k5a1x7.js";
+} from "./session-start-mwmgewqe.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -761,6 +762,11 @@ migrateLegacyPassports(res);
 var dataDir = join2(res.root, slugOf(root));
 var arg = stripDataFlag(process.argv.slice(2)).join(" ").trim();
 initLang(dataDir, root);
+var blocked = runtimeBlocker();
+if (blocked) {
+  console.log(blocked);
+  process.exit(0);
+}
 var LANG_WORDS = /^(язык|lang|language)\s+(ru|en|auto|авто|рус\w*|англ\w*)$/i;
 var langArg = arg.match(LANG_WORDS);
 if (langArg) {

@@ -28,7 +28,7 @@
  * Поэтому node-адаптер приводит семантику к bun, а не наоборот: эталон — тот
  * драйвер, под который написаны все шестьдесят модулей.
  */
-import { inspectRuntime, loadSqliteDriver } from './runtime'
+import { inspectRuntime, loadSqliteDriver, runtimeBlocker } from './runtime'
 
 /** Значения, которые проект связывает с параметрами запроса. */
 export type SqlParam = string | number | bigint | boolean | null | undefined | Uint8Array
@@ -205,6 +205,11 @@ function openDriver(path: string, options: OpenOptions): Database {
  */
 function mustLoad(runtime: DriverKind, what: string): unknown {
   const driver = loadSqliteDriver(runtime)
-  if (!driver) throw new Error(`Symbiont: в этом рантайме недоступен ${what}`)
+  if (!driver) {
+    // Текст исключения — тоже сообщение человеку, а не только запись в лог.
+    // Прежнее «недоступен node:sqlite» называло симптом и молчало о том, что
+    // делать; на чужой машине оно вышло восемью строками стека ESM-загрузчика.
+    throw new Error(runtimeBlocker() ?? `Symbiont: в этом рантайме недоступен ${what}`)
+  }
   return driver
 }

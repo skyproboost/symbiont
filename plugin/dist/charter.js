@@ -3,8 +3,8 @@ import {
 } from "./session-start-7bev5jvd.js";
 import {
   callClaudeDetailed
-} from "./session-start-2bjn9vg8.js";
-import"./session-start-ghd7z0t9.js";
+} from "./session-start-16a14j5m.js";
+import"./session-start-skf0g8wb.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -13,7 +13,7 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-5ysrdsv8.js";
+} from "./session-start-xsjahv15.js";
 import {
   FactStore,
   detectStack,
@@ -22,10 +22,11 @@ import {
   openDb,
   readConstitution,
   renderConstitution,
+  runtimeBlocker,
   slugOf,
   upsertConstitution,
   walkFiles
-} from "./session-start-15k5a1x7.js";
+} from "./session-start-mwmgewqe.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/charter.ts
@@ -154,6 +155,11 @@ var root = process.cwd();
 var res = resolveDataRoot(join2(import.meta.dirname, "..", "..", ".data"));
 migrateLegacyPassports(res);
 var dataDir = join2(res.root, slugOf(root));
+var blocked = runtimeBlocker();
+if (blocked) {
+  console.log(blocked);
+  process.exit(0);
+}
 mkdirSync(dataDir, { recursive: true });
 var existing = readConstitution(dataDir);
 if (existing) {

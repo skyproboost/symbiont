@@ -20,6 +20,7 @@
  * GUI-программа системы, а не консольная команда.
  */
 import { createRequire } from 'node:module'
+import { t } from './i18n'
 
 export interface RuntimeReport {
   /** на чём мы сейчас исполняемся */
@@ -87,6 +88,40 @@ export function renderRuntimeWarning(r: RuntimeReport): string {
     '- ⚠ Symbiont не может работать в этом окружении:',
     ...r.problems.map((p) => `  ${p}`),
     '  Плагин ничего не сломает, но паспорт проекта собран не будет.',
+  ].join('\n')
+}
+
+/**
+ * Препятствие к работе — текстом для человека, или null, если препятствий нет.
+ *
+ * Зачем отдельно от renderRuntimeWarning: та пишет строку В СВОДКУ, а это ответ
+ * КОМАНДЕ, которую человек только что набрал. Разница не в оформлении. Команда
+ * без такой проверки уходила прямо в openDb, ловила исключение и печатала стек
+ * ESM-загрузчика — человек видел крах плагина вместо простого «нужен рантайм
+ * новее». Поймано на первой же чужой установке: Node 20.19.6, `/symbiont:init`,
+ * восемь строк трассировки и ни слова о том, что делать.
+ *
+ * Поэтому здесь названы три вещи: что на машине есть, что требуется и что ничего
+ * не сломано. Последнее не вежливость: человек, увидевший стек, разумно решает,
+ * что плагин повредил проект, — и это единственный вывод, который здесь ложен.
+ */
+export function runtimeBlocker(report: RuntimeReport = inspectRuntime()): string | null {
+  if (report.hasStorage) return null
+  const have =
+    report.runtime === 'неизвестно'
+      ? t('ни Node, ни Bun не обнаружены', 'neither Node nor Bun was found')
+      : `${report.runtime} ${report.version}`
+  return [
+    t('Symbiont: это окружение не поддерживается — работа не начата.', 'Symbiont: this environment is not supported — no work was started.'),
+    t(`  на машине: ${have}`, `  on this machine: ${have}`),
+    t(
+      `  требуется: Node ${NODE_SQLITE_MIN}+ (в нём node:sqlite встроен) или Bun любой версии`,
+      `  required: Node ${NODE_SQLITE_MIN}+ (it has node:sqlite built in) or Bun, any version`,
+    ),
+    t(
+      '  Ничего не сломано и не изменено: паспорт хранить негде, поэтому плагин молча уступает.',
+      '  Nothing is broken and nothing was changed: there is nowhere to keep the passport, so the plugin steps aside.',
+    ),
   ].join('\n')
 }
 

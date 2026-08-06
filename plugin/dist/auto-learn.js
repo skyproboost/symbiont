@@ -1,22 +1,23 @@
 import {
   WORKS
-} from "./session-start-f4mwg907.js";
-import"./session-start-2bjn9vg8.js";
-import"./session-start-ghd7z0t9.js";
+} from "./session-start-p4mtnrsy.js";
+import"./session-start-16a14j5m.js";
+import"./session-start-skf0g8wb.js";
 import"./session-start-0xyqxcjv.js";
-import"./session-start-9y69e5jn.js";
+import"./session-start-bng491ep.js";
 import"./session-start-8ychq3hk.js";
-import"./session-start-5zvjmsx7.js";
-import"./session-start-4f4yyj4d.js";
+import"./session-start-kq7yws6c.js";
+import"./session-start-s650zxnb.js";
 import"./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-5ysrdsv8.js";
+} from "./session-start-xsjahv15.js";
 import {
   openDb,
   runWorks,
+  runtimeBlocker,
   slugOf
-} from "./session-start-15k5a1x7.js";
+} from "./session-start-mwmgewqe.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/auto-learn.ts
@@ -37,6 +38,11 @@ function autoEnabled(dataDir) {
 // src/cli/auto-learn.ts
 var root = process.argv[2] ?? process.cwd();
 var dataDir = join2(resolveDataRoot(join2(import.meta.dirname, "..", "..", ".data")).root, slugOf(root));
+var blocked = runtimeBlocker();
+if (blocked) {
+  console.log(blocked);
+  process.exit(0);
+}
 var dbPath = join2(dataDir, "passport.db");
 if (!existsSync(dbPath))
   process.exit(0);

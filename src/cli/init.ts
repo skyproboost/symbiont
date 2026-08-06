@@ -12,6 +12,7 @@
  * кулдауны, поднимает бюджет и предзаполняет то, что иначе накапливалось бы
  * визитами. Поэтому не позвать его — не ошибка: проект дозреет сам, медленнее.
  */
+import { runtimeBlocker } from '../core/runtime'
 import { join, basename, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import { openDb } from '../core/db'
@@ -43,6 +44,14 @@ const res = resolveDataRoot(join(import.meta.dirname, '..', '..', '.data'))
 migrateLegacyPassports(res)
 const dataDir = join(res.root, slugOf(root))
 initLang(dataDir, root)
+
+// Предпосылки к окружению — до первой строки работы. Без этого команда уходила
+// прямо в openDb и печатала стек ESM-загрузчика вместо объяснения (см. runtime.ts).
+const blocked = runtimeBlocker()
+if (blocked) {
+  console.log(blocked)
+  process.exit(0)
+}
 
 console.log(`Symbiont · инициализация проекта «${basename(root)}»${full ? ' — полный пересчёт' : ''}`)
 console.log(

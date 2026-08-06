@@ -2,6 +2,7 @@
  * CLI конституции: show / set.
  * set принимает JSON-массив пар [{"goal","constraint"}] — идемпотентное дообогащение.
  */
+import { runtimeBlocker } from '../core/runtime'
 import { join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { resolveDataRoot, migrateLegacyPassports } from '../core/data-root'
@@ -11,6 +12,14 @@ import { readConstitution, upsertConstitution, renderConstitution } from '../cor
 const res = resolveDataRoot(join(import.meta.dirname, '..', '..', '.data'))
 migrateLegacyPassports(res)
 const dataDir = join(res.root, slugOf(process.cwd()))
+
+// Предпосылки к окружению — до первой строки работы. Без этого команда уходила
+// прямо в openDb и печатала стек ESM-загрузчика вместо объяснения (см. runtime.ts).
+const blocked = runtimeBlocker()
+if (blocked) {
+  console.log(blocked)
+  process.exit(0)
+}
 mkdirSync(dataDir, { recursive: true })
 
 const cmd = process.argv[2]

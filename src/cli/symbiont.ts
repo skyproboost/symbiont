@@ -23,7 +23,7 @@ import { auditTruth, renderTruth } from '../gardener/truth'
 import { rankKinds, renderUtility } from '../gardener/utility'
 import { lastRun, REPORTED_WORKS } from '../gardener/scheduler'
 import { collectGraphData, renderGraphHtml } from './graph-html'
-import { silentSpawnOptions, fileOpener } from '../core/runtime'
+import { runtimeBlocker, silentSpawnOptions, fileOpener } from '../core/runtime'
 import { initLang, chooseLang, sourceLabel, t } from '../core/i18n'
 
 /**
@@ -62,6 +62,14 @@ migrateLegacyPassports(res)
 const dataDir = join(res.root, slugOf(root))
 const arg = stripDataFlag(process.argv.slice(2)).join(' ').trim()
 initLang(dataDir, root)
+
+// Предпосылки к окружению — до первой строки работы. Без этого команда уходила
+// прямо в openDb и печатала стек ESM-загрузчика вместо объяснения (см. runtime.ts).
+const blocked = runtimeBlocker()
+if (blocked) {
+  console.log(blocked)
+  process.exit(0)
+}
 
 // Язык подачи: обычно выводится сам (см. core/i18n.ts), но сказанное вслух
 // сильнее наблюдения — это единственная команда, которая его переопределяет

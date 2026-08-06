@@ -137,6 +137,8 @@ The refutation is part of the output: a proposal that doesn't survive it never r
 
 ## Installation
 
+**One prerequisite, and it is worth checking first: Node 22.13 or newer, or Bun.** Symbiont keeps the passport in SQLite, and those are the runtimes that ship SQLite built in. Note this is newer than Claude Code itself needs, so a machine that runs Claude Code happily can still be short of it — `node --version` settles it in a second. On an older runtime the plugin refuses to start and says so in one line; it never half-runs and never touches your project.
+
 ```bash
 # 1. Add the marketplace
 claude plugin marketplace add skyproboost/symbiont

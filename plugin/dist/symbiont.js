@@ -5,18 +5,18 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-skf0g8wb.js";
+} from "./session-start-36cxhaaq.js";
 import {
   contentHashOf,
   countLessons,
   summaryFor,
   summaryStats
-} from "./session-start-kq7yws6c.js";
+} from "./session-start-e5ekrma6.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-xsjahv15.js";
+} from "./session-start-dh8740fc.js";
 import {
   REPORTED_WORKS,
   auditTruth,
@@ -43,7 +43,7 @@ import {
   statement,
   t,
   tier
-} from "./session-start-mwmgewqe.js";
+} from "./session-start-wv0favmt.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";

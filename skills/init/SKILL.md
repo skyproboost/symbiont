@@ -1,6 +1,7 @@
 ---
 name: init
 description: A one-off deep pass over the project — "study everything here at once". Normally Symbiont gets to know a project gradually, over several sessions of background work; this command does all the expensive work immediately — it reads the code, the edit history and the settings, derives the project's rules and its unwritten habits, builds the map of links between files, describes the roles of key modules and takes the first health measurement. It takes from seconds to a few minutes depending on the size of the project, and it calls the model. When to use it — right after installing the plugin into a new project, or when asked to "study the project", "get to know the codebase", "initialise". Calling it again is safe and spoils nothing — data is not duplicated, expensive work already done is not redone, only what is missing is filled in, so it is fine to run whenever you are unsure that everything has been covered. The argument "re" forces a full recalculation from scratch. The command is optional — without it the same thing matures on its own, just more slowly.
+allowed-tools: Bash(bun run "${CLAUDE_SKILL_DIR}/../../src/cli/init.ts" *)
 ---
 
 # Symbiont · initialisation

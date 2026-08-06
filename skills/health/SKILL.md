@@ -1,6 +1,7 @@
 ---
 name: health
 description: The state of the project and the honesty of the passport itself. It shows three things — how well the derived rules are being followed right now (and, in texts, orphans and broken links); where things are heading relative to earlier measurements (a rule held at 100% and is now 96%, so the project is drifting away from its own norm); and where fixes keep landing — the files bug-fixes return to again and again, ranked by fix frequency × size. That last one is a list of refactoring candidates chosen by data rather than by feel. Plus a self-check — whether the passport still serves things that are no longer on disk. Use it when someone asks "what is wrong", "where is the mess", "what should be refactored" or "can the passport be trusted".
+allowed-tools: Bash(bun run "${CLAUDE_SKILL_DIR}/../../src/cli/symbiont.ts" *)
 ---
 
 # Symbiont · health and drift

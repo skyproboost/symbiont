@@ -69,7 +69,11 @@ try {
     // «skill loads with empty metadata». Такой скилл теряет описание молча, то
     // есть перестаёт вызываться моделью, ничего об этом не сообщая. Проверка
     // добавлена после того, как валидатор нашёл это разом во ВСЕХ шести скиллах.
-    const front = body.match(/^---\n([\s\S]*?)\n---/)
+    // \r? — не педантизм: правка скилла редактором с виндовыми окончаниями строк
+    // переводит файл в CRLF, и строгий шаблон перестаёт видеть frontmatter ЦЕЛИКОМ.
+    // Проверка при этом не падает, а начинает врать: жалуется на отсутствие того,
+    // что стоит в файле. Поймано ровно так — при добавлении allowed-tools.
+    const front = body.match(/^---\r?\n([\s\S]*?)\r?\n---/)
     if (front) {
       for (const line of front[1].split('\n')) {
         const kv = line.match(/^([\w-]+):\s*(.*)$/)
@@ -79,6 +83,23 @@ try {
     }
     for (const m of body.matchAll(/src\/cli\/([\w-]+\.ts)/g)) {
       if (!existsSync(join(ROOT, 'src', 'cli', m[1]))) problems.push(`${name}: битая ссылка src/cli/${m[1]}`)
+    }
+    // Команда скилла — это запуск шелла, и Claude Code требует на него разрешения.
+    // Без объявленного allowed-tools владелец получает «This command requires
+    // approval» (в режиме auto — отказ классификатора) и не понимает ни почему,
+    // ни что делать: наш собственный скрипт выглядит для проверки как чужой.
+    // Объявление узкое — ровно свой файл через ${CLAUDE_SKILL_DIR}, — и потому
+    // не просит доступа ни к чему сверх себя. Поймано на чужой установке.
+    const frontBlock = front ? front[1] : ''
+    const bodyOnly = front ? body.slice(front[0].length) : body
+    for (const m of bodyOnly.matchAll(/src\/cli\/([\w-]+)\.ts/g)) {
+      if (!/^allowed-tools:/m.test(frontBlock)) {
+        problems.push(`${name}: команда запускается, но allowed-tools не объявлен — владельцу откажут в правах`)
+        break
+      }
+      if (!frontBlock.includes(`src/cli/${m[1]}.ts`)) {
+        problems.push(`${name}: allowed-tools не покрывает src/cli/${m[1]}.ts — правило не совпадёт с командой`)
+      }
     }
   }
   check('скиллы → frontmatter+CLI', problems.length === 0, problems.length ? problems.join(' · ') : 'все скиллы валидны')

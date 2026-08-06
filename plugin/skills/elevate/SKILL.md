@@ -1,6 +1,7 @@
 ---
 name: elevate
 description: A deep review of what is worth improving in this project and in what order — the one expensive command, and it thinks for a while. It looks at the product as a whole and returns a ranked list of concrete improvements along the axes that actually apply to it — architecture, reliability, performance, security, data, accessibility, findability, usability, up to doubts about the concept itself. Every proposal rests on two things at once — recognised industry standards and this project's own conventions — and goes through an adversarial self-check where the doubtful is cut. It changes nothing and fixes nothing; it is a map of opportunities, and the decision is always yours. The argument sets how strict the filter is, 70 by default (for example "/symbiont:elevate 85" keeps only confident findings).
+allowed-tools: Bash(node "${CLAUDE_SKILL_DIR}/../../dist/elevate.js" *)
 ---
 
 This is an explicit expensive pass (one headless LLM call, usually 1–3 minutes, longer on a large project). Symbiont takes the project passport (artifact composition, active axes, profile, constitution, graph) + the built-in rubric of quality axes (grounded in ISO 25010, Core Web Vitals, WCAG, OWASP, DAMA, Nielsen, E-E-A-T) + the principles learned from what usually goes wrong (no noise, ranking by impact, drawn from the project's own conventions, adversarial checking) → and returns a ranked list of elevation proposals.

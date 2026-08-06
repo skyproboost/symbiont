@@ -1,6 +1,7 @@
 ---
 name: status
 description: What Symbiont already knows about this project and what it does without you — how many rules have been derived and how many are confirmed enough to have become law; the size of the link map; what the form gate caught; whether the delivery channels are alive; what the background work has been doing; which kinds of hint actually pay off here and which are muted as not worth their cost. It starts and recomputes nothing — it only shows what has already been counted, so it is fast and free. An argument can name a directory — then instead of the general overview you get a map of exactly that part of the project, with file roles and link counts (for example "/symbiont:status src/core"). The same argument switches the output language — "/symbiont:status lang en", and "/symbiont:status lang auto" hands it back to automatic detection.
+allowed-tools: Bash(bun run "${CLAUDE_SKILL_DIR}/../../src/cli/symbiont.ts" *)
 ---
 
 # Symbiont · state

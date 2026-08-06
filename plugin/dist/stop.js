@@ -3,20 +3,20 @@ import {
 } from "./session-start-g0g6tesq.js";
 import {
   checkAgainstLaws
-} from "./session-start-h2fyvqta.js";
+} from "./session-start-p3b3rcp0.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
 import {
   applyRules,
   readRules
-} from "./session-start-s650zxnb.js";
+} from "./session-start-54ax8pzh.js";
 import {
   isInternalCall
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-xsjahv15.js";
+} from "./session-start-dh8740fc.js";
 import {
   ENTITY_EXT,
   FactStore,
@@ -37,7 +37,7 @@ import {
   snapshotContent,
   statement,
   t
-} from "./session-start-mwmgewqe.js";
+} from "./session-start-wv0favmt.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts

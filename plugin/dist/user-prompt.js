@@ -2,20 +2,20 @@ import {
   claimNode,
   ensureFeedLog,
   nodeBrief
-} from "./session-start-jrfcnane.js";
+} from "./session-start-dtntxq1y.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
 import {
   lessonsForZones,
   zoneOf
-} from "./session-start-kq7yws6c.js";
+} from "./session-start-e5ekrma6.js";
 import {
   isInternalCall
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-xsjahv15.js";
+} from "./session-start-dh8740fc.js";
 import {
   FactStore,
   beat,
@@ -32,7 +32,7 @@ import {
   statement,
   t,
   taskRelevantNeighbors
-} from "./session-start-mwmgewqe.js";
+} from "./session-start-wv0favmt.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/user-prompt.ts

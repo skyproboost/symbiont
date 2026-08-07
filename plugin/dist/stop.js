@@ -4,10 +4,10 @@ import {
 import {
   applyRules,
   readRules
-} from "./session-start-qhgvegte.js";
+} from "./session-start-vp1vvy3r.js";
 import {
   checkAgainstLaws
-} from "./session-start-w5at5vwx.js";
+} from "./session-start-fk53j4ar.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -16,7 +16,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-4dzffwrx.js";
+} from "./session-start-wttrst36.js";
 import {
   ENTITY_EXT,
   FactStore,
@@ -37,7 +37,7 @@ import {
   snapshotContent,
   statement,
   t
-} from "./session-start-sh8zj220.js";
+} from "./session-start-dhy2j257.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts

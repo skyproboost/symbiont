@@ -2,7 +2,7 @@ import {
   contentHashOf,
   markVisited,
   summaryFor
-} from "./session-start-62swq0w9.js";
+} from "./session-start-ppqgdrar.js";
 import {
   init_i18n,
   noteSurfaced,
@@ -10,10 +10,12 @@ import {
   readConfigEdges,
   renderConfigInfluence,
   t
-} from "./session-start-sh8zj220.js";
+} from "./session-start-dhy2j257.js";
 
 // src/hooks/node-brief.ts
 init_i18n();
+var OUTLINE_KIND = "outline";
+var outlineKey = (rel) => `#outline:${rel}`;
 function ensureFeedLog(db) {
   db.run("CREATE TABLE IF NOT EXISTS jit_log(session_id TEXT NOT NULL, file TEXT NOT NULL, PRIMARY KEY(session_id, file))");
   const cols = db.query("PRAGMA table_info(jit_log)").all().map((c) => c.name);
@@ -68,4 +70,4 @@ function nodeBrief(db, node) {
   return parts.join(" · ");
 }
 
-export { ensureFeedLog, claimNode, markUsed, nodeBrief };
+export { OUTLINE_KIND, outlineKey, ensureFeedLog, claimNode, markUsed, nodeBrief };

@@ -1,14 +1,14 @@
 import {
   migrateLegacyPassports,
   resolveDataRoot
-} from "./session-start-4dzffwrx.js";
+} from "./session-start-wttrst36.js";
 import {
   readConstitution,
   renderConstitution,
   runtimeBlocker,
   slugOf,
   upsertConstitution
-} from "./session-start-sh8zj220.js";
+} from "./session-start-dhy2j257.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/constitution.ts

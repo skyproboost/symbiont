@@ -5,8 +5,10 @@
  * 1) правка (Edit/Write) — МГНОВЕННЫЙ dry-run гейт: файл проверяется против
  *    законов паспорта сразу, а не в конце хода (Stop лишь добьёт пропущенное —
  *    дедуп общий, повторов не будет);
- * 2) любое касание (включая Read) — срез узла графа: связи и co-change
- *    прецеденты тронутого файла (дедуп общий с JIT — второй раз не подкладывается).
+ * 2) правка — дар по касанию (touch-feed.ts): срез узла графа, условия зоны,
+ *    доменный плейбук. На ЧТЕНИИ этот дар теперь приходит раньше — каналом
+ *    PreToolUse; матчер здесь Read не ловит, потому что два процесса на одно
+ *    чтение стоили вдвое, а говорили одно и то же (замер: 83ms + 84ms).
  *
  * Молчание по умолчанию; fail-open; ничего не блокирует.
  */
@@ -20,16 +22,19 @@ import { checkAgainstLaws } from '../gates/checks'
 import { runContentVerifiers, contentVerifierActive, loadEntityResolver } from '../verifiers/content'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
-import { ensureFeedLog, claimNode, markUsed, nodeBrief, type GraphNode } from './node-brief'
-import { bumpHeat } from '../graph/heat'
+import { ensureFeedLog, markUsed, outlineKey } from './node-brief'
+import { touchFeed } from './touch-feed'
 import { fileDomains } from '../passport/stack'
-import { readZoneProfiles, effectiveProfile, renderEffective, rootAxesFromFacts, zoneAncestors } from '../passport/cascade'
-import { shouldFeed } from '../gardener/utility'
+import { zoneAncestors } from '../passport/cascade'
 import { zoneOf } from '../gardener/lessons'
-import { playbooksFor, renderPlaybookBrief } from '../domains/playbooks'
-import { readGrounding, renderCorrection } from '../domains/grounding'
 
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+/**
+ * Read здесь остался НАМЕРЕННО, хотя матчер канала его больше не присылает:
+ * между обновлением плагина и перезапуском Claude Code какое-то время живёт
+ * прежний манифест. Пусть в этот промежуток канал отработает по-старому —
+ * дедуп через jit_log всё равно не даст сказать дважды.
+ */
 const TOUCH_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Read'])
 const MAX_CONTENT = 1_000_000 // гейт не жуёт гигантов
 const SKIP_ZONES = /(^|\/)(node_modules|\.git|\.data|dist|build|\.nuxt|vendor)(\/|$)/
@@ -115,7 +120,12 @@ export function handlePostTool(input: PostToolInput, dataRoot: string): PostTool
         // Пользу зачитываем всем видам, чья подача покрывала этот файл: зональные
         // (уроки, каскад) и доменные (плейбук) знания не привязаны к имени файла,
         // но работали именно на него — иначе они выглядели бы вечно бесполезными.
-        const covering = [`#lesson:${zoneOf(rel)}`, ...zoneAncestors(rel).map((z) => `#zone:${z}`), ...fileDomains(rel).map((d) => `#playbook:${d}`)]
+        const covering = [
+          `#lesson:${zoneOf(rel)}`,
+          ...zoneAncestors(rel).map((z) => `#zone:${z}`),
+          ...fileDomains(rel).map((d) => `#playbook:${d}`),
+          outlineKey(rel), // предложение структуры работало на этот же файл
+        ]
         markUsed(db, sid, rel, covering)
         recordEdit(db, sid, rel)
       }
@@ -151,54 +161,8 @@ export function handlePostTool(input: PostToolInput, dataRoot: string): PostTool
         }
       }
 
-      // 2) Срез узла графа — если файл в графе и ещё не подавался этой сессии
-      const node = db.query('SELECT file, in_deg, out_deg FROM graph_nodes WHERE file = ?').get(rel) as GraphNode | null
-      if (node) {
-        // Тепло: касание узла излучает релевантность (влияет на подачу и hotspot)
-        try {
-          bumpHeat(db, node.file, new Date().toISOString())
-        } catch {
-          /* тепло — обогащение, не критично */
-        }
-        ensureFeedLog(db)
-        if (claimNode(db, sid, node.file)) lines.push(`- ${nodeBrief(db, node)}`)
-      }
-
-      // 3) Каскад осей профиля: спускаясь в зону, агент получает её ЭФФЕКТИВНЫЕ
-      // условия — только дельту к корню (корневые уже пришли сводкой). Дедуп по
-      // зоне на сессию: условия зоны не меняются от файла к файлу.
-      try {
-        const profiles = readZoneProfiles(db)
-        if (profiles.length > 0) {
-          const rootAxes = rootAxesFromFacts(
-            new FactStore(db).active().filter((f) => f.area === 'профиль качества').map((f) => f.statement),
-          )
-          const eff = effectiveProfile(rel, rootAxes, profiles)
-          if (eff && shouldFeed(db, 'zone')) {
-            ensureFeedLog(db)
-            if (claimNode(db, sid, `#zone:${eff.zone}`, 'zone')) lines.push('', renderEffective(eff))
-          }
-        }
-      } catch {
-        /* каскад — обогащение подачи, молчим при любой заминке */
-      }
-
-      // 4) Доменный плейбук — если файл относится к направлению с плейбуком,
-      // подаём его срез один раз за сессию (дедуп через общий jit_log)
-      const domains = fileDomains(rel)
-      if (domains.length > 0 && shouldFeed(db, 'playbook')) {
-        ensureFeedLog(db)
-        const active = playbooksFor({ frameworks: [], infra: [], domains })
-        const corrections = new Map(readGrounding(db).map((r) => [r.domain, r]))
-        for (const pb of active) {
-          if (!claimNode(db, sid, `#playbook:${pb.domain}`, 'playbook')) continue
-          lines.push('', renderPlaybookBrief(pb))
-          // Поправка показывается РЯДОМ с курируемым знанием, а не вместо него:
-          // видно и исходный ориентир, и то, что мы узнали позже
-          const corr = renderCorrection(corrections.get(pb.domain))
-          if (corr) lines.push(corr)
-        }
-      }
+      // 2) Дар по касанию — тот же код, что и у канала до чтения (touch-feed.ts)
+      lines.push(...touchFeed(db, sid, rel, 'graph'))
 
       if (lines.length === 0) return {}
       return {

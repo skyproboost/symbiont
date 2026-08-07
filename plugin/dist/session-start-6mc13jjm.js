@@ -1,7 +1,7 @@
 import {
   readGrounding,
   renderCorrection
-} from "./session-start-7nqwdg85.js";
+} from "./session-start-4v315e9p.js";
 import {
   playbooksFor,
   renderPlaybookBrief
@@ -10,14 +10,15 @@ import {
   claimNode,
   ensureFeedLog,
   markUsed,
-  nodeBrief
-} from "./session-start-h0v4bf5q.js";
+  nodeBrief,
+  outlineKey
+} from "./session-start-cpvp7b7g.js";
 import {
   zoneOf
-} from "./session-start-62swq0w9.js";
+} from "./session-start-ppqgdrar.js";
 import {
   checkAgainstLaws
-} from "./session-start-w5at5vwx.js";
+} from "./session-start-fk53j4ar.js";
 import {
   FactStore,
   beat,
@@ -37,12 +38,55 @@ import {
   statement,
   t,
   zoneAncestors
-} from "./session-start-sh8zj220.js";
+} from "./session-start-dhy2j257.js";
 
 // src/hooks/post-tool-core.ts
 init_i18n();
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
+
+// src/hooks/touch-feed.ts
+function touchFeed(db, sid, rel, kind) {
+  const lines = [];
+  const node = db.query("SELECT file, in_deg, out_deg FROM graph_nodes WHERE file = ?").get(rel);
+  if (node) {
+    try {
+      bumpHeat(db, node.file, new Date().toISOString());
+    } catch {}
+    ensureFeedLog(db);
+    if (claimNode(db, sid, node.file, kind))
+      lines.push(`- ${nodeBrief(db, node)}`);
+  }
+  try {
+    const profiles = readZoneProfiles(db);
+    if (profiles.length > 0) {
+      const rootAxes = rootAxesFromFacts(new FactStore(db).active().filter((f) => f.area === "профиль качества").map((f) => f.statement));
+      const eff = effectiveProfile(rel, rootAxes, profiles);
+      if (eff && shouldFeed(db, "zone")) {
+        ensureFeedLog(db);
+        if (claimNode(db, sid, `#zone:${eff.zone}`, "zone"))
+          lines.push("", renderEffective(eff));
+      }
+    }
+  } catch {}
+  const domains = fileDomains(rel);
+  if (domains.length > 0 && shouldFeed(db, "playbook")) {
+    ensureFeedLog(db);
+    const active = playbooksFor({ frameworks: [], infra: [], domains });
+    const corrections = new Map(readGrounding(db).map((r) => [r.domain, r]));
+    for (const pb of active) {
+      if (!claimNode(db, sid, `#playbook:${pb.domain}`, "playbook"))
+        continue;
+      lines.push("", renderPlaybookBrief(pb));
+      const corr = renderCorrection(corrections.get(pb.domain));
+      if (corr)
+        lines.push(corr);
+    }
+  }
+  return lines;
+}
+
+// src/hooks/post-tool-core.ts
 var WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 var TOUCH_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Read"]);
 var MAX_CONTENT = 1e6;
@@ -84,7 +128,12 @@ function handlePostTool(input, dataRoot) {
       const lines = [];
       if (WRITE_TOOLS.has(tool)) {
         ensureFeedLog(db);
-        const covering = [`#lesson:${zoneOf(rel)}`, ...zoneAncestors(rel).map((z) => `#zone:${z}`), ...fileDomains(rel).map((d) => `#playbook:${d}`)];
+        const covering = [
+          `#lesson:${zoneOf(rel)}`,
+          ...zoneAncestors(rel).map((z) => `#zone:${z}`),
+          ...fileDomains(rel).map((d) => `#playbook:${d}`),
+          outlineKey(rel)
+        ];
         markUsed(db, sid, rel, covering);
         recordEdit(db, sid, rel);
       }
@@ -115,41 +164,7 @@ function handlePostTool(input, dataRoot) {
           }
         }
       }
-      const node = db.query("SELECT file, in_deg, out_deg FROM graph_nodes WHERE file = ?").get(rel);
-      if (node) {
-        try {
-          bumpHeat(db, node.file, new Date().toISOString());
-        } catch {}
-        ensureFeedLog(db);
-        if (claimNode(db, sid, node.file))
-          lines.push(`- ${nodeBrief(db, node)}`);
-      }
-      try {
-        const profiles = readZoneProfiles(db);
-        if (profiles.length > 0) {
-          const rootAxes = rootAxesFromFacts(new FactStore(db).active().filter((f) => f.area === "профиль качества").map((f) => f.statement));
-          const eff = effectiveProfile(rel, rootAxes, profiles);
-          if (eff && shouldFeed(db, "zone")) {
-            ensureFeedLog(db);
-            if (claimNode(db, sid, `#zone:${eff.zone}`, "zone"))
-              lines.push("", renderEffective(eff));
-          }
-        }
-      } catch {}
-      const domains = fileDomains(rel);
-      if (domains.length > 0 && shouldFeed(db, "playbook")) {
-        ensureFeedLog(db);
-        const active = playbooksFor({ frameworks: [], infra: [], domains });
-        const corrections = new Map(readGrounding(db).map((r) => [r.domain, r]));
-        for (const pb of active) {
-          if (!claimNode(db, sid, `#playbook:${pb.domain}`, "playbook"))
-            continue;
-          lines.push("", renderPlaybookBrief(pb));
-          const corr = renderCorrection(corrections.get(pb.domain));
-          if (corr)
-            lines.push(corr);
-        }
-      }
+      lines.push(...touchFeed(db, sid, rel, "graph"));
       if (lines.length === 0)
         return {};
       return {
@@ -168,4 +183,4 @@ ${lines.join(`
   }
 }
 
-export { toRelNode, handlePostTool };
+export { touchFeed, toRelNode, handlePostTool };

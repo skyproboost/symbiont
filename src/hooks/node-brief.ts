@@ -19,6 +19,14 @@ export interface GraphNode {
   out_deg: number
 }
 
+/**
+ * Ключи дедупа, общие для двух каналов. Живут здесь, а не у своего канала:
+ * ключ пишет один канал (подача до чтения), а зачитывает пользу другой
+ * (правка в PostToolUse), и импорт «канал из канала» замкнул бы их в кольцо.
+ */
+export const OUTLINE_KIND = 'outline'
+export const outlineKey = (rel: string): string => `#outline:${rel}`
+
 export function ensureFeedLog(db: Database): void {
   db.run(
     'CREATE TABLE IF NOT EXISTS jit_log(session_id TEXT NOT NULL, file TEXT NOT NULL, PRIMARY KEY(session_id, file))',

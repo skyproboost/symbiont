@@ -3,8 +3,8 @@ import {
 } from "./session-start-7bev5jvd.js";
 import {
   callClaudeDetailed
-} from "./session-start-xcw9ckxa.js";
-import"./session-start-4y9g8e08.js";
+} from "./session-start-11kfv4d7.js";
+import"./session-start-7gtsfd67.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -13,7 +13,7 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-4dzffwrx.js";
+} from "./session-start-wttrst36.js";
 import {
   FactStore,
   detectStack,
@@ -26,7 +26,7 @@ import {
   slugOf,
   upsertConstitution,
   walkFiles
-} from "./session-start-sh8zj220.js";
+} from "./session-start-dhy2j257.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/charter.ts

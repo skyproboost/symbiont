@@ -28,7 +28,8 @@ import { openDb } from '../core/db'
 import { sha1 } from '../core/salsa'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
-import { ensureFeedLog, claimNode, nodeBrief, type GraphNode } from './node-brief'
+import { ensureFeedLog, claimNode, outlineKey, OUTLINE_KIND } from './node-brief'
+import { touchFeed } from './touch-feed'
 import { toRelNode } from './post-tool-core'
 import { outlineView, outlineTokens, heaviestTokens } from '../layer1/symbols'
 import { shouldFeed } from '../gardener/utility'
@@ -36,11 +37,17 @@ import { shouldFeed } from '../gardener/utility'
 /** Вид подачи в телеметрии окупаемости: он копит собственную статистику. */
 export const PRE_READ_KIND = 'pre-read'
 
+// Предложение структуры — ОТДЕЛЬНЫЙ вид подачи (ключи в node-brief.ts): вопрос
+// «окупается ли названная вслух дешёвая альтернатива» независим от вопроса
+// «окупаются ли связи узла», и слитые в один счётчик они не отвечают ни на один.
+// Мера пользы та же, что у всей подачи, — файл потом тронут. Прямее было бы
+// считать вызовы passport_outline, но их делает MCP-процесс, который о сессии
+// ничего не знает; общий прокси хотя бы сравним с остальными видами.
+
 /**
- * Ниже этого размера канал молчит. Не порог экономии, а порог осмысленности:
- * на коротком файле подсказка «возьми кусок вместо целого» стоит дороже самого
- * целого. Число — та же граница, за которой оглавление вообще перестаёт
- * окупаться (около трёх экранов кода).
+ * Ниже этого размера не предлагается СТРУКТУРА (связи и условия зоны приходят
+ * всё равно). Не порог экономии, а порог осмысленности: на коротком файле
+ * подсказка «возьми кусок вместо целого» стоит дороже самого целого.
  */
 export const MIN_FILE_CHARS = 4_000
 
@@ -91,7 +98,7 @@ export function handlePreTool(input: PreToolInput, dataRoot: string): PreToolOut
     } catch {
       content = null // файла нет — читать нечего, и советовать нечего
     }
-    if (content === null || content.length < MIN_FILE_CHARS) return {}
+    if (content === null) return {}
 
     // Подключение на запись, а не на чтение: подача сама по себе оставляет
     // следы — визит узла в очереди резюме, дедуп и счётчик окупаемости.
@@ -102,28 +109,30 @@ export function handlePreTool(input: PreToolInput, dataRoot: string): PreToolOut
       if (!shouldFeed(db, PRE_READ_KIND)) return {}
 
       const sid = input.session_id ?? 'manual'
-      const lines: string[] = []
+      // Дар по касанию — тот же код, что и у PostToolUse (touch-feed.ts), просто
+      // раньше по времени. Матчер PostToolUse больше не зовётся на Read именно
+      // поэтому: два процесса на одно чтение стоили вдвое, а говорили одно.
+      const lines = touchFeed(db, sid, rel, PRE_READ_KIND)
 
-      const node = db.query('SELECT file, in_deg, out_deg FROM graph_nodes WHERE file = ?').get(rel) as GraphNode | null
-
-      const view = outlineView(db, rel, () => content, sha1)
-      // Предложение делается только когда оно ВЫГОДНО: если оглавление стоит не
-      // меньше самого файла, честнее промолчать, чем уговаривать на дорогой путь.
-      const cost = outlineTokens(view.rows)
+      // Предложение структуры — только на файлах, где оно вообще способно
+      // окупиться. Порог касается ТОЛЬКО его: связи и условия зоны нужны и на
+      // коротком файле, а вот «возьми кусок вместо целого» на нём — нелепость.
+      const view = content.length >= MIN_FILE_CHARS ? outlineView(db, rel, () => content, sha1) : null
+      const cost = view ? outlineTokens(view.rows) : 0
       const offer =
-        view.fresh && view.rows.length > 0 && cost * 2 < view.wholeFileTokens
+        view && view.fresh && view.rows.length > 0 && cost * 2 < view.wholeFileTokens
           ? renderOutlineOffer(rel, view.rows.length, view.wholeFileTokens, cost, heaviestTokens(view.rows))
           : ''
+      // Предложение подаётся один раз за сессию и своим ключом, иначе повторное
+      // чтение того же файла молчало бы о структуре только потому, что о связях
+      // уже говорили. Вид подачи тоже СВОЙ: под общим ключом одна подача
+      // считалась бы двумя показами при одном зачёте пользы, и предложение
+      // структуры выглядело бы вдвое бесполезнее, чем оно есть.
+      if (offer) {
+        ensureFeedLog(db) // touchFeed создаёт журнал лишь когда узел есть в графе
+        if (claimNode(db, sid, outlineKey(rel), OUTLINE_KIND)) lines.push(offer)
+      }
 
-      // Нечего сказать — молчим: узла в графе нет и структуры нет
-      if (!node && !offer) return {}
-
-      // Дедуп общий с остальными каналами: сказанное здесь не повторится после
-      // чтения, а зачёт пользы (файл потом тронут) достанется этому виду подачи.
-      ensureFeedLog(db)
-      if (!claimNode(db, sid, rel, PRE_READ_KIND)) return {}
-      if (node) lines.push(`- ${nodeBrief(db, node)}`)
-      if (offer) lines.push(offer)
       if (lines.length === 0) return {}
 
       return {

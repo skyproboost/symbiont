@@ -1,15 +1,17 @@
 import {
-  toRelNode
-} from "./session-start-xz2k47an.js";
-import"./session-start-7nqwdg85.js";
+  toRelNode,
+  touchFeed
+} from "./session-start-6mc13jjm.js";
+import"./session-start-4v315e9p.js";
 import"./session-start-8ychq3hk.js";
 import {
+  OUTLINE_KIND,
   claimNode,
   ensureFeedLog,
-  nodeBrief
-} from "./session-start-h0v4bf5q.js";
-import"./session-start-62swq0w9.js";
-import"./session-start-w5at5vwx.js";
+  outlineKey
+} from "./session-start-cpvp7b7g.js";
+import"./session-start-ppqgdrar.js";
+import"./session-start-fk53j4ar.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -23,7 +25,7 @@ import {
 } from "./session-start-n4jed5qc.js";
 import {
   resolveDataRoot
-} from "./session-start-4dzffwrx.js";
+} from "./session-start-wttrst36.js";
 import {
   beat,
   init_i18n,
@@ -32,7 +34,7 @@ import {
   shouldFeed,
   slugOf,
   t
-} from "./session-start-sh8zj220.js";
+} from "./session-start-dhy2j257.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/pre-tool.ts
@@ -69,27 +71,22 @@ function handlePreTool(input, dataRoot) {
     } catch {
       content = null;
     }
-    if (content === null || content.length < MIN_FILE_CHARS)
+    if (content === null)
       return {};
     const db = openDb(dbPath);
     try {
       if (!shouldFeed(db, PRE_READ_KIND))
         return {};
       const sid = input.session_id ?? "manual";
-      const lines = [];
-      const node = db.query("SELECT file, in_deg, out_deg FROM graph_nodes WHERE file = ?").get(rel);
-      const view = outlineView(db, rel, () => content, sha1);
-      const cost = outlineTokens(view.rows);
-      const offer = view.fresh && view.rows.length > 0 && cost * 2 < view.wholeFileTokens ? renderOutlineOffer(rel, view.rows.length, view.wholeFileTokens, cost, heaviestTokens(view.rows)) : "";
-      if (!node && !offer)
-        return {};
-      ensureFeedLog(db);
-      if (!claimNode(db, sid, rel, PRE_READ_KIND))
-        return {};
-      if (node)
-        lines.push(`- ${nodeBrief(db, node)}`);
-      if (offer)
-        lines.push(offer);
+      const lines = touchFeed(db, sid, rel, PRE_READ_KIND);
+      const view = content.length >= MIN_FILE_CHARS ? outlineView(db, rel, () => content, sha1) : null;
+      const cost = view ? outlineTokens(view.rows) : 0;
+      const offer = view && view.fresh && view.rows.length > 0 && cost * 2 < view.wholeFileTokens ? renderOutlineOffer(rel, view.rows.length, view.wholeFileTokens, cost, heaviestTokens(view.rows)) : "";
+      if (offer) {
+        ensureFeedLog(db);
+        if (claimNode(db, sid, outlineKey(rel), OUTLINE_KIND))
+          lines.push(offer);
+      }
       if (lines.length === 0)
         return {};
       return {

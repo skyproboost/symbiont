@@ -12,6 +12,7 @@ import { openDb } from '../src/core/db'
 import { sha1 } from '../src/core/salsa'
 import { slugOf } from '../src/hooks/session-start-core'
 import { handlePreTool, MIN_FILE_CHARS, PRE_READ_KIND } from '../src/hooks/pre-tool-core'
+import { OUTLINE_KIND } from '../src/hooks/node-brief'
 import { handlePostTool } from '../src/hooks/post-tool-core'
 import { storeOutline } from '../src/layer1/symbols'
 import { utilityOf } from '../src/gardener/utility'
@@ -97,11 +98,18 @@ describe('подача до чтения', () => {
     }
   })
 
-  it('на коротком файле молчит: подсказка стоила бы дороже самого файла', () => {
+  it('на коротком файле связи приходят, а структура не предлагается', () => {
+    // Порог касается ТОЛЬКО предложения структуры: «возьми кусок вместо целого»
+    // на файле в одну строку — нелепость, а знать, кто от него зависит, полезно
+    // при любом размере. Раньше эту роль на чтении играл PostToolUse; теперь он
+    // на Read не зовётся, и потерять её значило бы получить регрессию знания
+    // в обмен на выигрыш во времени.
     const { proj, dataRoot } = makeWorld({ content: 'export const a = 1\n' })
     try {
-      expect(read(proj, dataRoot, 'src/core.ts').hookSpecificOutput).toBeUndefined()
       expect('export const a = 1\n'.length).toBeLessThan(MIN_FILE_CHARS)
+      const ctx = read(proj, dataRoot, 'src/core.ts').hookSpecificOutput?.additionalContext ?? ''
+      expect(ctx).toContain('src/core.ts')
+      expect(ctx).not.toContain('passport_outline')
     } finally {
       rmrf(proj)
       rmrf(dataRoot)
@@ -151,7 +159,10 @@ describe('подача до чтения', () => {
     }
   })
 
-  it('польза засчитывается этому виду подачи, когда файл потом правят', () => {
+  it('связи и предложение структуры считаются раздельно, и обоим зачитывается польза', () => {
+    // Слитые в один счётчик, они не отвечают ни на один из двух вопросов: одна
+    // подача давала два показа при одном зачёте, и предложение структуры
+    // выглядело бы вдвое бесполезнее, чем оно есть.
     const { proj, dataRoot, dataDir } = makeWorld({ withOutline: true })
     try {
       read(proj, dataRoot, 'src/core.ts')
@@ -160,10 +171,13 @@ describe('подача до чтения', () => {
         dataRoot,
       )
       const db = openDb(join(dataDir, 'passport.db'), { readonly: true })
-      const u = utilityOf(db, PRE_READ_KIND)
+      const links = utilityOf(db, PRE_READ_KIND)
+      const outline = utilityOf(db, OUTLINE_KIND)
       db.close()
-      expect(u.surfaced).toBe(1)
-      expect(u.used).toBe(1)
+      expect(links.surfaced).toBe(1)
+      expect(links.used).toBe(1)
+      expect(outline.surfaced).toBe(1)
+      expect(outline.used).toBe(1)
     } finally {
       rmrf(proj)
       rmrf(dataRoot)

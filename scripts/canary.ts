@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const ROOT = join(import.meta.dirname, '..')
-// --dist: те же 8 проверок против СОБРАННОЙ формы (plugin/dist) — то, что реально
+// --dist: те же 9 проверок против СОБРАННОЙ формы (plugin/dist) — то, что реально
 // устанавливается; без флага — против исходников (dev-цикл).
 const DIST = process.argv.includes('--dist')
 // --node: тот же прогон рантаймом поставки. Манифесты артефакта зовут node, и
@@ -118,7 +118,23 @@ const sid = 'canary-1'
   check('PostToolUse', !!out && ctx.includes('только var'), out ? 'нарушение поймано на месте' : raw)
 }
 
-// 4) Stop: dry-run гейт видит второе нарушение, дедуп не повторяет первое
+// 4) PreToolUse: подача до чтения. Канал условный (только Read, только файл
+// заметного размера), поэтому контракт здесь — не текст, а чистый прогон и
+// пульс: в синтетическом мире канарейки ни графа связей, ни разобранной
+// структуры для этого файла ещё нет, и МОЛЧАНИЕ — правильный ответ.
+{
+  writeFileSync(join(proj, 'big.js'), LEGACY.repeat(60))
+  const { out, raw } = hook('pre-tool.ts', {
+    cwd: proj,
+    session_id: sid,
+    tool_name: 'Read',
+    tool_input: { file_path: join(proj, 'big.js') },
+  })
+  const beat = existsSync(join(dataDir, 'heartbeat-pretooluse.json'))
+  check('PreToolUse', out !== null && beat, out === null ? raw : beat ? 'канал прошёл и оставил пульс' : 'пульса нет')
+}
+
+// 5) Stop: dry-run гейт видит второе нарушение, дедуп не повторяет первое
 {
   writeFileSync(join(proj, 'fresh.js'), 'const c = items.filter((x) => x)\n')
   const { out, raw } = hook('stop.ts', { cwd: proj, session_id: sid })
@@ -126,26 +142,26 @@ const sid = 'canary-1'
   check('Stop', !!out && ctx.includes('filter/map/reduce'), out ? 'dry-run сообщает фактом' : raw)
 }
 
-// 5) PreCompact: перехват перед сжатием — пульс канала (вывода не даёт)
+// 6) PreCompact: перехват перед сжатием — пульс канала (вывода не даёт)
 {
   const { raw } = hook('pre-compact.ts', { cwd: proj, session_id: sid, trigger: 'auto' })
   check('PreCompact', existsSync(join(dataDir, 'heartbeat-precompact.json')), raw || 'пульс перед сжатием оставлен')
 }
 
-// 6) SessionEnd: прощание закрывает сессию
+// 7) SessionEnd: прощание закрывает сессию
 {
   const { out, raw } = hook('session-end.ts', { cwd: proj, session_id: sid, reason: 'exit' })
   check('SessionEnd', out !== null, out !== null ? 'финализатор отработал' : raw)
 }
 
-// 7) Heartbeat всех каналов на месте
+// 8) Heartbeat всех каналов на месте
 {
-  const channels = ['sessionstart', 'userpromptsubmit', 'posttooluse', 'stop', 'precompact', 'sessionend']
+  const channels = ['sessionstart', 'userpromptsubmit', 'pretooluse', 'posttooluse', 'stop', 'precompact', 'sessionend']
   const missing = channels.filter((c) => !existsSync(join(dataDir, `heartbeat-${c}.json`)))
-  check('Heartbeat', missing.length === 0, missing.length === 0 ? 'все 6 каналов пульсируют' : `молчат: ${missing.join(', ')}`)
+  check('Heartbeat', missing.length === 0, missing.length === 0 ? `все ${channels.length} каналов пульсируют` : `молчат: ${missing.join(', ')}`)
 }
 
-// 7) MCP-сервер: initialize + tools/list по stdio
+// 9) MCP-сервер: initialize + tools/list по stdio
 {
   const msgs =
     JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) +

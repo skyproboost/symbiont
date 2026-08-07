@@ -6,7 +6,7 @@
 
 **Claude Code stops being a guest in your codebase. Symbiont reads your code and its history, derives the project's own rules and hands them to the model at the moment they matter. It never asks you anything — it observes.**
 
-![version](https://img.shields.io/badge/version-0.101-6e56cf) ![tests](https://img.shields.io/badge/tests-804-2ea043) ![channels](https://img.shields.io/badge/channels-8%2F8-2ea043) ![output](https://img.shields.io/badge/output-EN%20%2F%20RU-6e56cf) ![runtime](https://img.shields.io/badge/runtime-Node%2022.13%2B%20%7C%20Bun-000) ![license](https://img.shields.io/badge/license-proprietary-lightgrey)
+![version](https://img.shields.io/badge/version-0.109-6e56cf) ![tests](https://img.shields.io/badge/tests-852-2ea043) ![channels](https://img.shields.io/badge/channels-9%2F9-2ea043) ![output](https://img.shields.io/badge/output-EN%20%2F%20RU-6e56cf) ![runtime](https://img.shields.io/badge/runtime-Node%2022.13%2B%20%7C%20Bun-000) ![license](https://img.shields.io/badge/license-proprietary-lightgrey)
 
 <br/>
 
@@ -71,6 +71,8 @@ All of this happens on its own — no commands, no configuration.
 
 **It watches the context for you.** Knowledge arrives where the work is, instead of being dumped at the start: open a file and its role and links arrive; don't open it and nothing arrives and nothing is spent. Every kind of hint keeps a record of "surfaced → actually used", and whatever doesn't pay off on your project is dimmed automatically, then re-checked later in case it became useful.
 
+**It offers the cheap path before the expensive one.** A big file is about to be read: Symbiont already knows its role, who depends on it, and — because the structure was parsed in the background — every function and class in it with exact line boundaries. So before the read it says what it knows and what each route costs: the outline is around 150 tokens, the whole file thousands. It blocks nothing and decides nothing — the offer is there, and the model takes it or doesn't.
+
 **It survives conversation compaction.** When Claude Code compacts the history, knowledge about the project usually goes with it — and the model starts guessing again. Symbiont re-injects the passport right after compaction, and just before it, saves what the session earned.
 
 **It keeps the work in focus.** Towards the end of a turn it checks whether the work has sprawled: edits reaching beyond what was asked, checks disappearing from the diff, an unrequested refactor starting. All computed from the link map and the diff — without a single token. And it says so as a fact, not a veto: you may well have widened the task on purpose.
@@ -94,6 +96,7 @@ All of this happens on its own — no commands, no configuration.
 | **A warning about fragile places** | "This area was repaired eleven times" — before the edit, not after. |
 | **Protection from silent breakage** | If a change removes validation, authentication or a permission check, it is said out loud. |
 | **Knowledge exactly when needed** | Open a file — its role and links arrive. Don't open it — nothing arrives and nothing is spent. |
+| **One function instead of a whole file** | The structure of your code is indexed, so a single symbol can be pulled out by name — hundreds of tokens instead of tens of thousands. If the file changed after indexing, it refuses rather than hand back the wrong lines. |
 
 <br/>
 
@@ -137,7 +140,23 @@ The refutation is part of the output: a proposal that doesn't survive it never r
 
 ## Installation
 
-**One prerequisite, and it is worth checking first: Node 22.13 or newer, or Bun.** Symbiont keeps the passport in SQLite, and those are the runtimes that ship SQLite built in. Note this is newer than Claude Code itself needs, so a machine that runs Claude Code happily can still be short of it — `node --version` settles it in a second. On an older runtime the plugin refuses to start and says so in one line; it never half-runs and never touches your project.
+### One requirement, worth checking first
+
+| | |
+|---|---|
+| **Runtime** | Node **22.13+**, or Bun — any version |
+| **Check** | `node --version` |
+| **Why** | the passport lives in SQLite, and these are the two runtimes that ship SQLite built in |
+
+This is newer than Claude Code's own requirement, so a machine that runs Claude Code happily can still be short of it.
+
+**If `node --version` says less than 22.13**, either install a current Node (`nvm install 22` · `winget install OpenJS.NodeJS.LTS` · `brew install node`), or point Claude Code at a newer one you already have — `~/.claude/settings.json`:
+
+```json
+{ "env": { "PATH": "/path/to/node-22/bin:${PATH}" } }
+```
+
+On an unsupported runtime nothing half-runs. Every command answers in one line — what is on the machine, what is required, and that nothing was touched — and `/symbiont:status` prints the runtime it sees, so there is nothing to guess at.
 
 ```bash
 # 1. Add the marketplace

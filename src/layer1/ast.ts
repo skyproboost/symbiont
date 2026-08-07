@@ -124,6 +124,13 @@ export interface TSNode {
   text: string
   namedChildCount: number
   namedChild(i: number): TSNode
+  // Позиции и поля нужны разбору структуры (symbols.ts): без них узел можно
+  // опознать, но нельзя ни назвать, ни показать, где он лежит.
+  startPosition?: { row: number; column: number }
+  endPosition?: { row: number; column: number }
+  startIndex?: number
+  endIndex?: number
+  childForFieldName?(name: string): TSNode | null
 }
 
 /**
@@ -191,6 +198,26 @@ function hasDescendant(node: TSNode, re: RegExp): boolean {
     if (hasDescendant(c, re)) return true
   }
   return false
+}
+
+/** Метрики поддерева — тот же обход, но от готового корня (один разбор на два вывода). */
+export function collectMetrics(root: TSNode): AstMetrics {
+  const metrics = zeroMetrics()
+  collect(root, metrics)
+  return metrics
+}
+
+/**
+ * Что именно из файла отдаётся грамматике. Для .vue это ТОЛЬКО содержимое
+ * <script>, и это отсекает его от разбора структуры: вырезанный кусок сдвигает
+ * все номера строк, а структура без верных строк — не структура. null = файлу
+ * этого расширения грамматика ничего не даст.
+ */
+export function astSource(ext: string, content: string): string | null {
+  if (!(ext in EXT_LANG)) return null
+  if (ext !== '.vue') return content
+  const m = content.match(/<script[^>]*>([\s\S]*?)<\/script>/)
+  return m ? m[1] : null
 }
 
 /** Метрики одного файла; null = язык недоступен (деградация, не ошибка). */

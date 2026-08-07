@@ -1,22 +1,22 @@
 import {
-  readGateMode
-} from "./session-start-g0g6tesq.js";
-import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-36cxhaaq.js";
+} from "./session-start-4y9g8e08.js";
 import {
   contentHashOf,
   countLessons,
   summaryFor,
   summaryStats
-} from "./session-start-e5ekrma6.js";
+} from "./session-start-62swq0w9.js";
+import {
+  readGateMode
+} from "./session-start-g0g6tesq.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-dh8740fc.js";
+} from "./session-start-4dzffwrx.js";
 import {
   REPORTED_WORKS,
   auditTruth,
@@ -27,6 +27,7 @@ import {
   hotspotsFromGit,
   initLang,
   init_i18n,
+  inspectRuntime,
   isDue,
   lastRun,
   openDb,
@@ -43,7 +44,7 @@ import {
   statement,
   t,
   tier
-} from "./session-start-wv0favmt.js";
+} from "./session-start-sh8zj220.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -74,13 +75,24 @@ var tableExists = (db, name) => one(db, "SELECT COUNT(*) n FROM sqlite_master WH
 var bar = (n, max, width = 16) => n <= 0 ? "" : "█".repeat(Math.max(1, Math.round(n / Math.max(max, 1) * width)));
 var pad = (s, w) => s.length >= w ? s.slice(0, w - 1) + "…" : s.padEnd(w);
 var num = (n, w) => String(n).padStart(w);
+function runtimeLine() {
+  const r = inspectRuntime();
+  const where = r.runtime === "неизвестно" ? t("рантайм не опознан", "runtime not recognised") : `${r.runtime} ${r.version}`;
+  const verdict = r.hasStorage ? t("хранилище встроено — годится", "storage built in — supported") : t("встроенного хранилища нет — нужен Node 22.13+ или Bun", "no built-in storage — Node 22.13+ or Bun required");
+  return ` ${pad(t("Окружение", "Runtime"), 16)} ${where} · ${verdict}`;
+}
 function buildStatusReport(dataDir) {
   const dbPath = join(dataDir, "passport.db");
   if (!existsSync(dbPath))
-    return t("Symbiont: паспорт для этого проекта ещё не построен (строится при старте сессии).", "Symbiont: no passport for this project yet — it is built when a session starts.");
+    return [
+      t("Symbiont: паспорт для этого проекта ещё не построен (строится при старте сессии).", "Symbiont: no passport for this project yet — it is built when a session starts."),
+      "",
+      runtimeLine()
+    ].join(`
+`);
   const db = openDb(dbPath, { readonly: true });
   try {
-    const L = [t("Symbiont · статус паспорта", "Symbiont · passport status"), ""];
+    const L = [t("Symbiont · статус паспорта", "Symbiont · passport status"), "", runtimeLine(), ""];
     const tiers = q(db, "SELECT tier, COUNT(*) n FROM fact_journal WHERE superseded_by IS NULL GROUP BY tier ORDER BY n DESC");
     const journal = one(db, "SELECT COUNT(*) n FROM fact_journal").n;
     const superseded = one(db, "SELECT COUNT(*) n FROM fact_journal WHERE superseded_by IS NOT NULL").n;

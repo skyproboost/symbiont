@@ -27,7 +27,7 @@ rl.on('line', (line) => {
     return // битая строка — молчим (fail-open)
   }
   try {
-    const res = handleMessage(msg, dataDir)
+    const res = handleMessage(msg, dataDir, process.cwd())
     if (res) process.stdout.write(JSON.stringify(res) + '\n')
   } catch (e) {
     if (msg.id !== undefined) {

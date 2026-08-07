@@ -13,9 +13,11 @@
  * подстроиться не могут в принципе, а этот текст рождается у нас на каждый
  * tools/list — значит может и обязан.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDb } from '../core/db'
+import { sha1 } from '../core/salsa'
+import { resolveIndexed, outlineView, tokensOf } from '../layer1/symbols'
 import { FactStore, factBasis, type FactRow } from '../core/store'
 import { statement, tier, area as areaName, areaKey, areaList, t } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
@@ -109,6 +111,33 @@ export function toolDefs(): ToolDef[] {
         required: ['file'],
       },
     },
+    {
+      name: 'passport_outline',
+      description: t(
+        'Оглавление файла из паспорта: какие функции, классы и методы в нём объявлены, на каких строках и во сколько токенов обойдётся выемка каждого — БЕЗ чтения файла (сотни токенов вместо десятков тысяч). Готовый ответ индекса, разбор в этот момент не запускается.',
+        'A file outline from the passport: which functions, classes and methods it declares, on which lines, and what each one costs to pull out — WITHOUT reading the file (hundreds of tokens instead of tens of thousands). Served from the index; nothing is parsed at call time.',
+      ),
+      inputSchema: {
+        type: 'object',
+        properties: { file: { type: 'string', description: t('файл или хвост пути', 'a file or a path suffix') } },
+        required: ['file'],
+      },
+    },
+    {
+      name: 'passport_unfold',
+      description: t(
+        'Один символ файла целиком — по границам из оглавления, со строками для правки. Дешёвая замена чтению всего файла, когда имя нужного символа известно (его даёт passport_outline). Отказывается работать, если файл изменился после снятия оглавления, — вместо того чтобы выдать чужие строки.',
+        'One symbol of a file in full — by the boundaries from the outline, with line numbers ready for editing. The cheap replacement for reading the whole file once the symbol name is known (passport_outline gives it). Refuses if the file changed after the outline was taken, rather than handing back the wrong lines.',
+      ),
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file: { type: 'string', description: t('файл или хвост пути', 'a file or a path suffix') },
+          symbol: { type: 'string', description: t('имя символа из passport_outline (например FactStore.assertAll)', 'a symbol name from passport_outline (for example FactStore.assertAll)') },
+        },
+        required: ['file', 'symbol'],
+      },
+    },
   ]
 }
 
@@ -124,7 +153,21 @@ const factLine = (f: FactRow): string => {
   return `${f.key} · ${statement(f.statement)} · ${tier(f.tier)} · ${factBasis(f)}${measured ? ` · ${t('замер', 'measured')} ${f.seen_at.slice(0, 10)}` : ''}`
 }
 
-export function callTool(name: string, args: Record<string, unknown>, dataDir: string): string {
+/**
+ * Чтение файла проекта для инструментов структуры. Отсутствие файла — штатный
+ * ответ (null), а не исключение: индекс мог отстать от диска на удаление.
+ */
+const readSource =
+  (projectRoot: string) =>
+  (rel: string): string | null => {
+    try {
+      return readFileSync(join(projectRoot, rel), 'utf8')
+    } catch {
+      return null
+    }
+  }
+
+export function callTool(name: string, args: Record<string, unknown>, dataDir: string, projectRoot: string = process.cwd()): string {
   const dbPath = join(dataDir, 'passport.db')
   if (!existsSync(dbPath)) {
     return t(
@@ -367,6 +410,81 @@ export function callTool(name: string, args: Record<string, unknown>, dataDir: s
         ),
       ].join('\n')
     }
+    if (name === 'passport_outline' || name === 'passport_unfold') {
+      const needle = String(args.file ?? '').trim()
+      if (!needle) return t('Укажи файл или хвост пути.', 'Name a file or a path suffix.')
+      const file = resolveIndexed(db, needle)
+      if (!file) {
+        return t(
+          `Оглавления по «${needle}» нет: файл не найден в индексе структуры (он строится фоном по коду на поддерживаемых языках). Читай файл обычным способом.`,
+          `No outline for "${needle}": the file is not in the structure index (built in the background for code in supported languages). Read the file the usual way.`,
+        )
+      }
+      const view = outlineView(db, file, readSource(projectRoot), sha1)
+
+      if (name === 'passport_outline') {
+        if (view.rows.length === 0) {
+          return t(`${file}: объявленных символов не найдено — файл читается целиком.`, `${file}: no declared symbols found — read the file in full.`)
+        }
+        const width = Math.max(...view.rows.map((r) => r.kind.length))
+        const head = view.fresh
+          ? t(`${file} · оглавление снято по текущему содержимому`, `${file} · outline matches the file on disk`)
+          : t(
+              `${file} · ⚠ файл изменился после снятия оглавления: имена верны, номера строк могли сместиться (фон пересчитает)`,
+              `${file} · ⚠ the file changed after the outline was taken: names hold, line numbers may have moved (the background will refresh it)`,
+            )
+        return [
+          head,
+          t('Легенда: строки · вид · имя · ≈цена выемки', 'Legend: lines · kind · name · ≈cost to pull out'),
+          ...view.rows.map((r) => `  ${`${r.line}-${r.endLine}`.padEnd(11)} ${r.kind.padEnd(width)}  ${r.name} · ~${tokensOf(r.chars)}t`),
+          view.wholeFileTokens > 0
+            ? t(
+                `Символов: ${view.rows.length}. Файл целиком ≈${view.wholeFileTokens}t — бери нужное через passport_unfold(file, symbol).`,
+                `Symbols: ${view.rows.length}. The whole file is ≈${view.wholeFileTokens}t — take what you need with passport_unfold(file, symbol).`,
+              )
+            : t(`Символов: ${view.rows.length}. Бери нужное через passport_unfold(file, symbol).`, `Symbols: ${view.rows.length}. Take what you need with passport_unfold(file, symbol).`),
+        ].join('\n')
+      }
+
+      const wanted = String(args.symbol ?? '').trim()
+      if (!wanted) return t('Укажи имя символа (его печатает passport_outline).', 'Name a symbol (passport_outline prints them).')
+      const lower = wanted.toLowerCase()
+      const hit =
+        view.rows.find((r) => r.name === wanted) ??
+        view.rows.find((r) => r.name.toLowerCase() === lower) ??
+        view.rows.find((r) => r.name.toLowerCase().endsWith(`.${lower}`)) ??
+        null
+      if (!hit) {
+        const near = view.rows.slice(0, 12).map((r) => r.name).join(', ')
+        return t(
+          `В ${file} символа «${wanted}» нет. Есть: ${near}${view.rows.length > 12 ? ', …' : ''} (полный список — passport_outline).`,
+          `${file} has no symbol "${wanted}". It has: ${near}${view.rows.length > 12 ? ', …' : ''} (full list — passport_outline).`,
+        )
+      }
+      // Несвежий индекс не «почти верен»: границы указывают в другую редакцию, и
+      // выданный по ним кусок был бы правдоподобной чужой функцией — худший из
+      // возможных ответов. Отказ здесь честнее выемки.
+      if (!view.fresh) {
+        return t(
+          `${file} изменился после снятия оглавления — границы «${wanted}» указывают в прежнюю редакцию, поэтому выемка не делается. Прочитай файл обычным способом; фон пересчитает структуру сам.`,
+          `${file} changed after the outline was taken — the boundaries of "${wanted}" point at the previous revision, so nothing is pulled out. Read the file the usual way; the background will refresh the structure.`,
+        )
+      }
+      const text = readSource(projectRoot)(file)
+      if (text === null) return t(`${file} не читается с диска.`, `${file} cannot be read from disk.`)
+      const lines = text.split('\n')
+      const from = Math.max(1, hit.line)
+      const to = Math.min(lines.length, hit.endLine)
+      const pad = String(to).length
+      const body = lines.slice(from - 1, to).map((l, i) => `${String(from + i).padStart(pad)}  ${l}`)
+      return [
+        t(
+          `${file} · ${hit.kind} ${hit.name} · строки ${from}-${to} · ~${tokensOf(hit.chars)}t (файл целиком ≈${view.wholeFileTokens}t)`,
+          `${file} · ${hit.kind} ${hit.name} · lines ${from}-${to} · ~${tokensOf(hit.chars)}t (the whole file is ≈${view.wholeFileTokens}t)`,
+        ),
+        ...body,
+      ].join('\n')
+    }
     return t(`Неизвестный инструмент: ${name}`, `Unknown tool: ${name}`)
   } finally {
     db.close()
@@ -376,7 +494,7 @@ export function callTool(name: string, args: Record<string, unknown>, dataDir: s
 type Json = Record<string, unknown>
 
 /** JSON-RPC обработчик одного сообщения MCP (stdio-транспорт, по строке на сообщение). */
-export function handleMessage(msg: Json, dataDir: string): Json | null {
+export function handleMessage(msg: Json, dataDir: string, projectRoot: string = process.cwd()): Json | null {
   const id = msg.id
   const method = msg.method as string
 
@@ -403,7 +521,7 @@ export function handleMessage(msg: Json, dataDir: string): Json | null {
   if (method === 'tools/call') {
     const params = (msg.params ?? {}) as { name?: string; arguments?: Record<string, unknown> }
     try {
-      const text = callTool(params.name ?? '', params.arguments ?? {}, dataDir)
+      const text = callTool(params.name ?? '', params.arguments ?? {}, dataDir, projectRoot)
       return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }] } }
     } catch (e) {
       return {

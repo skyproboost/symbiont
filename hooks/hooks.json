@@ -53,6 +53,24 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun",
+            "args": [
+              "run",
+              "${CLAUDE_PLUGIN_ROOT}/src/hooks/pre-tool.ts",
+              "--data",
+              "${CLAUDE_PLUGIN_DATA}"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit|Read",

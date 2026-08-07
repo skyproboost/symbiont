@@ -13,7 +13,8 @@ import { openDb } from '../core/db'
 import { sha1 } from '../core/salsa'
 import { FactStore, keyOf } from '../core/store'
 import { walkFiles, codeFiles } from '../miner/walk'
-import { fileMetrics, astSupported, addMetrics, zeroMetrics, type AstMetrics } from './ast'
+import { withRoot, collectMetrics, astSource, astSupported, addMetrics, zeroMetrics, type AstMetrics } from './ast'
+import { collectOutline, ensureSymbols, indexedHash, storeOutline, pruneSymbols, type SymbolRow } from './symbols'
 import { deriveAstFacts } from './facts1'
 import type { Fact } from '../miner/facts'
 
@@ -33,6 +34,7 @@ export async function runLayer1(projectRoot: string, dataDir: string, budgetMs =
   try {
     db.run('CREATE TABLE IF NOT EXISTS layer1_cache(path TEXT PRIMARY KEY, hash TEXT NOT NULL, metrics TEXT NOT NULL)')
     db.run('CREATE TABLE IF NOT EXISTS layer1_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    ensureSymbols(db)
     const cacheGet = db.query('SELECT hash, metrics FROM layer1_cache WHERE path=?')
     const cachePut = db.query(
       'INSERT INTO layer1_cache(path,hash,metrics) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET hash=excluded.hash, metrics=excluded.metrics',
@@ -55,7 +57,12 @@ export async function runLayer1(projectRoot: string, dataDir: string, budgetMs =
       }
       const hash = sha1(content)
       const cached = cacheGet.get(rel) as { hash: string; metrics: string } | null
-      if (cached && cached.hash === hash) {
+      const needMetrics = !cached || cached.hash !== hash
+      // Оглавление сверяется СВОИМ хэшом, а не метрик: иначе обновление плагина
+      // застало бы весь кэш свежим и структура не построилась бы ни для одного
+      // файла — до его следующей правки, то есть, возможно, никогда.
+      const needOutline = indexedHash(db, rel) !== hash
+      if (!needMetrics && !needOutline) {
         fromCache++
         continue
       }
@@ -63,11 +70,20 @@ export async function runLayer1(projectRoot: string, dataDir: string, budgetMs =
         pending++
         continue // бюджет вышел — файл дождётся следующего захода
       }
-      const m = await fileMetrics(f.ext, content)
-      if (m === null) continue // язык недоступен — файл вне слоя
-      cachePut.run(rel, hash, JSON.stringify(m))
+      const source = astSource(f.ext, content)
+      if (source === null) continue // расширение вне слоя (или .vue без script)
+      // Один разбор — два вывода: метрики конвенций и оглавление файла
+      const got = await withRoot(f.ext, source, (root) => ({
+        metrics: collectMetrics(root),
+        outline: f.ext === '.vue' ? [] : collectOutline(root),
+      }))
+      if (got === null) continue // язык недоступен — файл вне слоя
+      cachePut.run(rel, hash, JSON.stringify(got.metrics))
+      storeOutline(db, rel, hash, got.outline as SymbolRow[])
       parsed++
     }
+
+    pruneSymbols(db, present)
 
     // Уборка кэша от удалённых файлов
     const cachedPaths = (db.query('SELECT path FROM layer1_cache').all() as Array<{ path: string }>).map((r) => r.path)

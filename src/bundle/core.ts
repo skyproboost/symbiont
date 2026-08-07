@@ -24,6 +24,7 @@ import { createHash } from 'node:crypto'
 export const ENTRY_SOURCES: string[] = [
   'src/hooks/session-start.ts',
   'src/hooks/user-prompt.ts',
+  'src/hooks/pre-tool.ts',
   'src/hooks/post-tool.ts',
   'src/hooks/stop.ts',
   'src/hooks/pre-compact.ts',

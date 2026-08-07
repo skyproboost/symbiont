@@ -3308,6 +3308,29 @@ async function loadLanguage(name2) {
     return null;
   }
 }
+async function withRoot(ext, content, visit) {
+  const langName = EXT_LANG[ext];
+  if (!langName)
+    return null;
+  const lang = await loadLanguage(langName);
+  if (!lang)
+    return null;
+  try {
+    const parser = new Parser;
+    parser.setLanguage(lang);
+    const tree = parser.parse(content);
+    if (!tree) {
+      parser.delete();
+      return null;
+    }
+    const out2 = visit(tree.rootNode);
+    tree.delete();
+    parser.delete();
+    return out2;
+  } catch {
+    return null;
+  }
+}
 function collect(node, m) {
   const t = node.type;
   if (IS_TRY.test(t))
@@ -3349,6 +3372,19 @@ function hasDescendant(node, re) {
   }
   return false;
 }
+function collectMetrics(root) {
+  const metrics = zeroMetrics();
+  collect(root, metrics);
+  return metrics;
+}
+function astSource(ext, content) {
+  if (!(ext in EXT_LANG))
+    return null;
+  if (ext !== ".vue")
+    return content;
+  const m = content.match(/<script[^>]*>([\s\S]*?)<\/script>/);
+  return m ? m[1] : null;
+}
 async function fileMetrics(ext, content) {
   const langName = EXT_LANG[ext];
   if (!langName)
@@ -3381,4 +3417,4 @@ async function fileMetrics(ext, content) {
   }
 }
 
-export { zeroMetrics, addMetrics, astSupported, fileMetrics };
+export { zeroMetrics, addMetrics, astSupported, withRoot, collectMetrics, astSource, fileMetrics };

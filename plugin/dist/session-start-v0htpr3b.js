@@ -2,19 +2,21 @@ import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./session-start-ah0pgr1s.js";
+} from "./session-start-xcw9ckxa.js";
 import {
   addMetrics,
+  astSource,
   astSupported,
-  fileMetrics,
+  collectMetrics,
+  withRoot,
   zeroMetrics
-} from "./session-start-0xyqxcjv.js";
+} from "./session-start-djk6q8qh.js";
 import {
   buildGroundingPrompt,
   dueForGrounding,
   parseGrounding,
   storeGrounding
-} from "./session-start-bq0trm93.js";
+} from "./session-start-7nqwdg85.js";
 import {
   PLAYBOOKS
 } from "./session-start-8ychq3hk.js";
@@ -24,12 +26,19 @@ import {
   recordLesson,
   runZSummaries,
   zoneOf
-} from "./session-start-e5ekrma6.js";
+} from "./session-start-62swq0w9.js";
 import {
   buildRulesPrompt,
   parseRules,
   storeRules
-} from "./session-start-54ax8pzh.js";
+} from "./session-start-qhgvegte.js";
+import {
+  collectOutline,
+  ensureSymbols,
+  indexedHash,
+  pruneSymbols,
+  storeOutline
+} from "./session-start-n4jed5qc.js";
 import {
   CODE_EXT,
   CSVX,
@@ -58,7 +67,7 @@ import {
   sha1,
   t,
   walkFiles
-} from "./session-start-wv0favmt.js";
+} from "./session-start-sh8zj220.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -442,6 +451,7 @@ async function runLayer1(projectRoot, dataDir, budgetMs = Infinity) {
   try {
     db.run("CREATE TABLE IF NOT EXISTS layer1_cache(path TEXT PRIMARY KEY, hash TEXT NOT NULL, metrics TEXT NOT NULL)");
     db.run("CREATE TABLE IF NOT EXISTS layer1_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    ensureSymbols(db);
     const cacheGet = db.query("SELECT hash, metrics FROM layer1_cache WHERE path=?");
     const cachePut = db.query("INSERT INTO layer1_cache(path,hash,metrics) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET hash=excluded.hash, metrics=excluded.metrics");
     const files = codeFiles(walkFiles(projectRoot)).filter((f) => astSupported(f.ext) && f.size <= MAX_FILE);
@@ -460,7 +470,9 @@ async function runLayer1(projectRoot, dataDir, budgetMs = Infinity) {
       }
       const hash = sha1(content);
       const cached = cacheGet.get(rel);
-      if (cached && cached.hash === hash) {
+      const needMetrics = !cached || cached.hash !== hash;
+      const needOutline = indexedHash(db, rel) !== hash;
+      if (!needMetrics && !needOutline) {
         fromCache++;
         continue;
       }
@@ -468,12 +480,20 @@ async function runLayer1(projectRoot, dataDir, budgetMs = Infinity) {
         pending++;
         continue;
       }
-      const m = await fileMetrics(f.ext, content);
-      if (m === null)
+      const source = astSource(f.ext, content);
+      if (source === null)
         continue;
-      cachePut.run(rel, hash, JSON.stringify(m));
+      const got = await withRoot(f.ext, source, (root) => ({
+        metrics: collectMetrics(root),
+        outline: f.ext === ".vue" ? [] : collectOutline(root)
+      }));
+      if (got === null)
+        continue;
+      cachePut.run(rel, hash, JSON.stringify(got.metrics));
+      storeOutline(db, rel, hash, got.outline);
       parsed++;
     }
+    pruneSymbols(db, present);
     const cachedPaths = db.query("SELECT path FROM layer1_cache").all().map((r) => r.path);
     const del = db.query("DELETE FROM layer1_cache WHERE path=?");
     for (const p of cachedPaths)

@@ -2,7 +2,7 @@ import {
   contentHashOf,
   markVisited,
   summaryFor
-} from "./session-start-e5ekrma6.js";
+} from "./session-start-62swq0w9.js";
 import {
   init_i18n,
   noteSurfaced,
@@ -10,7 +10,7 @@ import {
   readConfigEdges,
   renderConfigInfluence,
   t
-} from "./session-start-wv0favmt.js";
+} from "./session-start-sh8zj220.js";
 
 // src/hooks/node-brief.ts
 init_i18n();

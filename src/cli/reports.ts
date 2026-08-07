@@ -16,6 +16,7 @@ import { readHeatRows, effectiveHeat } from '../graph/heat'
 import { summaryStats, summaryFor, contentHashOf } from '../graph/zsummary'
 import { countLessons } from '../gardener/lessons'
 import { computeDrift, renderDrift } from '../gardener/drift'
+import { inspectRuntime } from '../core/runtime'
 
 const ago = (iso: string): string => {
   const mins = Math.round((Date.now() - Date.parse(iso)) / 60_000)
@@ -42,12 +43,36 @@ const num = (n: number, w: number): string => String(n).padStart(w)
 
 // ── обзор состояния ──────────────────────────────────────────────────────────
 
+/**
+ * Строка окружения: на чём мы исполняемся и хватает ли этого.
+ *
+ * Стоит первой и печатается ВСЕГДА, даже когда паспорта ещё нет. Причина —
+ * порядок, в котором человек выясняет отказ: пустой паспорт и негодный рантайм
+ * выглядят одинаково («плагин ничего не делает»), а различает их ровно эта
+ * строка. Требование новее того, что нужно самой Claude Code, поэтому машина,
+ * на которой Claude Code работает, вполне может его не удовлетворять — и об
+ * этом надо узнавать здесь, а не по молчанию.
+ */
+export function runtimeLine(): string {
+  const r = inspectRuntime()
+  const where = r.runtime === 'неизвестно' ? t('рантайм не опознан', 'runtime not recognised') : `${r.runtime} ${r.version}`
+  const verdict = r.hasStorage
+    ? t('хранилище встроено — годится', 'storage built in — supported')
+    : t('встроенного хранилища нет — нужен Node 22.13+ или Bun', 'no built-in storage — Node 22.13+ or Bun required')
+  return ` ${pad(t('Окружение', 'Runtime'), 16)} ${where} · ${verdict}`
+}
+
 export function buildStatusReport(dataDir: string): string {
   const dbPath = join(dataDir, 'passport.db')
-  if (!existsSync(dbPath)) return t('Symbiont: паспорт для этого проекта ещё не построен (строится при старте сессии).', 'Symbiont: no passport for this project yet — it is built when a session starts.')
+  if (!existsSync(dbPath))
+    return [
+      t('Symbiont: паспорт для этого проекта ещё не построен (строится при старте сессии).', 'Symbiont: no passport for this project yet — it is built when a session starts.'),
+      '',
+      runtimeLine(),
+    ].join('\n')
   const db = openDb(dbPath, { readonly: true })
   try {
-    const L: string[] = [t('Symbiont · статус паспорта', 'Symbiont · passport status'), '']
+    const L: string[] = [t('Symbiont · статус паспорта', 'Symbiont · passport status'), '', runtimeLine(), '']
 
     // Петля фактов — бары по ярусам
     const tiers = q<{ tier: string; n: number }>(

@@ -1,27 +1,31 @@
 import {
   WORKS
-} from "./session-start-d4c8mg5k.js";
-import"./session-start-11kfv4d7.js";
-import"./session-start-7gtsfd67.js";
+} from "./session-start-823g9xey.js";
+import"./session-start-ee9wngx9.js";
+import"./session-start-jmvb6m66.js";
 import"./session-start-djk6q8qh.js";
-import"./session-start-4v315e9p.js";
+import"./session-start-dj4fgvzp.js";
 import"./session-start-8ychq3hk.js";
-import"./session-start-ppqgdrar.js";
-import"./session-start-vp1vvy3r.js";
+import"./session-start-m2yx435j.js";
+import"./session-start-wwhagmxs.js";
 import"./session-start-5s7r4262.js";
 import"./session-start-n4jed5qc.js";
 import {
   resolveDataRoot
-} from "./session-start-wttrst36.js";
+} from "./session-start-z6xxtd7s.js";
 import {
+  initLang,
+  init_i18n,
   openDb,
   runWorks,
   runtimeBlocker,
-  slugOf
-} from "./session-start-dhy2j257.js";
+  slugOf,
+  t
+} from "./session-start-xqeg8ejq.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/auto-learn.ts
+init_i18n();
 import { join as join2 } from "node:path";
 import { existsSync } from "node:fs";
 
@@ -39,6 +43,7 @@ function autoEnabled(dataDir) {
 // src/cli/auto-learn.ts
 var root = process.argv[2] ?? process.cwd();
 var dataDir = join2(resolveDataRoot(join2(import.meta.dirname, "..", "..", ".data")).root, slugOf(root));
+initLang(dataDir, root);
 var blocked = runtimeBlocker();
 if (blocked) {
   console.log(blocked);
@@ -53,7 +58,7 @@ var db = openDb(dbPath);
 try {
   const report = await runWorks(WORKS, { db, projectRoot: root, dataDir, nowMs: Date.now() });
   for (const o of report.outcomes)
-    console.log(`${o.ok ? "✓" : "✗"} ${o.id} · ${o.ms}мс · ${o.note}`);
+    console.log(`${o.ok ? "✓" : "✗"} ${o.id} · ${o.ms}${t("мс", "ms")} · ${o.note}`);
 } finally {
   db.close();
 }

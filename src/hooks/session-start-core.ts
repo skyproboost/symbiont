@@ -19,7 +19,7 @@ import { sha1 } from '../core/salsa'
 import { renderBackground, renderGardenerSilence, REPORTED_WORKS } from '../gardener/scheduler'
 import { mutedKinds } from '../gardener/utility'
 import { inspectRuntime, renderRuntimeWarning } from '../core/runtime'
-import { t, statement } from '../core/i18n'
+import { t, statement, initLang } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
 
 /**
@@ -87,6 +87,11 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
   const cwd = input.cwd ?? process.cwd()
   const dataDir = join(dataRoot, slugOf(cwd))
   mkdirSync(dataDir, { recursive: true })
+  // Язык подачи — явно и до первой строки. Косвенно он и раньше приезжал сюда
+  // внутри buildPassport, но такая связь держится на порядке вызовов: стоит
+  // сборке паспорта уйти, отмениться или переехать ниже — и сводка молча
+  // заговорит на умолчании процесса вместо языка владельца.
+  initLang(dataDir, cwd)
 
   // Heartbeat — до любой работы: даже упавший канал оставляет след попытки.
   beat(dataDir, 'SessionStart', { source: input.source ?? null })

@@ -6,7 +6,7 @@
 
 **Claude Code stops being a guest in your codebase. Symbiont reads your code and its history, derives the project's own rules and hands them to the model at the moment they matter. It never asks you anything — it observes.**
 
-![version](https://img.shields.io/badge/version-0.110-6e56cf) ![tests](https://img.shields.io/badge/tests-852-2ea043) ![channels](https://img.shields.io/badge/channels-9%2F9-2ea043) ![output](https://img.shields.io/badge/output-EN%20%2F%20RU-6e56cf) ![runtime](https://img.shields.io/badge/runtime-Node%2022.13%2B%20%7C%20Bun-000) ![license](https://img.shields.io/badge/license-proprietary-lightgrey)
+![version](https://img.shields.io/badge/version-0.111-6e56cf) ![tests](https://img.shields.io/badge/tests-857-2ea043) ![channels](https://img.shields.io/badge/channels-9%2F9-2ea043) ![output](https://img.shields.io/badge/output-EN%20%2F%20RU-6e56cf) ![runtime](https://img.shields.io/badge/runtime-Node%2022.13%2B%20%7C%20Bun-000) ![license](https://img.shields.io/badge/license-proprietary-lightgrey)
 
 <br/>
 
@@ -202,11 +202,12 @@ There are deliberately few: a command you have to remember is a tax on the human
 
 | Command | What for |
 |:--|:--|
-| `/symbiont:status` | What the system already knows about the project and does without you: how many rules were derived, what the gate caught, what the background work has been doing, which hints pay off here. Computes nothing — only shows.<br/>*Takes a directory: `/symbiont:status src/core` shows the map of that part. The same way switches the language: `/symbiont:status lang ru`* |
+| `/symbiont:status` | What the system already knows about the project and does without you: how many rules were derived, what the gate caught, what the background work has been doing, which hints pay off here. Computes nothing — only shows.<br/>*Takes a directory: `/symbiont:status src/core` shows the map of that part* |
 | `/symbiont:graph` | The project map in your browser, and you can touch it: drag nodes, size means a module's importance, colour means the part of the project, a click opens a file's role and both sides of its links. One file, works offline, holds no code.<br/>*Takes a directory: `/symbiont:graph src/core` draws only that part — on a large project it reads far better* |
 | `/symbiont:health` | Three answers: are the rules being followed right now, where is everything drifting compared to earlier snapshots, and where do repairs keep landing — the files bug fixes return to again and again. The last one gives refactoring candidates chosen by data, not by feeling |
 | `/symbiont:init` | Analyse the project at once instead of waiting for it to mature in the background. Seconds to a few minutes. Run it after installing, or when you want "learn everything here".<br/>*Safe to run again: nothing is duplicated or redone — only what's missing is filled in. `/symbiont:init re` forces a full recount* |
 | `/symbiont:charter` | Say in words what the code can't show: "never touch production payments", "this module is frozen on purpose", "privacy outweighs speed". What the system already knows is discarded as redundant; what's genuinely yours arrives in every session |
+| `/symbiont:lang` | The language Symbiont speaks to you in. With no argument it tells you the language in force and what it rests on; `ru` / `en` pins one for this project, `auto` hands the decision back to observation. **Russian is the default** — it is what you get when nothing else has spoken. Affects only what the plugin says, never your code |
 | `/symbiont:elevate` | A review of "what's worth improving and in what order" — architecture, reliability, performance, security, data, accessibility, usability. Every proposal goes through an adversarial self-check. Changes nothing — it's a map of options.<br/>*The one expensive command: it thinks for a while. Takes a strictness threshold: `/symbiont:elevate 85` keeps only confident findings* |
 
 <br/>
@@ -214,6 +215,8 @@ There are deliberately few: a command you have to remember is a tax on the human
 ---
 
 ## Worth knowing
+
+**It speaks Russian by default.** That is the answer to "what to show before anything is known", not a limit: Symbiont also reads the language you write in, the comments in your code, your docs and your system locale, and switches on its own when they point the other way. English is a full citizen — `/symbiont:lang en` pins it for good, `/symbiont:lang` alone tells you which language is in force and why. This documentation is in English; what the plugin says inside your session is not.
 
 **Your data stays on your machine.** The passport, the journal and every projection live in your data directory. Symbiont has no server, no account, no telemetry and no third-party services of its own — it never opens a connection by itself.
 

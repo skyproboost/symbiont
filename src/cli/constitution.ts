@@ -3,6 +3,7 @@
  * set принимает JSON-массив пар [{"goal","constraint"}] — идемпотентное дообогащение.
  */
 import { runtimeBlocker } from '../core/runtime'
+import { t, initLang } from '../core/i18n'
 import { join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { resolveDataRoot, migrateLegacyPassports } from '../core/data-root'
@@ -12,6 +13,8 @@ import { readConstitution, upsertConstitution, renderConstitution } from '../cor
 const res = resolveDataRoot(join(import.meta.dirname, '..', '..', '.data'))
 migrateLegacyPassports(res)
 const dataDir = join(res.root, slugOf(process.cwd()))
+// Язык подачи — до первой отрисованной строки (см. core/i18n.ts).
+initLang(dataDir, process.cwd())
 
 // Предпосылки к окружению — до первой строки работы. Без этого команда уходила
 // прямо в openDb и печатала стек ESM-загрузчика вместо объяснения (см. runtime.ts).
@@ -29,11 +32,16 @@ if (cmd === 'set') {
   try {
     pairs = JSON.parse(raw)
   } catch {
-    console.log('Ошибка: ожидается JSON-массив пар [{"goal":"…","constraint":"…"}]')
+    console.log(t('Ошибка: ожидается JSON-массив пар [{"goal":"…","constraint":"…"}]', 'Error: a JSON array of pairs is expected — [{"goal":"…","constraint":"…"}]'))
     process.exit(1)
   }
   const c = upsertConstitution(dataDir, Array.isArray(pairs) ? pairs : [])
-  console.log(`Конституция сохранена: ${c.pairs.length} пар(ы). Подаётся в каждую сессию этого проекта.`)
+  console.log(
+    t(
+      `Конституция сохранена: ${c.pairs.length} пар(ы). Подаётся в каждую сессию этого проекта.`,
+      `Constitution saved: ${c.pairs.length} pair(s). Delivered to every session of this project.`,
+    ),
+  )
   console.log(renderConstitution(c))
 } else {
   const c = readConstitution(dataDir)

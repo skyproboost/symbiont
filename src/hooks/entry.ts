@@ -11,6 +11,7 @@
 import type { Database } from '../core/db'
 import { taskRelevantNeighbors, reachableUndirected, type Edge, type SeedWeight } from '../graph/graph'
 import { readHeatRows, effectiveHeat, hotFiles } from '../graph/heat'
+import { t } from '../core/i18n'
 
 function tableExists(db: Database, name: string): boolean {
   return (db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?").get(name) as { n: number }).n > 0
@@ -44,12 +45,31 @@ export function reconstructEntry(db: Database, thread: string[], dirty: string[]
     if (edges.length === 0) return ''
 
     const neighborhood = reachableUndirected(edges, seedSet, 2)
-    const related = taskRelevantNeighbors(nodes, edges, seeds, neighborhood, 4).map((t) => t.file)
+    // Имя параметра НЕ `t`: в этом файле так зовётся перевод строки, и тень над
+    // ним ниже по функции читалась бы как вызов и молча вернула бы поле объекта.
+    const related = taskRelevantNeighbors(nodes, edges, seeds, neighborhood, 4).map((n) => n.file)
 
-    const lines = ['## Вход в работу (что было в работе до этого сообщения)', '']
-    lines.push(`- над чем шла работа: ${work.slice(0, 6).join(', ')}${work.length > 6 ? ', …' : ''}`)
-    if (related.length > 0) lines.push(`- рядом по связям проекта (не названо, но связано): ${related.join(', ')}`)
-    lines.push('- «продолжи» ложи на это состояние, а не на букву промпта: восстанови намерение, сверь с git-диффом и нитью, затем действуй')
+    const lines = [t('## Вход в работу (что было в работе до этого сообщения)', '## Picking up the work (what was in progress before this message)'), '']
+    lines.push(
+      t(
+        `- над чем шла работа: ${work.slice(0, 6).join(', ')}${work.length > 6 ? ', …' : ''}`,
+        `- what was being worked on: ${work.slice(0, 6).join(', ')}${work.length > 6 ? ', …' : ''}`,
+      ),
+    )
+    if (related.length > 0) {
+      lines.push(
+        t(
+          `- рядом по связям проекта (не названо, но связано): ${related.join(', ')}`,
+          `- nearby through the project's links (not named, but connected): ${related.join(', ')}`,
+        ),
+      )
+    }
+    lines.push(
+      t(
+        '- «продолжи» ложи на это состояние, а не на букву промпта: восстанови намерение, сверь с git-диффом и нитью, затем действуй',
+        '- read "carry on" against this state, not against the letter of the prompt: reconstruct the intent, check it against the git diff and the thread, then act',
+      ),
+    )
     return lines.join('\n')
   } catch {
     return '' // fail-open: реконструкция — обогащение, не обязанность

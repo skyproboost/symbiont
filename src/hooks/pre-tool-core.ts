@@ -23,7 +23,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { t } from '../core/i18n'
+import { t, initLang } from '../core/i18n'
 import { openDb } from '../core/db'
 import { sha1 } from '../core/salsa'
 import { slugOf } from './session-start-core'
@@ -85,6 +85,9 @@ export function handlePreTool(input: PreToolInput, dataRoot: string): PreToolOut
 
     const cwd = input.cwd ?? process.cwd()
     const dataDir = join(dataRoot, slugOf(cwd))
+    // Язык подачи — до первой отрисованной строки: без этого канал говорит на
+    // умолчании процесса, а не на языке владельца (см. core/i18n.ts).
+    initLang(dataDir, cwd)
     beat(dataDir, 'PreToolUse')
     const dbPath = join(dataDir, 'passport.db')
     if (!existsSync(dbPath)) return {}

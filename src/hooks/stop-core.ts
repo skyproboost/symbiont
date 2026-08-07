@@ -29,7 +29,7 @@ import { readGateMode } from '../gates/config'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
 import { sha1 } from '../core/salsa'
-import { t, statement } from '../core/i18n'
+import { t, statement, initLang } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
 
 /** Предохранитель ralph-loop: столько блокировок подряд снимают гейт до конца сессии. */
@@ -160,6 +160,9 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
   try {
     const cwd = input.cwd ?? process.cwd()
     const dataDir = join(dataRoot, slugOf(cwd))
+    // Язык подачи — до первой отрисованной строки: без этого канал говорит на
+    // умолчании процесса, а не на языке владельца (см. core/i18n.ts).
+    initLang(dataDir, cwd)
     beat(dataDir, 'Stop')
     const dbPath = join(dataDir, 'passport.db')
     if (!existsSync(dbPath)) return {}

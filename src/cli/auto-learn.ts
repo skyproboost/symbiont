@@ -9,6 +9,7 @@
  * приходит само, а не по запросу.
  */
 import { runtimeBlocker } from '../core/runtime'
+import { t, initLang } from '../core/i18n'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { openDb } from '../core/db'
@@ -20,6 +21,8 @@ import { autoEnabled } from '../gardener/auto-learn'
 
 const root = process.argv[2] ?? process.cwd()
 const dataDir = join(resolveDataRoot(join(import.meta.dirname, '..', '..', '.data')).root, slugOf(root))
+// Язык подачи — до первой отрисованной строки (см. core/i18n.ts).
+initLang(dataDir, root)
 
 // Предпосылки к окружению — до первой строки работы. Без этого команда уходила
 // прямо в openDb и печатала стек ESM-загрузчика вместо объяснения (см. runtime.ts).
@@ -35,7 +38,7 @@ if (!autoEnabled(dataDir)) process.exit(0) // выключатель владе�
 const db = openDb(dbPath)
 try {
   const report = await runWorks(WORKS, { db, projectRoot: root, dataDir, nowMs: Date.now() })
-  for (const o of report.outcomes) console.log(`${o.ok ? '✓' : '✗'} ${o.id} · ${o.ms}мс · ${o.note}`)
+  for (const o of report.outcomes) console.log(`${o.ok ? '✓' : '✗'} ${o.id} · ${o.ms}${t('мс', 'ms')} · ${o.note}`)
 } finally {
   db.close()
 }

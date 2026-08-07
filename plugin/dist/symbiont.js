@@ -2,13 +2,13 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-7gtsfd67.js";
+} from "./session-start-jmvb6m66.js";
 import {
   contentHashOf,
   countLessons,
   summaryFor,
   summaryStats
-} from "./session-start-ppqgdrar.js";
+} from "./session-start-m2yx435j.js";
 import {
   readGateMode
 } from "./session-start-g0g6tesq.js";
@@ -16,11 +16,10 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-wttrst36.js";
+} from "./session-start-z6xxtd7s.js";
 import {
   REPORTED_WORKS,
   auditTruth,
-  chooseLang,
   computeDrift,
   computeHealth,
   effectiveHeat,
@@ -40,11 +39,10 @@ import {
   runtimeBlocker,
   silentSpawnOptions,
   slugOf,
-  sourceLabel,
   statement,
   t,
   tier
-} from "./session-start-dhy2j257.js";
+} from "./session-start-xqeg8ejq.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -779,13 +777,9 @@ if (blocked) {
   console.log(blocked);
   process.exit(0);
 }
-var LANG_WORDS = /^(язык|lang|language)\s+(ru|en|auto|авто|рус\w*|англ\w*)$/i;
-var langArg = arg.match(LANG_WORDS);
-if (langArg) {
-  const raw = langArg[2].toLowerCase();
-  const choice = /^(auto|авто)$/.test(raw) ? null : /^(ru|рус)/.test(raw) ? "ru" : "en";
-  const verdict = chooseLang(dataDir, choice);
-  console.log(choice === null ? t(`Symbiont: язык подачи снова определяется сам — сейчас ${verdict.lang} (${sourceLabel(verdict.source)}).`, `Symbiont: language is detected automatically again — currently ${verdict.lang} (${sourceLabel(verdict.source)}).`) : t(`Symbiont: язык подачи — ${verdict.lang}. Вернуть автоопределение: /symbiont:status lang auto`, `Symbiont: output language is now ${verdict.lang}. Back to automatic: /symbiont:status lang auto`));
+var LANG_WORDS = /^(язык|lang|language)\b/i;
+if (LANG_WORDS.test(arg)) {
+  console.log(t("Symbiont: язык подачи теперь отдельной командой — /symbiont:lang (без аргумента покажет текущий).", "Symbiont: the output language now has its own command — /symbiont:lang (no argument shows the current one)."));
   process.exit(0);
 }
 if (!existsSync2(join2(dataDir, "passport.db"))) {

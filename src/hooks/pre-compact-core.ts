@@ -14,6 +14,7 @@
  * обязанность; fail-open, ничего не блокирует.
  */
 import { join } from 'node:path'
+import { initLang } from '../core/i18n'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
 
@@ -35,6 +36,9 @@ export function handlePreCompact(input: PreCompactInput, dataRoot: string): PreC
   try {
     const cwd = input.cwd ?? process.cwd()
     const dataDir = join(dataRoot, slugOf(cwd))
+    // Язык подачи — до первой отрисованной строки: без этого канал говорит на
+    // умолчании процесса, а не на языке владельца (см. core/i18n.ts).
+    initLang(dataDir, cwd)
     beat(dataDir, 'PreCompact', { trigger: input.trigger ?? null })
   } catch {
     /* fail-open: пульс — оптимизация, не обязанность */

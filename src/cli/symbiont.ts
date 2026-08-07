@@ -24,7 +24,7 @@ import { rankKinds, renderUtility } from '../gardener/utility'
 import { lastRun, REPORTED_WORKS } from '../gardener/scheduler'
 import { collectGraphData, renderGraphHtml } from './graph-html'
 import { runtimeBlocker, silentSpawnOptions, fileOpener } from '../core/runtime'
-import { initLang, chooseLang, sourceLabel, t } from '../core/i18n'
+import { initLang, t } from '../core/i18n'
 
 /**
  * Открыть готовую карту в браузере по умолчанию.
@@ -71,19 +71,14 @@ if (blocked) {
   process.exit(0)
 }
 
-// Язык подачи: обычно выводится сам (см. core/i18n.ts), но сказанное вслух
-// сильнее наблюдения — это единственная команда, которая его переопределяет
-const LANG_WORDS = /^(язык|lang|language)\s+(ru|en|auto|авто|рус\w*|англ\w*)$/i
-const langArg = arg.match(LANG_WORDS)
-if (langArg) {
-  const raw = langArg[2].toLowerCase()
-  const choice = /^(auto|авто)$/.test(raw) ? null : /^(ru|рус)/.test(raw) ? 'ru' : 'en'
-  const verdict = chooseLang(dataDir, choice)
-  console.log(
-    choice === null
-      ? t(`Symbiont: язык подачи снова определяется сам — сейчас ${verdict.lang} (${sourceLabel(verdict.source)}).`, `Symbiont: language is detected automatically again — currently ${verdict.lang} (${sourceLabel(verdict.source)}).`)
-      : t(`Symbiont: язык подачи — ${verdict.lang}. Вернуть автоопределение: /symbiont:status lang auto`, `Symbiont: output language is now ${verdict.lang}. Back to automatic: /symbiont:status lang auto`),
-  )
+// Язык подачи сюда больше не относится: у него своя команда (/symbiont:lang).
+// Спрятанный в аргументах обзора, он не находился — человек, которому плагин
+// отвечает не на том языке, ищет команду про язык, а не описание команды про
+// состояние паспорта. Слово «lang» здесь перехватывается только затем, чтобы
+// не молчать в ответ на прежнюю форму вызова.
+const LANG_WORDS = /^(язык|lang|language)\b/i
+if (LANG_WORDS.test(arg)) {
+  console.log(t('Symbiont: язык подачи теперь отдельной командой — /symbiont:lang (без аргумента покажет текущий).', 'Symbiont: the output language now has its own command — /symbiont:lang (no argument shows the current one).'))
   process.exit(0)
 }
 

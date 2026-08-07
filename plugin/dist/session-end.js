@@ -6,16 +6,19 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-wttrst36.js";
+} from "./session-start-z6xxtd7s.js";
 import {
   SessionLog,
   beat,
+  initLang,
+  init_i18n,
   openDb,
   slugOf
-} from "./session-start-dhy2j257.js";
+} from "./session-start-xqeg8ejq.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/session-end.ts
+init_i18n();
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 if (isInternalCall())
@@ -24,6 +27,7 @@ try {
   const input = readStdinJson();
   const cwd = input.cwd ?? process.cwd();
   const dataDir = join(resolveDataRoot(join(import.meta.dirname, "..", "..", ".data")).root, slugOf(cwd));
+  initLang(dataDir, cwd);
   beat(dataDir, "SessionEnd", { reason: input.reason ?? null });
   const dbPath = join(dataDir, "passport.db");
   if (input.session_id && existsSync(dbPath)) {

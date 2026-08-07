@@ -3,8 +3,8 @@ import {
 } from "./session-start-7bev5jvd.js";
 import {
   callClaudeDetailed
-} from "./session-start-11kfv4d7.js";
-import"./session-start-7gtsfd67.js";
+} from "./session-start-ee9wngx9.js";
+import"./session-start-jmvb6m66.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -13,10 +13,12 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-wttrst36.js";
+} from "./session-start-z6xxtd7s.js";
 import {
   FactStore,
   detectStack,
+  initLang,
+  init_i18n,
   init_walk,
   jsonOnly,
   openDb,
@@ -24,12 +26,14 @@ import {
   renderConstitution,
   runtimeBlocker,
   slugOf,
+  t,
   upsertConstitution,
   walkFiles
-} from "./session-start-dhy2j257.js";
+} from "./session-start-xqeg8ejq.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/charter.ts
+init_i18n();
 import { join as join2 } from "node:path";
 import { mkdirSync } from "node:fs";
 
@@ -155,6 +159,7 @@ var root = process.cwd();
 var res = resolveDataRoot(join2(import.meta.dirname, "..", "..", ".data"));
 migrateLegacyPassports(res);
 var dataDir = join2(res.root, slugOf(root));
+initLang(dataDir, root);
 var blocked = runtimeBlocker();
 if (blocked) {
   console.log(blocked);
@@ -163,25 +168,28 @@ if (blocked) {
 mkdirSync(dataDir, { recursive: true });
 var existing = readConstitution(dataDir);
 if (existing) {
-  console.log(`Symbiont · устав · уже зафиксировано ранее:
-`);
+  console.log(t(`Symbiont · устав · уже зафиксировано ранее:
+`, `Symbiont · charter · already recorded earlier:
+`));
   console.log(renderConstitution(existing));
   console.log("");
 } else {
-  console.log(`Symbiont · устав · ранее ничего не фиксировалось (авто-конституция всё равно выводится сама).
-`);
+  console.log(t(`Symbiont · устав · ранее ничего не фиксировалось (авто-конституция всё равно выводится сама).
+`, `Symbiont · charter · nothing was recorded before (the automatic constitution is derived anyway).
+`));
 }
 var requirements = stripDataFlag(process.argv.slice(2)).join(" ").trim();
 if (!requirements) {
-  console.log("Добавить/изменить — передай требования текстом. Пример: /symbiont:charter «важнее всего приватность пациентов; не трогать прод-оплаты; топ-1 по качеству разборов». Существующее сохранится (дополнится/обновится по цели).");
+  console.log(t("Добавить/изменить — передай требования текстом. Пример: /symbiont:charter «важнее всего приватность пациентов; не трогать прод-оплаты; топ-1 по качеству разборов». Существующее сохранится (дополнится/обновится по цели).", "To add or change it, pass your requirements as text. For example: /symbiont:charter “patient privacy matters most; never touch production payments; be best in class at parsing quality”. What is already recorded is kept and extended."));
   process.exit(0);
 }
-console.log("Symbiont · устав · сопоставление требований с уже покрытым…");
+console.log(t("Symbiont · устав · сопоставление требований с уже покрытым…", "Symbiont · charter · matching your requirements against what is already covered…"));
 var r = runCharter(root, dataDir, requirements, (prompt) => callClaudeDetailed(prompt, { intent: "deep", dataDir }).result);
 console.log(renderCharter(r));
 var pairs = verdictsToPairs(r.verdicts);
 if (pairs.length > 0) {
   const c = upsertConstitution(dataDir, pairs);
-  console.log(`
-Зафиксировано в конституцию: ${pairs.length} (всего пар: ${c.pairs.length}). Подаётся в каждую сессию.`);
+  console.log(t(`
+Зафиксировано в конституцию: ${pairs.length} (всего пар: ${c.pairs.length}). Подаётся в каждую сессию.`, `
+Recorded into the constitution: ${pairs.length} (pairs in total: ${c.pairs.length}). Delivered to every session.`));
 }

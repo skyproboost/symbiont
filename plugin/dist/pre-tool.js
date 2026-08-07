@@ -1,17 +1,17 @@
 import {
   toRelNode,
   touchFeed
-} from "./session-start-6mc13jjm.js";
-import"./session-start-4v315e9p.js";
+} from "./session-start-b2w73sf4.js";
+import"./session-start-dj4fgvzp.js";
 import"./session-start-8ychq3hk.js";
 import {
   OUTLINE_KIND,
   claimNode,
   ensureFeedLog,
   outlineKey
-} from "./session-start-cpvp7b7g.js";
-import"./session-start-ppqgdrar.js";
-import"./session-start-fk53j4ar.js";
+} from "./session-start-pfyswmd8.js";
+import"./session-start-m2yx435j.js";
+import"./session-start-jtha3f83.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -25,16 +25,17 @@ import {
 } from "./session-start-n4jed5qc.js";
 import {
   resolveDataRoot
-} from "./session-start-wttrst36.js";
+} from "./session-start-z6xxtd7s.js";
 import {
   beat,
+  initLang,
   init_i18n,
   openDb,
   sha1,
   shouldFeed,
   slugOf,
   t
-} from "./session-start-dhy2j257.js";
+} from "./session-start-xqeg8ejq.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/pre-tool.ts
@@ -58,6 +59,7 @@ function handlePreTool(input, dataRoot) {
       return {};
     const cwd = input.cwd ?? process.cwd();
     const dataDir = join(dataRoot, slugOf(cwd));
+    initLang(dataDir, cwd);
     beat(dataDir, "PreToolUse");
     const dbPath = join(dataDir, "passport.db");
     if (!existsSync(dbPath))

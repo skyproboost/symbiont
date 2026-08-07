@@ -40,6 +40,7 @@ export const ENTRY_SOURCES: string[] = [
   'src/cli/charter.ts',
   'src/cli/constitution.ts',
   'src/cli/elevate.ts',
+  'src/cli/lang.ts',
   'src/bundle/smoke.ts',
 ]
 

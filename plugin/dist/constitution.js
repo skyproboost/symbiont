@@ -1,22 +1,27 @@
 import {
   migrateLegacyPassports,
   resolveDataRoot
-} from "./session-start-wttrst36.js";
+} from "./session-start-z6xxtd7s.js";
 import {
+  initLang,
+  init_i18n,
   readConstitution,
   renderConstitution,
   runtimeBlocker,
   slugOf,
+  t,
   upsertConstitution
-} from "./session-start-dhy2j257.js";
+} from "./session-start-xqeg8ejq.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/constitution.ts
+init_i18n();
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 var res = resolveDataRoot(join(import.meta.dirname, "..", "..", ".data"));
 migrateLegacyPassports(res);
 var dataDir = join(res.root, slugOf(process.cwd()));
+initLang(dataDir, process.cwd());
 var blocked = runtimeBlocker();
 if (blocked) {
   console.log(blocked);
@@ -30,11 +35,11 @@ if (cmd === "set") {
   try {
     pairs = JSON.parse(raw);
   } catch {
-    console.log('Ошибка: ожидается JSON-массив пар [{"goal":"…","constraint":"…"}]');
+    console.log(t('Ошибка: ожидается JSON-массив пар [{"goal":"…","constraint":"…"}]', 'Error: a JSON array of pairs is expected — [{"goal":"…","constraint":"…"}]'));
     process.exit(1);
   }
   const c = upsertConstitution(dataDir, Array.isArray(pairs) ? pairs : []);
-  console.log(`Конституция сохранена: ${c.pairs.length} пар(ы). Подаётся в каждую сессию этого проекта.`);
+  console.log(t(`Конституция сохранена: ${c.pairs.length} пар(ы). Подаётся в каждую сессию этого проекта.`, `Constitution saved: ${c.pairs.length} pair(s). Delivered to every session of this project.`));
   console.log(renderConstitution(c));
 } else {
   const c = readConstitution(dataDir);

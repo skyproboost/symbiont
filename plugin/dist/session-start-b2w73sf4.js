@@ -1,7 +1,7 @@
 import {
   readGrounding,
   renderCorrection
-} from "./session-start-4v315e9p.js";
+} from "./session-start-dj4fgvzp.js";
 import {
   playbooksFor,
   renderPlaybookBrief
@@ -12,13 +12,13 @@ import {
   markUsed,
   nodeBrief,
   outlineKey
-} from "./session-start-cpvp7b7g.js";
+} from "./session-start-pfyswmd8.js";
 import {
   zoneOf
-} from "./session-start-ppqgdrar.js";
+} from "./session-start-m2yx435j.js";
 import {
   checkAgainstLaws
-} from "./session-start-fk53j4ar.js";
+} from "./session-start-jtha3f83.js";
 import {
   FactStore,
   beat,
@@ -26,6 +26,7 @@ import {
   contentVerifierActive,
   effectiveProfile,
   fileDomains,
+  initLang,
   init_i18n,
   loadEntityResolver,
   openDb,
@@ -38,7 +39,7 @@ import {
   statement,
   t,
   zoneAncestors
-} from "./session-start-dhy2j257.js";
+} from "./session-start-xqeg8ejq.js";
 
 // src/hooks/post-tool-core.ts
 init_i18n();
@@ -115,6 +116,7 @@ function handlePostTool(input, dataRoot) {
       return {};
     const cwd = input.cwd ?? process.cwd();
     const dataDir = join(dataRoot, slugOf(cwd));
+    initLang(dataDir, cwd);
     beat(dataDir, "PostToolUse");
     const dbPath = join(dataDir, "passport.db");
     if (!existsSync(dbPath))

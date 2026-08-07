@@ -14,7 +14,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
-import { t, statement } from '../core/i18n'
+import { t, statement, initLang } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
 import { openDb, type Database } from '../core/db'
 import { FactStore } from '../core/store'
@@ -101,6 +101,9 @@ export function handlePostTool(input: PostToolInput, dataRoot: string): PostTool
 
     const cwd = input.cwd ?? process.cwd()
     const dataDir = join(dataRoot, slugOf(cwd))
+    // Язык подачи — до первой отрисованной строки: без этого канал говорит на
+    // умолчании процесса, а не на языке владельца (см. core/i18n.ts).
+    initLang(dataDir, cwd)
     beat(dataDir, 'PostToolUse')
     const dbPath = join(dataDir, 'passport.db')
     if (!existsSync(dbPath)) return {}

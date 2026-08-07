@@ -104,7 +104,7 @@ function decideFrom(state, projectRoot) {
     if (commits)
       return { lang: commits, source: "commits" };
   }
-  return { lang: "en", source: "default" };
+  return { lang: "ru", source: "default" };
 }
 function initLang(dataDir, projectRoot) {
   const env = envLang();
@@ -238,7 +238,7 @@ var FILE = "lang.json", current, lang = () => current, setLang = (l) => {
 var init_i18n = __esm(() => {
   current = (() => {
     const v = (process.env.SYMBIONT_LANG ?? "").toLowerCase();
-    return v === "ru" || v === "en" ? v : "en";
+    return v === "ru" || v === "en" ? v : "ru";
   })();
   EMPTY = {
     choice: null,
@@ -4554,7 +4554,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-1a75144a6976";
+    return "bundle-3fe2aee3120a";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5317,6 +5317,7 @@ function readHeatRows(db) {
 }
 
 // src/hooks/entry.ts
+init_i18n();
 function tableExists2(db, name) {
   return db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?").get(name).n > 0;
 }
@@ -5339,12 +5340,13 @@ function reconstructEntry(db, thread, dirty, nowMs) {
     if (edges.length === 0)
       return "";
     const neighborhood = reachableUndirected(edges, seedSet, 2);
-    const related = taskRelevantNeighbors(nodes, edges, seeds, neighborhood, 4).map((t2) => t2.file);
-    const lines = ["## Вход в работу (что было в работе до этого сообщения)", ""];
-    lines.push(`- над чем шла работа: ${work.slice(0, 6).join(", ")}${work.length > 6 ? ", …" : ""}`);
-    if (related.length > 0)
-      lines.push(`- рядом по связям проекта (не названо, но связано): ${related.join(", ")}`);
-    lines.push("- «продолжи» ложи на это состояние, а не на букву промпта: восстанови намерение, сверь с git-диффом и нитью, затем действуй");
+    const related = taskRelevantNeighbors(nodes, edges, seeds, neighborhood, 4).map((n) => n.file);
+    const lines = [t("## Вход в работу (что было в работе до этого сообщения)", "## Picking up the work (what was in progress before this message)"), ""];
+    lines.push(t(`- над чем шла работа: ${work.slice(0, 6).join(", ")}${work.length > 6 ? ", …" : ""}`, `- what was being worked on: ${work.slice(0, 6).join(", ")}${work.length > 6 ? ", …" : ""}`));
+    if (related.length > 0) {
+      lines.push(t(`- рядом по связям проекта (не названо, но связано): ${related.join(", ")}`, `- nearby through the project's links (not named, but connected): ${related.join(", ")}`));
+    }
+    lines.push(t("- «продолжи» ложи на это состояние, а не на букву промпта: восстанови намерение, сверь с git-диффом и нитью, затем действуй", '- read "carry on" against this state, not against the letter of the prompt: reconstruct the intent, check it against the git diff and the thread, then act'));
     return lines.join(`
 `);
   } catch {
@@ -5429,6 +5431,7 @@ function handleSessionStart(input, dataRoot) {
   const cwd = input.cwd ?? process.cwd();
   const dataDir = join15(dataRoot, slugOf(cwd));
   mkdirSync3(dataDir, { recursive: true });
+  initLang(dataDir, cwd);
   beat(dataDir, "SessionStart", { source: input.source ?? null });
   try {
     const r = buildPassport(cwd, dataDir);
@@ -5549,4 +5552,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { t, sourceLabel, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };
+export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };

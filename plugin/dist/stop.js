@@ -4,10 +4,10 @@ import {
 import {
   applyRules,
   readRules
-} from "./session-start-vp1vvy3r.js";
+} from "./session-start-wwhagmxs.js";
 import {
   checkAgainstLaws
-} from "./session-start-fk53j4ar.js";
+} from "./session-start-jtha3f83.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -16,7 +16,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-wttrst36.js";
+} from "./session-start-z6xxtd7s.js";
 import {
   ENTITY_EXT,
   FactStore,
@@ -24,6 +24,7 @@ import {
   beat,
   contentVerifierActive,
   inDerivedZone,
+  initLang,
   init_i18n,
   init_walk,
   isConfigFile,
@@ -37,7 +38,7 @@ import {
   snapshotContent,
   statement,
   t
-} from "./session-start-dhy2j257.js";
+} from "./session-start-xqeg8ejq.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts
@@ -662,6 +663,7 @@ function handleStop(input, dataRoot) {
   try {
     const cwd = input.cwd ?? process.cwd();
     const dataDir = join2(dataRoot, slugOf(cwd));
+    initLang(dataDir, cwd);
     beat(dataDir, "Stop");
     const dbPath = join2(dataDir, "passport.db");
     if (!existsSync2(dbPath))

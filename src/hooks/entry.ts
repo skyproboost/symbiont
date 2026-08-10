@@ -41,6 +41,10 @@ export function findPrecedent(db: Database, work: string[], lastThread: string[]
     const workSet = new Set(work)
     const lastKey = JSON.stringify(lastThread)
     let best: { files: string[]; commits: string[]; ageDays: number; overlap: number } | null = null
+    // Устойчивость рецепта (мотив Agent Workflow Memory): один прецедент —
+    // совпадение, несколько — выученная процедура проекта, и об этом стоит
+    // сказать отдельно
+    let recurrences = 0
     for (const r of rows) {
       let files: string[]
       let commits: string[]
@@ -53,6 +57,7 @@ export function findPrecedent(db: Database, work: string[], lastThread: string[]
       if (JSON.stringify(files) === lastKey) continue // это и есть показанная нить
       const overlap = files.filter((f) => workSet.has(f)).length
       if (overlap < PRECEDENT_MIN_OVERLAP) continue
+      recurrences++
       // Строки отсортированы по свежести: первый достаточный прецедент и есть
       // лучший при равном пересечении; больший overlap побеждает свежесть
       if (best === null || overlap > best.overlap) {
@@ -63,9 +68,10 @@ export function findPrecedent(db: Database, work: string[], lastThread: string[]
     const shownFiles = best.files.slice(0, 5).join(', ') + (best.files.length > 5 ? ', …' : '')
     const outcome = best.commits.length > 0 ? ` → "${best.commits[best.commits.length - 1].replace(/`/g, "'").slice(0, 90)}"` : ''
     const age = best.ageDays < 1 ? t('сегодня', 'today') : t(`${best.ageDays}д назад`, `${best.ageDays}d ago`)
+    const stability = recurrences >= 2 ? t(` · рецепт устойчив (похожих сессий: ${recurrences})`, ` · the recipe is stable (${recurrences} similar sessions)`) : ''
     return t(
-      `- похожая работа уже делалась (${age}): затронула ${shownFiles}${outcome} — рецепт, с которым стоит свериться`,
-      `- similar work was already done (${age}): it touched ${shownFiles}${outcome} — a recipe worth checking against`,
+      `- похожая работа уже делалась (${age}): затронула ${shownFiles}${outcome} — рецепт, с которым стоит свериться${stability}`,
+      `- similar work was already done (${age}): it touched ${shownFiles}${outcome} — a recipe worth checking against${stability}`,
     )
   } catch {
     return '' // прецедент — обогащение входа, не обязанность

@@ -22,6 +22,8 @@ import { bumpHeat, READ_TOUCH_WEIGHT } from '../graph/heat'
 import { fileDomains } from '../passport/stack'
 import { readZoneProfiles, effectiveProfile, renderEffective, rootAxesFromFacts } from '../passport/cascade'
 import { shouldFeed } from '../gardener/utility'
+import { digestForFile } from '../graph/cdigest'
+import { t } from '../core/i18n'
 import { playbooksFor, renderPlaybookBrief } from '../domains/playbooks'
 import { readGrounding, renderCorrection } from '../domains/grounding'
 
@@ -45,6 +47,21 @@ export function touchFeed(db: Database, sid: string, rel: string, kind: string, 
     }
     ensureFeedLog(db)
     if (claimNode(db, sid, node.file, kind)) lines.push(`- ${nodeBrief(db, node)}`)
+
+    // 1b) Дайджест подсистемы — при ПЕРВОМ касании сообщества за сессию:
+    // «частью чего файл является» приходит один раз при входе в чужую зону,
+    // дальше сессия уже в контексте. Готовое читается из SQLite (кэш членства
+    // community_member) — граф на касании не пересчитывается.
+    try {
+      if (shouldFeed(db, 'community')) {
+        const d = digestForFile(db, node.file)
+        if (d && claimNode(db, sid, `#community:${d.label}`, 'community')) {
+          lines.push(`- ${t('подсистема', 'subsystem')} «${d.name}»: ${d.digest}`)
+        }
+      }
+    } catch {
+      /* дайджесты — обогащение; их отсутствие не повод молчать об узле */
+    }
   }
 
   // 2) Каскад осей профиля: спускаясь в зону, агент получает её ЭФФЕКТИВНЫЕ

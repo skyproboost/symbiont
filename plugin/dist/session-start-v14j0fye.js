@@ -1,7 +1,8 @@
 import {
+  digestForFile,
   readGrounding,
   renderCorrection
-} from "./session-start-g1bzfztz.js";
+} from "./session-start-3vtd2w0e.js";
 import {
   playbooksFor,
   renderPlaybookBrief
@@ -12,13 +13,13 @@ import {
   markUsed,
   nodeBrief,
   outlineKey
-} from "./session-start-f416vzn2.js";
+} from "./session-start-24cc7x79.js";
 import {
   zoneOf
-} from "./session-start-6c4w21x4.js";
+} from "./session-start-cm20p20w.js";
 import {
   checkAgainstLaws
-} from "./session-start-pf07v2xa.js";
+} from "./session-start-ktr0tyzc.js";
 import {
   EDIT_TOUCH_WEIGHT,
   FactStore,
@@ -41,7 +42,7 @@ import {
   statement,
   t,
   zoneAncestors
-} from "./session-start-0svyw48g.js";
+} from "./session-start-1940hha9.js";
 
 // src/hooks/post-tool-core.ts
 init_i18n();
@@ -49,6 +50,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 
 // src/hooks/touch-feed.ts
+init_i18n();
 function touchFeed(db, sid, rel, kind, touchWeight = READ_TOUCH_WEIGHT) {
   const lines = [];
   const node = db.query("SELECT file, in_deg, out_deg FROM graph_nodes WHERE file = ?").get(rel);
@@ -59,6 +61,14 @@ function touchFeed(db, sid, rel, kind, touchWeight = READ_TOUCH_WEIGHT) {
     ensureFeedLog(db);
     if (claimNode(db, sid, node.file, kind))
       lines.push(`- ${nodeBrief(db, node)}`);
+    try {
+      if (shouldFeed(db, "community")) {
+        const d = digestForFile(db, node.file);
+        if (d && claimNode(db, sid, `#community:${d.label}`, "community")) {
+          lines.push(`- ${t("подсистема", "subsystem")} «${d.name}»: ${d.digest}`);
+        }
+      }
+    } catch {}
   }
   try {
     const profiles = readZoneProfiles(db);

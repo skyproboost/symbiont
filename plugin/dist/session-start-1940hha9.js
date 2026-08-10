@@ -4773,7 +4773,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-a112e53765c8";
+    return "bundle-ff25c2a61709";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5364,7 +5364,7 @@ function renderGardenerSilence(db, nowMs, quietDays = 7) {
     return "";
   }
 }
-var REPORTED_WORKS = ["truth", "repair", "drift", "verbalize", "corrections", "zsummary", "contract", "material", "composition", "grounding"];
+var REPORTED_WORKS = ["truth", "repair", "drift", "verbalize", "corrections", "zsummary", "cdigest", "contract", "material", "composition", "grounding"];
 function renderBackground(db, ids, nowMs) {
   const parts = [];
   for (const id of ids) {
@@ -5583,6 +5583,7 @@ function findPrecedent(db, work, lastThread, nowMs) {
     const workSet = new Set(work);
     const lastKey = JSON.stringify(lastThread);
     let best2 = null;
+    let recurrences = 0;
     for (const r of rows) {
       let files;
       let commits;
@@ -5597,6 +5598,7 @@ function findPrecedent(db, work, lastThread, nowMs) {
       const overlap = files.filter((f) => workSet.has(f)).length;
       if (overlap < PRECEDENT_MIN_OVERLAP)
         continue;
+      recurrences++;
       if (best2 === null || overlap > best2.overlap) {
         best2 = { files, commits, ageDays: Math.max(0, Math.round((nowMs - Date.parse(r.updated_at)) / 86400000)), overlap };
       }
@@ -5606,7 +5608,8 @@ function findPrecedent(db, work, lastThread, nowMs) {
     const shownFiles = best2.files.slice(0, 5).join(", ") + (best2.files.length > 5 ? ", …" : "");
     const outcome = best2.commits.length > 0 ? ` → "${best2.commits[best2.commits.length - 1].replace(/`/g, "'").slice(0, 90)}"` : "";
     const age = best2.ageDays < 1 ? t("сегодня", "today") : t(`${best2.ageDays}д назад`, `${best2.ageDays}d ago`);
-    return t(`- похожая работа уже делалась (${age}): затронула ${shownFiles}${outcome} — рецепт, с которым стоит свериться`, `- similar work was already done (${age}): it touched ${shownFiles}${outcome} — a recipe worth checking against`);
+    const stability = recurrences >= 2 ? t(` · рецепт устойчив (похожих сессий: ${recurrences})`, ` · the recipe is stable (${recurrences} similar sessions)`) : "";
+    return t(`- похожая работа уже делалась (${age}): затронула ${shownFiles}${outcome} — рецепт, с которым стоит свериться${stability}`, `- similar work was already done (${age}): it touched ${shownFiles}${outcome} — a recipe worth checking against${stability}`);
   } catch {
     return "";
   }

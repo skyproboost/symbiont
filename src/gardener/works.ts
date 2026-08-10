@@ -28,6 +28,7 @@ import { runLayer1 } from '../layer1/run'
 import { runVerbalize } from '../layer2/verbalize'
 import { analyzeCorrections } from './corrections'
 import { runZSummaries, pendingSummaries, contentHashes } from '../graph/zsummary'
+import { runCommunityDigests, pendingDigests } from '../graph/cdigest'
 import { isConfigFile, readConfigEntries } from '../env/config-graph'
 import { buildRulesPrompt, parseRules, storeRules } from '../env/rules'
 import { callClaudeDetailed, callClaudeWithTools, explainNoAnswer } from '../layer2/llm'
@@ -220,6 +221,23 @@ const zsummaryWork: Work = {
   run: (ctx) => {
     const z = runZSummaries(ctx.db, ctx.projectRoot, routineCaller(ctx, 'роли узлов'), new Date().toISOString(), undefined, ctx.dataDir)
     return z.stored > 0 ? t(`ролей выведено +${z.stored}`, `roles derived +${z.stored}`) : null
+  },
+}
+
+/**
+ * Дайджесты подсистем: ярус над ролями узлов — «частью чего файл является».
+ * Материал — уже оплаченные роли (не содержимое), только для посещённых
+ * сообществ, инвалидация по составу (см. graph/cdigest.ts).
+ */
+const cdigestWork: Work = {
+  id: 'cdigest',
+  title: 'дайджесты подсистем',
+  cost: 'llm',
+  cooldownH: 24,
+  due: (ctx) => pendingDigests(ctx.db, 1).length > 0,
+  run: (ctx) => {
+    const r = runCommunityDigests(ctx.db, routineCaller(ctx, 'дайджесты подсистем'), new Date().toISOString())
+    return r.stored > 0 ? t(`подсистем описано +${r.stored}`, `subsystems described +${r.stored}`) : null
   },
 }
 
@@ -443,7 +461,7 @@ function activePlaybookDomains(ctx: WorkContext): string[] {
 }
 
 /** Полный каталог; порядок внутри задаёт планировщик (дешёвые вперёд). */
-export const WORKS: Work[] = [truthWork, repairWork, layer1Work, driftWork, verbalizeWork, correctionsWork, zsummaryWork, contractRulesWork, unknownMaterialWork, compositionWork, groundingWork]
+export const WORKS: Work[] = [truthWork, repairWork, layer1Work, driftWork, verbalizeWork, correctionsWork, zsummaryWork, cdigestWork, contractRulesWork, unknownMaterialWork, compositionWork, groundingWork]
 
 /** Отчёт «здоровье сейчас + тренд» для будущей единой интерактивной команды. */
 export function healthReport(ctx: WorkContext): string {

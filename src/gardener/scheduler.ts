@@ -270,7 +270,7 @@ export function renderGardenerSilence(db: Database, nowMs: number, quietDays = 7
  * не в каталоге работ: SessionStart — горячий путь, и тянуть в него works.ts
  * (а с ним WASM слоя 1 и LLM-инфраструктуру) ради списка строк недопустимо.
  */
-export const REPORTED_WORKS = ['truth', 'repair', 'drift', 'verbalize', 'corrections', 'zsummary', 'contract', 'material', 'composition', 'grounding']
+export const REPORTED_WORKS = ['truth', 'repair', 'drift', 'verbalize', 'corrections', 'zsummary', 'cdigest', 'contract', 'material', 'composition', 'grounding']
 
 /**
  * Строка для стартовой сводки: что фон сделал, пока владельца не было.

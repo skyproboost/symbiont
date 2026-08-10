@@ -10,7 +10,7 @@ import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./session-start-jbqmp67c.js";
+} from "./session-start-zz08nty3.js";
 import {
   collectOutline,
   ensureSymbols,
@@ -22,8 +22,10 @@ import {
   buildGroundingPrompt,
   dueForGrounding,
   parseGrounding,
+  pendingDigests,
+  runCommunityDigests,
   storeGrounding
-} from "./session-start-g1bzfztz.js";
+} from "./session-start-3vtd2w0e.js";
 import {
   PLAYBOOKS
 } from "./session-start-8ychq3hk.js";
@@ -33,12 +35,12 @@ import {
   recordLesson,
   runZSummaries,
   zoneOf
-} from "./session-start-6c4w21x4.js";
+} from "./session-start-cm20p20w.js";
 import {
   buildRulesPrompt,
   parseRules,
   storeRules
-} from "./session-start-5ewsgazr.js";
+} from "./session-start-b0011a6n.js";
 import {
   CODE_EXT,
   CSVX,
@@ -67,7 +69,7 @@ import {
   sha1,
   t,
   walkFiles
-} from "./session-start-0svyw48g.js";
+} from "./session-start-1940hha9.js";
 import {
   __require
 } from "./session-start-rvra3cez.js";
@@ -755,6 +757,17 @@ var zsummaryWork = {
     return z.stored > 0 ? t(`ролей выведено +${z.stored}`, `roles derived +${z.stored}`) : null;
   }
 };
+var cdigestWork = {
+  id: "cdigest",
+  title: "дайджесты подсистем",
+  cost: "llm",
+  cooldownH: 24,
+  due: (ctx) => pendingDigests(ctx.db, 1).length > 0,
+  run: (ctx) => {
+    const r = runCommunityDigests(ctx.db, routineCaller(ctx, "дайджесты подсистем"), new Date().toISOString());
+    return r.stored > 0 ? t(`подсистем описано +${r.stored}`, `subsystems described +${r.stored}`) : null;
+  }
+};
 var contractRulesWork = {
   id: "contract",
   title: "вывод правил контракта среды",
@@ -922,6 +935,6 @@ function activePlaybookDomains(ctx) {
     return [];
   }
 }
-var WORKS = [truthWork, repairWork, layer1Work, driftWork, verbalizeWork, correctionsWork, zsummaryWork, contractRulesWork, unknownMaterialWork, compositionWork, groundingWork];
+var WORKS = [truthWork, repairWork, layer1Work, driftWork, verbalizeWork, correctionsWork, zsummaryWork, cdigestWork, contractRulesWork, unknownMaterialWork, compositionWork, groundingWork];
 
 export { WORKS };

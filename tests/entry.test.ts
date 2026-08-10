@@ -66,6 +66,18 @@ describe('reconstructEntry — протокол самостарта', () => {
     db.close()
   })
 
+  it('несколько похожих сессий → рецепт называется устойчивым', () => {
+    const db = graphDb()
+    db.run("CREATE TABLE session_threads(session_id TEXT PRIMARY KEY, files TEXT NOT NULL, updated_at TEXT NOT NULL, commits TEXT NOT NULL DEFAULT '[]')")
+    const ins = db.query('INSERT INTO session_threads(session_id, files, commits, updated_at) VALUES(?,?,?,?)')
+    ins.run('p1', JSON.stringify(['app.js', 'service.js', 'core.js']), JSON.stringify(['feat: one']), '2026-07-20T10:00:00Z')
+    // порядок иной, чем у показанной нити, — это другая сессия, не её дубль
+    ins.run('p2', JSON.stringify(['service.js', 'app.js']), JSON.stringify(['feat: two']), '2026-07-22T10:00:00Z')
+    const block = reconstructEntry(db, ['app.js', 'service.js'], [], NOW)
+    expect(block).toContain('рецепт устойчив')
+    db.close()
+  })
+
   it('прецедент не дублирует показанную нить и не срабатывает на 1 общем файле', () => {
     const db = graphDb()
     db.run("CREATE TABLE session_threads(session_id TEXT PRIMARY KEY, files TEXT NOT NULL, updated_at TEXT NOT NULL, commits TEXT NOT NULL DEFAULT '[]')")

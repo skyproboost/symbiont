@@ -31,8 +31,18 @@ function makeWorld() {
   return { proj, dataRoot }
 }
 
+// Язык ребёнку пинится ЯВНО: bun снапшотит окружение при старте процесса, и
+// SYMBIONT_LANG, выставленный preload'ом УЖЕ ПОСЛЕ старта, в спавн без env не
+// доезжает. Тогда CLI определяет язык лестницей, и вердикт зависит от машины:
+// на macOS-раннере LANG=en_US.UTF-8 давал английскую секцию против русских
+// ожиданий теста (Ubuntu жил на LANG=C.UTF-8 — не язык, упал в умолчание ru).
 const run = (proj: string, dataRoot: string, arg = '') =>
-  spawnSync('bun', ['run', CLI, '--data', dataRoot, ...(arg ? [arg] : [])], { cwd: proj, encoding: 'utf8', timeout: 60_000 })
+  spawnSync('bun', ['run', CLI, '--data', dataRoot, ...(arg ? [arg] : [])], {
+    cwd: proj,
+    encoding: 'utf8',
+    timeout: 60_000,
+    env: { ...process.env, SYMBIONT_LANG: 'ru' },
+  })
 
 describe('экспорт паспорта в AGENTS.md', () => {
   it('создаёт файл с маркерами, законом и картой; повторный вызов не плодит секций', () => {

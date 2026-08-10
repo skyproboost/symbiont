@@ -148,7 +148,20 @@ const sid = 'canary-1'
   check('PreCompact', existsSync(join(dataDir, 'heartbeat-precompact.json')), raw || 'пульс перед сжатием оставлен')
 }
 
-// 7) SubagentStart: срез паспорта свежему сабагенту (законы/карта)
+// 7) PostToolUseFailure: упавшая правка — канал жив и оставил пульс
+// (само предложение оглавления требует индекса символов, который в мире
+// канарейки может не успеть родиться, — проверяется жизнь канала, не оффер)
+{
+  const { raw } = hook('post-tool-failure.ts', {
+    cwd: proj,
+    session_id: sid,
+    tool_name: 'Edit',
+    tool_input: { file_path: join(proj, 'big.js') },
+  })
+  check('PostToolUseFailure', existsSync(join(dataDir, 'heartbeat-posttoolusefailure.json')), raw || 'канал упавшей правки пульсирует')
+}
+
+// 8) SubagentStart: срез паспорта свежему сабагенту (законы/карта)
 {
   const { out, raw } = hook('subagent-start.ts', { cwd: proj, session_id: sid, agent_type: 'Explore' })
   const ctx = String((out?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext ?? '')
@@ -156,20 +169,20 @@ const sid = 'canary-1'
   check('SubagentStart', !!out && ctx.includes('core.js'), out ? `срез подан: ${ctx.slice(0, 90)}` : raw)
 }
 
-// 8) SessionEnd: прощание закрывает сессию
+// 9) SessionEnd: прощание закрывает сессию
 {
   const { out, raw } = hook('session-end.ts', { cwd: proj, session_id: sid, reason: 'exit' })
   check('SessionEnd', out !== null, out !== null ? 'финализатор отработал' : raw)
 }
 
-// 9) Heartbeat всех каналов на месте
+// 10) Heartbeat всех каналов на месте
 {
-  const channels = ['sessionstart', 'userpromptsubmit', 'pretooluse', 'posttooluse', 'stop', 'precompact', 'subagentstart', 'sessionend']
+  const channels = ['sessionstart', 'userpromptsubmit', 'pretooluse', 'posttooluse', 'posttoolusefailure', 'stop', 'precompact', 'subagentstart', 'sessionend']
   const missing = channels.filter((c) => !existsSync(join(dataDir, `heartbeat-${c}.json`)))
   check('Heartbeat', missing.length === 0, missing.length === 0 ? `все ${channels.length} каналов пульсируют` : `молчат: ${missing.join(', ')}`)
 }
 
-// 10) MCP-сервер: initialize + tools/list по stdio
+// 11) MCP-сервер: initialize + tools/list по stdio
 {
   const msgs =
     JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) +

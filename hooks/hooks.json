@@ -36,6 +36,24 @@
         ]
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun",
+            "args": [
+              "run",
+              "${CLAUDE_PLUGIN_ROOT}/src/hooks/post-tool-failure.ts",
+              "--data",
+              "${CLAUDE_PLUGIN_DATA}"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "SubagentStart": [
       {
         "hooks": [

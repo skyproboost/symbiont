@@ -4,16 +4,13 @@ import {
   outlineView
 } from "./session-start-n4jed5qc.js";
 import {
-  toRelNode,
-  touchFeed
+  toRelNode
 } from "./session-start-fk3km3ye.js";
 import"./session-start-dc48w8wb.js";
 import"./session-start-8ychq3hk.js";
 import {
-  OUTLINE_KIND,
   claimNode,
-  ensureFeedLog,
-  outlineKey
+  ensureFeedLog
 } from "./session-start-815f2xtj.js";
 import"./session-start-e2m3mbve.js";
 import"./session-start-q9ahmawb.js";
@@ -38,21 +35,18 @@ import {
 } from "./session-start-yn4tr5xd.js";
 import"./session-start-rvra3cez.js";
 
-// src/hooks/pre-tool.ts
+// src/hooks/post-tool-failure.ts
 import { join as join2 } from "node:path";
 
-// src/hooks/pre-tool-core.ts
+// src/hooks/post-tool-failure-core.ts
 init_i18n();
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-var PRE_READ_KIND = "pre-read";
-var MIN_FILE_CHARS = 4000;
-function renderOutlineOffer(file, symbols, wholeTokens, outlineCost, heaviest) {
-  return t(`- структура уже разобрана: ${symbols} символов · файл целиком ≈${wholeTokens}t, оглавление ≈${outlineCost}t, самый большой символ ≈${heaviest}t — passport_outline("${file}"), затем passport_unfold(file, symbol)`, `- structure already parsed: ${symbols} symbols · whole file ≈${wholeTokens}t, outline ≈${outlineCost}t, largest symbol ≈${heaviest}t — passport_outline("${file}"), then passport_unfold(file, symbol)`);
-}
-function handlePreTool(input, dataRoot) {
+var EDIT_FAIL_KIND = "edit-fail";
+var WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+function handlePostToolFailure(input, dataRoot) {
   try {
-    if (input.tool_name !== "Read")
+    if (!WRITE_TOOLS.has(input.tool_name ?? ""))
       return {};
     const filePath = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
     if (!filePath)
@@ -60,7 +54,7 @@ function handlePreTool(input, dataRoot) {
     const cwd = input.cwd ?? process.cwd();
     const dataDir = join(dataRoot, slugOf(cwd));
     initLang(dataDir, cwd);
-    beat(dataDir, "PreToolUse");
+    beat(dataDir, "PostToolUseFailure");
     const dbPath = join(dataDir, "passport.db");
     if (!existsSync(dbPath))
       return {};
@@ -77,28 +71,20 @@ function handlePreTool(input, dataRoot) {
       return {};
     const db = openDb(dbPath);
     try {
-      if (!shouldFeed(db, PRE_READ_KIND))
+      if (!shouldFeed(db, EDIT_FAIL_KIND))
         return {};
       const sid = input.session_id ?? "manual";
-      const lines = touchFeed(db, sid, rel, PRE_READ_KIND);
-      const view = content.length >= MIN_FILE_CHARS ? outlineView(db, rel, () => content, sha1) : null;
-      const cost = view ? outlineTokens(view.rows) : 0;
-      const offer = view && view.fresh && view.rows.length > 0 && cost * 2 < view.wholeFileTokens ? renderOutlineOffer(rel, view.rows.length, view.wholeFileTokens, cost, heaviestTokens(view.rows)) : "";
-      if (offer) {
-        ensureFeedLog(db);
-        if (claimNode(db, sid, outlineKey(rel), OUTLINE_KIND))
-          lines.push(offer);
-      }
-      if (lines.length === 0)
+      const view = outlineView(db, rel, () => content, sha1);
+      if (!view || !view.fresh || view.rows.length === 0)
         return {};
+      ensureFeedLog(db);
+      if (!claimNode(db, sid, `#editfail:${rel}`, EDIT_FAIL_KIND))
+        return {};
+      const cost = outlineTokens(view.rows);
       return {
         hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          additionalContext: t(`Symbiont · до чтения ${rel} (ничего не блокируется — это то, что уже известно):
-${lines.join(`
-`)}`, `Symbiont · before reading ${rel} (nothing is blocked — this is what is already known):
-${lines.join(`
-`)}`)
+          hookEventName: "PostToolUseFailure",
+          additionalContext: t(`Symbiont · правка ${rel} не прошла — обычная причина: файл на диске разошёлся с тем, что о нём помнится. Структура файла уже разобрана и СВЕЖА (сверено хэшем): ${view.rows.length} символов · оглавление ≈${cost}t, самый большой символ ≈${heaviestTokens(view.rows)}t против файла целиком ≈${view.wholeFileTokens}t — passport_outline("${rel}"), затем passport_unfold(file, symbol) дешевле полного перечитывания.`, `Symbiont · the edit of ${rel} failed — the usual cause: the file on disk diverged from what is remembered about it. Its structure is already parsed and FRESH (hash-verified): ${view.rows.length} symbols · outline ≈${cost}t, largest symbol ≈${heaviestTokens(view.rows)}t versus the whole file ≈${view.wholeFileTokens}t — passport_outline("${rel}"), then passport_unfold(file, symbol) is cheaper than re-reading it all.`)
         }
       };
     } finally {
@@ -109,11 +95,11 @@ ${lines.join(`
   }
 }
 
-// src/hooks/pre-tool.ts
+// src/hooks/post-tool-failure.ts
 if (isInternalCall())
   process.exit(0);
 var input = readStdinJson();
 var dataRoot = resolveDataRoot(join2(import.meta.dirname, "..", "..", ".data")).root;
-var out = handlePreTool(input, dataRoot);
+var out = handlePostToolFailure(input, dataRoot);
 if (out.hookSpecificOutput)
   console.log(JSON.stringify(out));

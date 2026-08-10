@@ -33,9 +33,10 @@ export const ENTRY_SOURCES: string[] = [
   'src/hooks/session-end.ts',
   'src/mcp/server.ts',
   // auto-learn — детач-исполнитель садовника (единственная фоновая точка входа);
-  // charter/constitution/elevate — то, что осталось интерактивным по природе
-  // (воля владельца и дорогой аудит по требованию). Отчётные CLI (status/map/
-  // drift/rebuild/learn) в поставку не входят: их работа ушла в фон.
+  // charter/constitution/elevate/export — то, что осталось интерактивным по
+  // природе (воля владельца, дорогой аудит по требованию, явная запись в его
+  // репозиторий). Отчётные CLI (status/map/drift/rebuild/learn) в поставку не
+  // входят: их работа ушла в фон.
   'src/cli/auto-learn.ts',
   'src/cli/symbiont.ts',
   'src/cli/init.ts',
@@ -43,6 +44,7 @@ export const ENTRY_SOURCES: string[] = [
   'src/cli/constitution.ts',
   'src/cli/elevate.ts',
   'src/cli/lang.ts',
+  'src/cli/export.ts',
   'src/bundle/smoke.ts',
 ]
 

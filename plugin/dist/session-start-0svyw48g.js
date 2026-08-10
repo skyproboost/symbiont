@@ -840,10 +840,6 @@ function mustLoad(runtime, what) {
   return driver;
 }
 
-// src/gardener/truth.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { join as join2 } from "node:path";
-
 // src/core/store.ts
 init_i18n();
 
@@ -1046,6 +1042,8 @@ class FactStore {
 }
 
 // src/gardener/truth.ts
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
+import { join as join2 } from "node:path";
 var tableExists = (db, name) => {
   try {
     return db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?").get(name).n > 0;
@@ -1303,162 +1301,6 @@ function hotspotsFromGit(projectRoot) {
   return computeHotspots(commits, sizeByFile);
 }
 
-// src/passport/build.ts
-import { readFileSync as readFileSync10, writeFileSync as writeFileSync3, mkdirSync, existsSync as existsSync6 } from "node:fs";
-import { basename, join as join11, relative, dirname as dirname3 } from "node:path";
-import { spawnSync as spawnSync2 } from "node:child_process";
-
-// src/graph/cochange.ts
-init_walk();
-import { extname as extname2 } from "node:path";
-var CODE_EXT2 = new Set([...CODE_EXT, ".sql"]);
-var MAX_FILES_PER_COMMIT = 30;
-function parseNameOnlyLog(text) {
-  const commits = [];
-  let current2 = null;
-  for (const raw of text.split(`
-`)) {
-    const line = raw.trim();
-    if (line.startsWith("@")) {
-      if (current2 && current2.length > 0)
-        commits.push(current2);
-      current2 = [];
-      continue;
-    }
-    if (!line || current2 === null)
-      continue;
-    const f = line.replaceAll("\\", "/");
-    if (CODE_EXT2.has(extname2(f).toLowerCase()))
-      current2.push(f);
-  }
-  if (current2 && current2.length > 0)
-    commits.push(current2);
-  return commits;
-}
-function pairCounts(commits, maxPerCommit = MAX_FILES_PER_COMMIT) {
-  const pairs = new Map;
-  const totals = new Map;
-  for (const files of commits) {
-    const uniq = [...new Set(files)];
-    if (uniq.length < 1 || uniq.length > maxPerCommit)
-      continue;
-    for (const f of uniq)
-      totals.set(f, (totals.get(f) ?? 0) + 1);
-    for (let i = 0;i < uniq.length; i++) {
-      for (let j = i + 1;j < uniq.length; j++) {
-        const [a, b] = uniq[i] < uniq[j] ? [uniq[i], uniq[j]] : [uniq[j], uniq[i]];
-        pairs.set(`${a}|${b}`, (pairs.get(`${a}|${b}`) ?? 0) + 1);
-      }
-    }
-  }
-  return { pairs, totals };
-}
-
-// src/core/salsa.ts
-import { createHash } from "node:crypto";
-var sha1 = (s) => createHash("sha1").update(s).digest("hex");
-
-class Engine {
-  db;
-  queries = new Map;
-  execCount = new Map;
-  constructor(dbPath) {
-    this.db = openDb(dbPath);
-    this.db.run("PRAGMA journal_mode = WAL");
-    this.db.run("PRAGMA synchronous = NORMAL");
-    this.db.run("CREATE TABLE IF NOT EXISTS inputs(key TEXT PRIMARY KEY, hash TEXT NOT NULL, changed_at INTEGER NOT NULL)");
-    this.db.run("CREATE TABLE IF NOT EXISTS memo(query TEXT PRIMARY KEY, value TEXT NOT NULL, value_hash TEXT NOT NULL, verified_at INTEGER NOT NULL, changed_at INTEGER NOT NULL)");
-    this.db.run("CREATE TABLE IF NOT EXISTS deps(query TEXT NOT NULL, dep TEXT NOT NULL, PRIMARY KEY(query, dep))");
-    this.db.run("CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v INTEGER NOT NULL)");
-    this.db.run("INSERT OR IGNORE INTO meta VALUES('rev', 0)");
-  }
-  invalidateIfCodeChanged(codeVersion) {
-    this.db.run("CREATE TABLE IF NOT EXISTS code_meta(k TEXT PRIMARY KEY, v TEXT NOT NULL)");
-    const row = this.db.query("SELECT v FROM code_meta WHERE k='projection_version'").get();
-    if (row && row.v === codeVersion)
-      return false;
-    this.db.run("DELETE FROM memo");
-    this.db.run("DELETE FROM deps");
-    this.db.query("INSERT INTO code_meta(k,v) VALUES('projection_version',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(codeVersion);
-    return true;
-  }
-  get rev() {
-    return this.db.query("SELECT v FROM meta WHERE k='rev'").get().v;
-  }
-  bumpRev() {
-    this.db.run("UPDATE meta SET v = v + 1 WHERE k='rev'");
-    return this.rev;
-  }
-  setInput(key, hash) {
-    const row = this.db.query("SELECT hash FROM inputs WHERE key=?").get(key);
-    if (row && row.hash === hash)
-      return;
-    const rev = this.bumpRev();
-    this.db.query("INSERT INTO inputs(key,hash,changed_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET hash=excluded.hash, changed_at=excluded.changed_at").run(key, hash, rev);
-  }
-  register(name, fn) {
-    this.queries.set(name, fn);
-  }
-  executions(name) {
-    return this.execCount.get(name) ?? 0;
-  }
-  changedAtOf(dep) {
-    if (dep.startsWith("input:")) {
-      const row2 = this.db.query("SELECT changed_at FROM inputs WHERE key=?").get(dep.slice(6));
-      return row2 ? row2.changed_at : Number.POSITIVE_INFINITY;
-    }
-    this.get(dep);
-    const row = this.db.query("SELECT changed_at FROM memo WHERE query=?").get(dep);
-    return row ? row.changed_at : Number.POSITIVE_INFINITY;
-  }
-  get(name) {
-    const rev = this.rev;
-    const memo = this.db.query("SELECT * FROM memo WHERE query=?").get(name);
-    if (memo && memo.verified_at === rev)
-      return JSON.parse(memo.value);
-    if (memo) {
-      const deps2 = this.db.query("SELECT dep FROM deps WHERE query=?").all(name).map((d) => d.dep);
-      const clean = deps2.length > 0 && deps2.every((d) => this.changedAtOf(d) <= memo.verified_at);
-      if (clean) {
-        this.db.query("UPDATE memo SET verified_at=? WHERE query=?").run(rev, name);
-        return JSON.parse(memo.value);
-      }
-    }
-    const fn = this.queries.get(name);
-    if (!fn)
-      throw new Error(`Запрос не зарегистрирован: ${name}`);
-    const deps = new Set;
-    const ctx = {
-      input: (key) => {
-        deps.add("input:" + key);
-        const row = this.db.query("SELECT hash FROM inputs WHERE key=?").get(key);
-        return row ? row.hash : null;
-      },
-      get: (q) => {
-        deps.add(q);
-        return this.get(q);
-      }
-    };
-    this.execCount.set(name, (this.execCount.get(name) ?? 0) + 1);
-    const value = fn(ctx);
-    const valueText = JSON.stringify(value ?? null);
-    const valueHash = sha1(valueText);
-    const changedAt = memo && memo.value_hash === valueHash ? memo.changed_at : rev;
-    this.db.query("INSERT INTO memo(query,value,value_hash,verified_at,changed_at) VALUES(?,?,?,?,?) ON CONFLICT(query) DO UPDATE SET value=excluded.value, value_hash=excluded.value_hash, verified_at=excluded.verified_at, changed_at=excluded.changed_at").run(name, valueText, valueHash, rev, changedAt);
-    this.db.query("DELETE FROM deps WHERE query=?").run(name);
-    const insDep = this.db.query("INSERT OR IGNORE INTO deps(query,dep) VALUES(?,?)");
-    for (const d of deps)
-      insDep.run(name, d);
-    return value;
-  }
-  close() {
-    this.db.close();
-  }
-}
-
-// src/passport/build.ts
-init_walk();
-
 // src/miner/packs.ts
 init_i18n();
 var AXES = [
@@ -1657,6 +1499,1056 @@ function addAxes(into, from) {
       into[id] = { a: c.a, b: c.b };
   }
 }
+
+// src/miner/facts.ts
+init_i18n();
+function tierOf(prevalence, total) {
+  if (prevalence >= 0.95 && total >= 30)
+    return "закон";
+  if (prevalence >= 0.7 && total >= 10)
+    return "привычка";
+  if (prevalence >= 0.55)
+    return "гипотеза";
+  return "нет консенсуса";
+}
+function dominant(rec) {
+  const entries = Object.entries(rec);
+  const total = entries.reduce((s, [, n]) => s + n, 0);
+  if (total === 0)
+    return null;
+  entries.sort((a, b) => b[1] - a[1]);
+  return { key: entries[0][0], positive: entries[0][1], total };
+}
+function pushDominant(facts, area2, rec, label) {
+  const d = dominant(rec);
+  if (!d)
+    return;
+  const prevalence = d.positive / d.total;
+  facts.push({
+    area: area2,
+    statement: label(d.key),
+    positive: d.positive,
+    total: d.total,
+    prevalence,
+    tier: tierOf(prevalence, d.total)
+  });
+}
+var L = {
+  L0: pair("отступы — 2 пробела", "indentation — 2 spaces"),
+  L1: pair("отступы — 4 пробела", "indentation — 4 spaces"),
+  L2: pair("отступы — табы", "indentation — tabs"),
+  L3: pair("отступы — нестандартный шаг", "indentation — non-standard step"),
+  L4: pair("кавычки — одинарные", "quotes — single"),
+  L5: pair("кавычки — двойные", "quotes — double"),
+  L6: pair("точки с запятой — используются", "semicolons — used"),
+  L7: pair("точки с запятой — не используются", "semicolons — not used"),
+  L8: pair("переменные — только var", "variables — var only"),
+  L9: pair("переменные — const/let (var не используется)", "variables — const/let (no var)"),
+  L10: pair("стрелочные функции — не используются", "arrow functions — not used"),
+  L11: pair("стрелочные функции — используются свободно", "arrow functions — used freely"),
+  L12: pair("filter/map/reduce — не используются (только циклы)", "filter/map/reduce — not used (loops only)"),
+  L13: pair("filter/map/reduce — используются свободно", "filter/map/reduce — used freely"),
+  L14: pair("идентификаторы — snake_case", "identifiers — snake_case"),
+  L15: pair("идентификаторы — camelCase", "identifiers — camelCase"),
+  L16: pair("параметры функций — с префиксом _", "function parameters — prefixed with _"),
+  L17: pair("деструктуризация в параметрах — не используется", "destructuring in parameters — not used"),
+  L18: pair("Vue-компоненты — <script setup>", "Vue components — <script setup>"),
+  L19: pair("Vue-компоненты — Options API", "Vue components — Options API")
+};
+var INDENT_LABEL = {
+  s2: L.L0,
+  s4: L.L1,
+  tab: L.L2,
+  other: L.L3
+};
+function deriveFacts(agg) {
+  const facts = [];
+  pushDominant(facts, "форматирование", agg.indent, (k) => INDENT_LABEL[k] ?? k);
+  pushDominant(facts, "форматирование", agg.quotes, (k) => k === "single" ? L.L4 : L.L5);
+  pushDominant(facts, "форматирование", agg.semis, (k) => k === "with" ? L.L6 : L.L7);
+  const declTotal = agg.decl.var + agg.decl.let + agg.decl.const;
+  if (declTotal > 0) {
+    const modern = agg.decl.let + agg.decl.const;
+    const varShare = agg.decl.var / declTotal;
+    if (varShare >= 0.5) {
+      facts.push({
+        area: "объявления",
+        statement: L.L8,
+        positive: agg.decl.var,
+        total: declTotal,
+        prevalence: varShare,
+        tier: tierOf(varShare, declTotal)
+      });
+    } else {
+      const p = modern / declTotal;
+      facts.push({
+        area: "объявления",
+        statement: L.L9,
+        positive: modern,
+        total: declTotal,
+        prevalence: p,
+        tier: tierOf(p, declTotal)
+      });
+    }
+  }
+  const fnTotal = agg.fn.arrow + agg.fn.decl;
+  if (fnTotal >= 20) {
+    const arrowShare = agg.fn.arrow / fnTotal;
+    if (arrowShare <= 0.05) {
+      facts.push({
+        area: "функции",
+        statement: L.L10,
+        positive: agg.fn.decl,
+        total: fnTotal,
+        prevalence: 1 - arrowShare,
+        tier: tierOf(1 - arrowShare, fnTotal)
+      });
+    } else {
+      facts.push({
+        area: "функции",
+        statement: L.L11,
+        positive: agg.fn.arrow,
+        total: fnTotal,
+        prevalence: arrowShare,
+        tier: tierOf(arrowShare, fnTotal)
+      });
+    }
+  }
+  const fmr = agg.fmr.filter + agg.fmr.map + agg.fmr.reduce;
+  const iter = fmr + agg.fmr.forLoops;
+  if (iter >= 20) {
+    if (fmr / iter <= 0.05) {
+      facts.push({
+        area: "итерации",
+        statement: L.L12,
+        positive: agg.fmr.forLoops,
+        total: iter,
+        prevalence: 1 - fmr / iter,
+        tier: tierOf(1 - fmr / iter, iter)
+      });
+    } else {
+      facts.push({
+        area: "итерации",
+        statement: L.L13,
+        positive: fmr,
+        total: iter,
+        prevalence: fmr / iter,
+        tier: tierOf(fmr / iter, iter)
+      });
+    }
+  }
+  const namingTotal = agg.naming.camel + agg.naming.snake + agg.naming.plain + agg.naming.pascal;
+  if (namingTotal >= 20) {
+    const camelish = agg.naming.camel + agg.naming.plain;
+    const p = camelish / namingTotal;
+    if (agg.naming.snake > camelish) {
+      facts.push({
+        area: "именование",
+        statement: L.L14,
+        positive: agg.naming.snake,
+        total: namingTotal,
+        prevalence: agg.naming.snake / namingTotal,
+        tier: tierOf(agg.naming.snake / namingTotal, namingTotal)
+      });
+    } else {
+      facts.push({
+        area: "именование",
+        statement: L.L15,
+        positive: camelish,
+        total: namingTotal,
+        prevalence: p,
+        tier: tierOf(p, namingTotal)
+      });
+    }
+  }
+  const hungarianTotal = Object.values(agg.hungarianPrefixes).reduce((s, n) => s + n, 0);
+  if (agg.hungarianBase >= 30) {
+    const share = hungarianTotal / agg.hungarianBase;
+    if (share >= 0.3) {
+      const top = Object.entries(agg.hungarianPrefixes).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([p, n]) => `${p}* (${n})`).join(", ");
+      facts.push({
+        area: "именование",
+        statement: `венгерская нотация — префиксы типа: ${top}`,
+        positive: hungarianTotal,
+        total: agg.hungarianBase,
+        prevalence: share,
+        tier: tierOf(share, agg.hungarianBase)
+      });
+    }
+  }
+  const paramsTotal = agg.params.underscore + agg.params.plain;
+  if (paramsTotal >= 30) {
+    const share = agg.params.underscore / paramsTotal;
+    if (share >= 0.5) {
+      facts.push({
+        area: "параметры",
+        statement: L.L16,
+        positive: agg.params.underscore,
+        total: paramsTotal,
+        prevalence: share,
+        tier: tierOf(share, paramsTotal)
+      });
+    }
+    const destrTotal = paramsTotal + agg.destructuredParams;
+    const destrShare = agg.destructuredParams / destrTotal;
+    if (destrShare <= 0.02 && destrTotal >= 50) {
+      facts.push({
+        area: "параметры",
+        statement: L.L17,
+        positive: destrTotal - agg.destructuredParams,
+        total: destrTotal,
+        prevalence: 1 - destrShare,
+        tier: tierOf(1 - destrShare, destrTotal)
+      });
+    }
+  }
+  pushDominant(facts, "vue", agg.vue, (k) => k === "setup" ? L.L18 : L.L19);
+  for (const axis of AXES) {
+    const c = agg.axes[axis.id];
+    if (!c)
+      continue;
+    const total = c.a + c.b;
+    if (total < axis.min)
+      continue;
+    const positive = Math.max(c.a, c.b);
+    const prevalence = positive / total;
+    facts.push({
+      area: axis.area,
+      statement: c.a >= c.b ? axis.labelA : axis.labelB,
+      positive,
+      total,
+      prevalence,
+      tier: tierOf(prevalence, total)
+    });
+  }
+  return facts;
+}
+
+// src/layer1/facts1.ts
+init_i18n();
+var push = (facts, area2, statement2, positive, total) => {
+  const prevalence = total > 0 ? positive / total : 0;
+  facts.push({ area: area2, statement: statement2, positive, total, prevalence, tier: tierOf(prevalence, total) });
+};
+var L2 = {
+  L0: pair("пустые catch-блоки — не встречаются (ошибка всегда обрабатывается)", "empty catch blocks — never (errors are always handled)"),
+  L1: pair("пустые catch-блоки — обычное дело (осознанное глушение)", "empty catch blocks — common (deliberate silencing)"),
+  L2: pair("ошибки из catch — возвращаются значением, не пробрасываются", "errors from catch — returned as a value, not rethrown"),
+  L3: pair("ошибки из catch — пробрасываются дальше (re-throw)", "errors from catch — rethrown further"),
+  L4: pair("исключения — ловятся, но свои не бросаются (throw почти не встречается)", "exceptions — caught but not raised (throw is rare)"),
+  L5: pair("async-функции — преобладают", "async functions — predominant"),
+  L6: pair("async-функции — почти не используются", "async functions — barely used"),
+  L7: pair("классы — не используются (функции и модули)", "classes — not used (functions and modules)"),
+  L8: pair("классы — основной строительный блок", "classes — the main building block")
+};
+function deriveAstFacts(m) {
+  const facts = [];
+  if (m.catchCount >= 10) {
+    const nonEmpty = m.catchCount - m.emptyCatch;
+    if (m.emptyCatch / m.catchCount <= 0.05) {
+      push(facts, "обработка ошибок", L2.L0, nonEmpty, m.catchCount);
+    } else if (m.emptyCatch / m.catchCount >= 0.3) {
+      push(facts, "обработка ошибок", L2.L1, m.emptyCatch, m.catchCount);
+    }
+    if (m.catchWithReturn / m.catchCount >= 0.7) {
+      push(facts, "обработка ошибок", L2.L2, m.catchWithReturn, m.catchCount);
+    } else if (m.catchWithRethrow / m.catchCount >= 0.7) {
+      push(facts, "обработка ошибок", L2.L3, m.catchWithRethrow, m.catchCount);
+    }
+  }
+  if (m.tryCount >= 10 && m.throwCount <= m.tryCount * 0.05) {
+    push(facts, "обработка ошибок", L2.L4, m.tryCount, m.tryCount + m.throwCount);
+  }
+  if (m.fnTotal >= 20) {
+    const asyncShare = m.fnAsync / m.fnTotal;
+    if (asyncShare >= 0.5) {
+      push(facts, "функции", L2.L5, m.fnAsync, m.fnTotal);
+    } else if (asyncShare <= 0.05 && m.fnAsync >= 0) {
+      push(facts, "функции", L2.L6, m.fnTotal - m.fnAsync, m.fnTotal);
+    }
+    if (m.classCount === 0) {
+      push(facts, "архитектура", L2.L7, m.fnTotal, m.fnTotal);
+    } else if (m.classCount >= m.fnTotal * 0.15) {
+      push(facts, "архитектура", L2.L8, m.classCount, m.classCount + m.fnTotal);
+    }
+  }
+  return facts;
+}
+
+// src/verifiers/content.ts
+init_i18n();
+
+// src/graph/entities.ts
+init_i18n();
+import { dirname, join as join5, normalize as normalize2 } from "node:path/posix";
+var ENTITY_EXT = new Set([".md", ".mdx", ".markdown", ".html", ".htm", ".yaml", ".yml"]);
+var EXTERNAL_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
+var MD_LINK_RE = /(^|[^!])\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
+var MD_DEF_RE = /^\[([^\]^]+)\]:\s+(\S+)/gm;
+var WIKI_LINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g;
+var HREF_RE = /href\s*=\s*["']([^"'#][^"']*)["'][^>]*>([^<]*)/gi;
+var YAML_VALUE_RE = /^[ \t]*(?:-[ \t]+)?(?:([\w.-]+):[ \t]+)?["']?([^"'\n#]+?)["']?[ \t]*$/gm;
+var hasEntityExt = (target) => {
+  const dot = target.lastIndexOf(".");
+  return dot !== -1 && ENTITY_EXT.has(target.slice(dot).toLowerCase());
+};
+var looksPathish = (v) => v.includes("/") || hasEntityExt(v);
+function extractContentLinks(ext, content) {
+  const out = [];
+  const push2 = (anchor, target, explicit) => {
+    const t2 = target.trim();
+    if (t2.length === 0 || t2.startsWith("#"))
+      return;
+    out.push({ anchor: anchor.trim().toLowerCase().replace(/\s+/g, " "), target: t2, explicit });
+  };
+  for (const m of content.matchAll(MD_LINK_RE))
+    push2(m[2], m[3], true);
+  for (const m of content.matchAll(MD_DEF_RE))
+    push2(m[1], m[2], true);
+  for (const m of content.matchAll(WIKI_LINK_RE))
+    push2(m[2] ?? m[1], m[1].trim(), true);
+  for (const m of content.matchAll(HREF_RE))
+    push2(m[2], m[1], true);
+  if (ext === ".yaml" || ext === ".yml") {
+    for (const m of content.matchAll(YAML_VALUE_RE)) {
+      const value = (m[2] ?? "").trim();
+      if (looksPathish(value) && !value.includes(" ") && !value.includes("]("))
+        push2(m[1] ?? "", value, false);
+    }
+  }
+  return out;
+}
+var stripExt = (rel) => {
+  const dot = rel.lastIndexOf(".");
+  const slash = rel.lastIndexOf("/");
+  return dot > slash ? rel.slice(0, dot) : rel;
+};
+function buildResolveIndex(rels) {
+  const byPath = new Map;
+  const noExt = new Map;
+  const add = (key, rel) => {
+    const list = noExt.get(key);
+    if (list)
+      list.push(rel);
+    else
+      noExt.set(key, [rel]);
+  };
+  for (const rel of rels) {
+    byPath.set(rel.toLowerCase(), rel);
+    const bare = stripExt(rel).toLowerCase();
+    add(bare, rel);
+    if (bare.endsWith("/index"))
+      add(bare.slice(0, -"/index".length), rel);
+  }
+  return { byPath, noExt };
+}
+function suffixMatch(index, key) {
+  const exact = index.noExt.get(key);
+  if (exact)
+    return best(exact);
+  const candidates = [];
+  for (const [k, rels] of index.noExt) {
+    if (k.endsWith("/" + key))
+      candidates.push(...rels);
+  }
+  return candidates.length > 0 ? best(candidates) : null;
+}
+var best = (rels) => [...rels].sort((a, b) => a.length - b.length || (a < b ? -1 : 1))[0];
+function resolveContentTarget(fromRel, rawTarget, index) {
+  if (EXTERNAL_RE.test(rawTarget))
+    return { kind: "external" };
+  let t2 = rawTarget.split("#")[0].split("?")[0].trim().replaceAll("\\", "/");
+  if (t2.endsWith("/"))
+    t2 = t2.slice(0, -1);
+  if (t2.length === 0)
+    return { kind: "external" };
+  const lower = t2.toLowerCase();
+  const tryKeys = (base) => {
+    const direct = index.byPath.get(base);
+    if (direct)
+      return direct;
+    const bare = index.noExt.get(hasEntityExt(base) ? stripExt(base) : base);
+    return bare ? best(bare) : null;
+  };
+  if (lower.startsWith("/")) {
+    const hit = tryKeys(lower.slice(1)) ?? suffixMatch(index, hasEntityExt(lower) ? stripExt(lower.slice(1)) : lower.slice(1));
+    if (hit)
+      return { kind: "entity", rel: hit };
+    return hasEntityExt(lower) ? { kind: "broken" } : { kind: "unresolved" };
+  }
+  const joined = normalize2(join5(dirname(fromRel.toLowerCase()), lower));
+  if (!joined.startsWith("..")) {
+    const hit = tryKeys(joined);
+    if (hit)
+      return { kind: "entity", rel: hit };
+  }
+  const slug = suffixMatch(index, hasEntityExt(lower) ? stripExt(lower) : lower);
+  if (slug)
+    return { kind: "entity", rel: slug };
+  return hasEntityExt(lower) ? { kind: "broken" } : { kind: "unresolved" };
+}
+var kindOf = (ext) => ext === ".yaml" || ext === ".yml" ? "yaml" : ext === ".html" || ext === ".htm" ? "html" : "md";
+var HUB_MIN_OUT = 5;
+var HUB_NAMES = new Set(["index", "readme", "home"]);
+function buildEntityGraph(files) {
+  const rels = files.map((f) => f.rel);
+  const index = buildResolveIndex(rels);
+  const edges = [];
+  const edgeSeen = new Set;
+  const broken = [];
+  const brokenSeen = new Set;
+  let unresolved = 0;
+  const anchorTargets = new Map;
+  for (const f of files) {
+    for (const link of extractContentLinks(f.ext, f.content)) {
+      const res = resolveContentTarget(f.rel, link.target, index);
+      if (res.kind === "external")
+        continue;
+      if (res.kind === "unresolved") {
+        unresolved++;
+        continue;
+      }
+      if (res.kind === "broken") {
+        if (!link.explicit)
+          continue;
+        const key2 = `${f.rel}|${link.target}`;
+        if (!brokenSeen.has(key2)) {
+          brokenSeen.add(key2);
+          broken.push({ from: f.rel, target: link.target });
+        }
+        continue;
+      }
+      if (res.rel === f.rel)
+        continue;
+      const key = `${f.rel}|${res.rel}|${link.anchor}`;
+      if (edgeSeen.has(key))
+        continue;
+      edgeSeen.add(key);
+      edges.push({ from: f.rel, to: res.rel, anchor: link.anchor });
+      if (link.anchor.length > 0) {
+        const set = anchorTargets.get(link.anchor) ?? new Set;
+        set.add(res.rel);
+        anchorTargets.set(link.anchor, set);
+      }
+    }
+  }
+  const inSets = new Map;
+  const outSets = new Map;
+  for (const e of edges) {
+    let out = outSets.get(e.from);
+    if (!out) {
+      out = new Set;
+      outSets.set(e.from, out);
+    }
+    out.add(e.to);
+    let into = inSets.get(e.to);
+    if (!into) {
+      into = new Set;
+      inSets.set(e.to, into);
+    }
+    into.add(e.from);
+  }
+  const hubs = rels.filter((rel) => {
+    const out = outSets.get(rel)?.size ?? 0;
+    const base = stripExt(rel).split("/").pop() ?? "";
+    return out >= HUB_MIN_OUT || HUB_NAMES.has(base.toLowerCase()) && out > 0;
+  });
+  const depth = new Map;
+  let frontier = hubs;
+  for (const h of hubs)
+    depth.set(h, 0);
+  let d = 0;
+  while (frontier.length > 0) {
+    d++;
+    const next = [];
+    for (const node of frontier) {
+      for (const to of outSets.get(node) ?? []) {
+        if (depth.has(to))
+          continue;
+        depth.set(to, d);
+        next.push(to);
+      }
+    }
+    frontier = next;
+  }
+  const nodes = files.map((f) => ({
+    file: f.rel,
+    kind: kindOf(f.ext),
+    inDeg: inSets.get(f.rel)?.size ?? 0,
+    outDeg: outSets.get(f.rel)?.size ?? 0,
+    depth: depth.get(f.rel) ?? null,
+    isHub: false
+  })).sort((a, b) => b.inDeg - a.inDeg || (a.file < b.file ? -1 : 1));
+  const hubSet = new Set(hubs);
+  for (const n of nodes)
+    n.isHub = hubSet.has(n.file);
+  const orphans = nodes.filter((n) => n.inDeg === 0 && !n.isHub).map((n) => n.file);
+  const orphanSet = new Set(orphans);
+  const unreachable = hubs.length === 0 ? [] : nodes.filter((n) => n.depth === null && !orphanSet.has(n.file)).map((n) => n.file);
+  const dupAnchors = [...anchorTargets.entries()].filter((pair2) => pair2[1].size >= 2).map((pair2) => ({ anchor: pair2[0], targets: [...pair2[1]].sort() })).sort((a, b) => b.targets.length - a.targets.length);
+  return { nodes, edges, broken, unresolved, hubs, unreachable, orphans, dupAnchors };
+}
+function renderEntityBlock(g) {
+  if (g.nodes.length < 5 || g.edges.length < 3)
+    return "";
+  const lines = [
+    t("## Контент-граф (сущности и перелинковка; детали: passport_orphans / passport_reach)", "## Content graph (entities and interlinking; details: passport_orphans / passport_reach)"),
+    "",
+    `- ${t("сущностей", "entities")}: ${g.nodes.length} · ${t("перелинковок", "links")}: ${g.edges.length} · ${t("хабов", "hubs")}: ${g.hubs.length}`
+  ];
+  const issues = [];
+  if (g.orphans.length > 0)
+    issues.push(`${t("сироты (0 входящих)", "orphans (0 inbound)")}: ${g.orphans.length}`);
+  if (g.unreachable.length > 0)
+    issues.push(`${t("недостижимы из хабов", "unreachable from hubs")}: ${g.unreachable.length}`);
+  if (g.broken.length > 0)
+    issues.push(`${t("битые внутренние ссылки", "broken internal links")}: ${g.broken.length}`);
+  if (g.dupAnchors.length > 0)
+    issues.push(`${t("анкоры на разные цели", "anchors pointing to different targets")}: ${g.dupAnchors.length}`);
+  if (issues.length > 0)
+    lines.push(`- ⚠ ${issues.join(" · ")}`);
+  lines.push("");
+  return lines.join(`
+`);
+}
+
+// src/verifiers/content.ts
+var V = {
+  ALPHABET: pair("чистота алфавита (кир/лат микс в слове)", "alphabet purity (Cyrillic/Latin mix inside a word)"),
+  BROKEN: pair("битая внутренняя ссылка", "broken internal link"),
+  ANCHOR_DUP: pair("один анкор на разные цели", "one anchor pointing to different targets"),
+  EMPTY_ANCHOR: pair("ссылка без текста (a11y/SEO)", "link without text (a11y/SEO)")
+};
+function makeResolver(entityRels) {
+  const index = buildResolveIndex(entityRels);
+  return (fromRel, target) => resolveContentTarget(fromRel, target, index);
+}
+function contentVerifierActive(ext) {
+  return ENTITY_EXT.has(ext.toLowerCase());
+}
+function loadEntityResolver(db) {
+  try {
+    const has = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='entity_nodes'").get().n > 0;
+    if (!has)
+      return;
+    const rels = db.query("SELECT file FROM entity_nodes").all().map((r) => r.file);
+    return rels.length > 0 ? makeResolver(rels) : undefined;
+  } catch {
+    return;
+  }
+}
+var CYRILLIC = /[Ѐ-ӿ]/;
+var LATIN = /[A-Za-z]/;
+var WORD_RE = /[A-Za-zЀ-ӿ][A-Za-zЀ-ӿ\d]*/g;
+function stripNonProse(text) {
+  return text.replace(/```[\s\S]*?```/g, " ").replace(/`[^`]*`/g, " ").replace(/https?:\/\/\S+/gi, " ").replace(/\b[\w.-]+\/[\w./-]+/g, " ");
+}
+function mixedScriptTokens(text) {
+  const out = [];
+  const seen = new Set;
+  for (const m of stripNonProse(text).matchAll(WORD_RE)) {
+    const tok = m[0];
+    if (CYRILLIC.test(tok) && LATIN.test(tok) && !seen.has(tok)) {
+      seen.add(tok);
+      out.push(tok);
+    }
+  }
+  return out;
+}
+var MAX_EXAMPLES = 5;
+function checkAlphabetPurity(content) {
+  const bad = mixedScriptTokens(content);
+  if (bad.length === 0)
+    return [];
+  const examples = bad.slice(0, MAX_EXAMPLES).map((t2) => `«${t2}»`).join(", ");
+  return [
+    {
+      verifier: V.ALPHABET,
+      detail: `${bad.length} слов со смешением алфавитов: ${examples}${bad.length > MAX_EXAMPLES ? " …" : ""}`
+    }
+  ];
+}
+function checkContentLinks(rel, content, ext, resolve) {
+  const links = extractContentLinks(ext, content);
+  const broken = [];
+  const emptyAnchors = [];
+  const anchorTargets = new Map;
+  for (const link of links) {
+    if (!link.explicit)
+      continue;
+    if (link.anchor.length === 0) {
+      if (emptyAnchors.length < MAX_EXAMPLES)
+        emptyAnchors.push(link.target);
+      continue;
+    }
+    if (resolve) {
+      const res = resolve(rel, link.target);
+      if (res.kind === "broken") {
+        broken.push(link.target);
+        continue;
+      }
+      if (res.kind === "entity") {
+        const set = anchorTargets.get(link.anchor) ?? new Set;
+        set.add(res.rel);
+        anchorTargets.set(link.anchor, set);
+      }
+    }
+  }
+  const out = [];
+  if (broken.length > 0) {
+    out.push({
+      verifier: V.BROKEN,
+      detail: `${broken.length}: ${broken.slice(0, MAX_EXAMPLES).map((t2) => `→ ${t2}`).join(", ")}${broken.length > MAX_EXAMPLES ? " …" : ""}`
+    });
+  }
+  const dup = [...anchorTargets.entries()].filter((entry) => entry[1].size >= 2);
+  if (dup.length > 0) {
+    out.push({
+      verifier: V.ANCHOR_DUP,
+      detail: dup.slice(0, MAX_EXAMPLES).map((entry) => `«${entry[0]}» → ${entry[1].size} ${t("целей", "targets")}`).join(", ")
+    });
+  }
+  if (emptyAnchors.length > 0) {
+    out.push({
+      verifier: V.EMPTY_ANCHOR,
+      detail: `${emptyAnchors.length}: ${emptyAnchors.map((t2) => `→ ${t2}`).join(", ")}`
+    });
+  }
+  return out;
+}
+function runContentVerifiers(rel, content, ext, ctx = {}) {
+  if (!contentVerifierActive(ext))
+    return [];
+  return [...checkAlphabetPurity(content), ...checkContentLinks(rel, content, ext, ctx.resolve)];
+}
+
+// src/passport/maturity.ts
+init_i18n();
+var clamp01 = (x) => Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0;
+function binaryEntropy(p) {
+  if (p <= 0 || p >= 1)
+    return 0;
+  return -(p * Math.log2(p) + (1 - p) * Math.log2(1 - p));
+}
+function canonCertainty(prevalences) {
+  if (prevalences.length === 0)
+    return 0;
+  const mean = prevalences.reduce((s, p) => s + binaryEntropy(clamp01(p)), 0) / prevalences.length;
+  return clamp01(1 - mean);
+}
+var MASS_HALF_FILES = 40;
+var MASS_HALF_COMMITS = 60;
+function massScore(codeFiles2, commits) {
+  const f = Math.max(0, codeFiles2) / (Math.max(0, codeFiles2) + MASS_HALF_FILES);
+  const c = Math.max(0, commits) / (Math.max(0, commits) + MASS_HALF_COMMITS);
+  return clamp01((clamp01(f) + clamp01(c)) / 2);
+}
+function verifiabilityScore(codeFiles2, testFiles, hasCi) {
+  if (codeFiles2 === 0)
+    return 0;
+  const ratio = clamp01(testFiles / (codeFiles2 / 3));
+  return clamp01(ratio * 0.8 + (hasCi ? 0.2 : 0));
+}
+function contentIntegrityScore(c) {
+  if (c.entities === 0)
+    return 0;
+  const brokenShare = clamp01(c.broken / c.entities);
+  const orphanShare = clamp01(c.orphans / c.entities);
+  return clamp01(1 - brokenShare * 1.5 - orphanShare * 0.5);
+}
+function stabilityScore(commits, fixCommits, reverts) {
+  if (commits === 0)
+    return 0;
+  const fixShare = clamp01(fixCommits / commits);
+  const revertPenalty = clamp01(reverts / Math.max(commits, 1)) * 2;
+  return clamp01(1 - fixShare - revertPenalty);
+}
+function harmonicMean(values) {
+  if (values.length === 0)
+    return 0;
+  const floored = values.map((v) => Math.max(v, 0.02));
+  const sumInverse = floored.reduce((s, v) => s + 1 / v, 0);
+  return clamp01(floored.length / sumInverse);
+}
+function levelOf(score) {
+  if (score >= 0.62)
+    return "зрелый";
+  if (score >= 0.3)
+    return "растущий";
+  return "молодой";
+}
+function verifiabilityDimension(input) {
+  const nature = input.nature ?? (input.codeFiles > 0 ? "код" : "контент");
+  if (nature === "контент" && input.content && input.content.entities > 0) {
+    const c = input.content;
+    return {
+      name: "целостность контента",
+      value: contentIntegrityScore(c),
+      known: true,
+      detail: t(`${c.entities} сущностей, битых ссылок ${c.broken}, сирот ${c.orphans}`, `${c.entities} entities, ${c.broken} broken links, ${c.orphans} orphans`)
+    };
+  }
+  return {
+    name: "проверяемость",
+    value: verifiabilityScore(input.codeFiles, input.testFiles, input.hasCi),
+    known: input.codeFiles > 0,
+    detail: t(`${input.testFiles} тестов${input.hasCi ? ", CI настроен" : ", CI не найден"}`, `${input.testFiles} test files${input.hasCi ? ", CI configured" : ", no CI found"}`)
+  };
+}
+function assessMaturity(input) {
+  const empty = input.codeFiles === 0 && input.commits === 0;
+  const dimensions = [
+    {
+      name: "определённость канона",
+      value: canonCertainty(input.prevalences),
+      known: input.prevalences.length > 0,
+      detail: input.prevalences.length === 0 ? t("конвенций пока не выведено", "no conventions derived yet") : t(`${input.prevalences.length} конвенций, средняя неопределённость ${(1 - canonCertainty(input.prevalences)).toFixed(2)} бит`, `${input.prevalences.length} conventions, average uncertainty ${(1 - canonCertainty(input.prevalences)).toFixed(2)} bits`)
+    },
+    {
+      name: "масса",
+      value: massScore(input.codeFiles, input.commits),
+      known: true,
+      detail: t(`${input.codeFiles} файлов кода, ${input.commits} коммитов`, `${input.codeFiles} code files, ${input.commits} commits`)
+    },
+    verifiabilityDimension(input),
+    {
+      name: "стабильность",
+      value: stabilityScore(input.commits, input.fixCommits, input.reverts),
+      known: input.commits > 0,
+      detail: input.commits === 0 ? t("истории ещё нет", "no history yet") : t(`починок ${input.fixCommits} из ${input.commits}${input.reverts > 0 ? `, откатов ${input.reverts}` : ""}`, `${input.fixCommits} fixes out of ${input.commits}${input.reverts > 0 ? `, ${input.reverts} reverts` : ""}`)
+    }
+  ];
+  const measured = dimensions.filter((d) => d.known);
+  const score = empty || measured.length === 0 ? 0 : harmonicMean(measured.map((d) => d.value));
+  const weakest = measured.length === 0 ? null : measured.reduce((a, b) => b.value < a.value ? b : a);
+  return { score, level: levelOf(score), dimensions, weakest, empty };
+}
+function maturityStance(level) {
+  if (level === "зрелый") {
+    return [
+      t("канон проекта сложился: типовая работа делается по прецеденту, а не изобретается заново", "the canon here is settled: routine work follows precedent instead of being reinvented"),
+      t("отклонение от конвенции здесь — осознанное решение, которое стоит назвать вслух", "departing from a convention here is a deliberate decision worth saying out loud"),
+      t("ограничение: массовые переделки работающего кода не входят в задачу", "constraint: sweeping rewrites of working code are out of scope")
+    ];
+  }
+  if (level === "растущий") {
+    return [
+      t("канон ещё складывается: удачное решение стоит закреплять, повторяя его", "the canon is still forming: a good decision is worth cementing by repeating it"),
+      t("противоречие с уже принятым решением — повод выбрать одно, а не держать оба", "a contradiction with an earlier decision is a reason to pick one, not to keep both"),
+      t("ограничение: единообразие важнее локальной элегантности", "constraint: consistency outweighs local elegance")
+    ];
+  }
+  return [
+    t("канона ещё нет: решения принимаются впервые и станут прецедентом для всего проекта", "there is no canon yet: decisions are being made for the first time and will become precedent"),
+    t("планка задаётся сразу — структура, обработка ошибок, границы модулей и проверяемость закладываются с первой строки, а не «потом»", "the bar is set now — structure, error handling, module boundaries and testability start with the first line, not “later”"),
+    t("подражать текущему коду нечему: несколько файлов — это случайность, а не конвенция", "there is nothing to imitate yet: a handful of files is an accident, not a convention"),
+    t("ограничение: сложность вводится только под названную задачу, архитектура «на вырост» без потребности запрещена", "constraint: complexity only for a named task; architecture “for future growth” without a need is out")
+  ];
+}
+function maturityFact(m) {
+  const dims = m.dimensions.filter((d) => d.known).map((d) => `${d.name} ${d.value.toFixed(2)}`).join(", ");
+  return {
+    area: "зрелость проекта",
+    statement: `зрелость проекта — ${m.score.toFixed(2)} (${m.level}): ${dims}`,
+    positive: 1,
+    total: 1,
+    prevalence: 1,
+    tier: "привычка"
+  };
+}
+var dimName = (ru) => t(ru, { "определённость канона": "canon certainty", масса: "mass", проверяемость: "testability", стабильность: "stability" }[ru] ?? ru);
+var levelName = (ru) => t(ru, { зрелый: "mature", растущий: "growing", молодой: "young", "только начат": "just started" }[ru] ?? ru);
+pattern(/^зрелость проекта — ([\d.]+) \((.+?)\): (.+)$/, (m) => {
+  const dims = m[3].split(", ").map((part) => {
+    const cut = part.lastIndexOf(" ");
+    return cut > 0 ? `${dimName(part.slice(0, cut))} ${part.slice(cut + 1)}` : part;
+  }).join(", ");
+  return `project maturity — ${m[1]} (${levelName(m[2])}): ${dims}`;
+});
+function renderMaturity(m) {
+  if (m.empty)
+    return "";
+  const dims = m.dimensions.map((d) => d.known ? `${dimName(d.name)} ${d.value.toFixed(2)}` : `${dimName(d.name)}${t(" — нет данных", " — no data")}`).join(" · ");
+  const lines = [t(`## Зрелость проекта: ${m.score.toFixed(2)} из 1 — ${m.level}`, `## Project maturity: ${m.score.toFixed(2)} of 1 — ${levelName(m.level)}`), "", t(`- измерения: ${dims}`, `- dimensions: ${dims}`)];
+  if (m.weakest && m.weakest.value < 0.5) {
+    lines.push(t(`- слабее всего: ${m.weakest.name} (${m.weakest.value.toFixed(2)}) — ${m.weakest.detail}`, `- weakest: ${dimName(m.weakest.name)} (${m.weakest.value.toFixed(2)}) — ${m.weakest.detail}`));
+  }
+  lines.push("");
+  for (const s of maturityStance(m.level))
+    lines.push(`- ${s}`);
+  return lines.join(`
+`);
+}
+
+// src/passport/profile.ts
+init_signals();
+init_i18n();
+import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
+import { join as join6 } from "node:path";
+var evidenceEn = (ru) => ru === "заявлено в доках" ? "declared in the docs" : ru.startsWith("тестовых файлов: ") ? `test files: ${ru.slice("тестовых файлов: ".length)}` : ru;
+var evidenceListEn = (ru, sep) => ru.split(sep).map(evidenceEn).join(sep);
+pattern(/^безопасность — защитные слои: (.+) \(их ослабление — не рядовая правка\)$/, (m) => `security — protective layers: ${m[1]} (weakening them is not an ordinary change)`);
+pattern(/^безопасность — явных защитных слоёв не обнаружено \(появятся — станут неприкосновенными\)$/, () => "security — no explicit protective layers found (once they appear, they become inviolable)");
+pattern(/^(.+) — заявлена в доках, в коде проекта не обнаружена$/, (m) => `${axisName(m[1])} — declared in the docs, not found in the project's code`);
+pattern(/^(.+) — ось качества здесь \((.+)\)$/, (m) => `${axisName(m[1])} — a quality axis here (${evidenceListEn(m[2], "; ")})`);
+var DETECTORS = [
+  { axis: "корректность", signal: "testing" },
+  { axis: "производительность", signal: "performance" },
+  { axis: "SEO", signal: "seo" },
+  { axis: "целостность данных", signal: "db" },
+  { axis: "поставляемость", signal: "deploy" },
+  { axis: "наблюдаемость", signal: "observability" },
+  { axis: "доступность", signal: "a11y" },
+  { axis: "совместимость", signal: "compat" },
+  { axis: "приватность", signal: "privacy" }
+];
+var README_LIMIT = 40000;
+function readConceptText(root, relPaths) {
+  const parts = [];
+  for (const name of ["README.md", "readme.md", "README.rst", "CONCEPT.md", "AGENTS.md", "CLAUDE.md"]) {
+    try {
+      parts.push(readFileSync5(join6(root, name), "utf8").slice(0, README_LIMIT));
+    } catch {}
+  }
+  const docFiles = relPaths.filter((p) => /^(docs|\.docs|doc)\//i.test(p) && p.endsWith(".md")).slice(0, 12);
+  for (const rel of docFiles) {
+    try {
+      parts.push(readFileSync5(join6(root, rel), "utf8").slice(0, 8000));
+    } catch {}
+  }
+  return parts.join(`
+`);
+}
+function readPackageSignals(root) {
+  const { all } = readManifestDeps(root);
+  let scripts = "";
+  try {
+    const pkg = JSON.parse(readFileSync5(join6(root, "package.json"), "utf8"));
+    scripts = Object.values(pkg.scripts ?? {}).join(" ");
+  } catch {}
+  return { deps: all, scripts };
+}
+function probeProfile(root, relPaths) {
+  const { deps } = readPackageSignals(root);
+  const docsText = readConceptText(root, relPaths);
+  if (relPaths.length === 0 && deps.length === 0 && docsText.trim().length === 0)
+    return [];
+  const probes = [];
+  const ciPresent = [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].filter((p) => existsSync3(join6(root, p)));
+  for (const d of DETECTORS) {
+    const sig = SIGNALS[d.signal];
+    const evidence = [];
+    if (sig.paths) {
+      const hits = relPaths.filter((p) => sig.paths.test(p));
+      if (hits.length > 0) {
+        evidence.push(d.axis === "корректность" ? `тестовых файлов: ${hits.length}` : hits.slice(0, 2).join(", "));
+      }
+    }
+    if (d.axis === "поставляемость" && ciPresent.length > 0)
+      evidence.push(ciPresent.join(", "));
+    if (d.axis === "корректность" && ciPresent.length > 0 && evidence.length > 0)
+      evidence.push("CI");
+    if (sig.deps) {
+      const hits = deps.filter((x) => sig.deps.test(x)).slice(0, 3);
+      if (hits.length > 0)
+        evidence.push(hits.join(", "));
+    }
+    if (sig.docs && sig.docs.test(docsText))
+      evidence.push("заявлено в доках");
+    if (evidence.length > 0)
+      probes.push({ axis: d.axis, evidence });
+  }
+  const sec = SIGNALS.security;
+  const layers = [
+    ...deps.filter((x) => sec.deps.test(x)).slice(0, 4),
+    ...relPaths.filter((p) => sec.paths.test(p)).slice(0, 3)
+  ];
+  probes.push({ axis: "безопасность", evidence: layers });
+  return probes;
+}
+function profileFacts(probes) {
+  return probes.map((p) => {
+    const n = p.evidence.length;
+    if (p.axis === "безопасность") {
+      return {
+        area: "профиль качества",
+        statement: n > 0 ? `безопасность — защитные слои: ${p.evidence.join(", ")} (их ослабление — не рядовая правка)` : "безопасность — явных защитных слоёв не обнаружено (появятся — станут неприкосновенными)",
+        positive: Math.max(n, 1),
+        total: Math.max(n, 1),
+        prevalence: 1,
+        tier: n > 0 ? "привычка" : "гипотеза"
+      };
+    }
+    const onlyDocs = p.evidence.length === 1 && p.evidence[0] === "заявлено в доках";
+    return {
+      area: "профиль качества",
+      statement: onlyDocs ? `${p.axis} — заявлена в доках, в коде проекта не обнаружена` : `${p.axis} — ось качества здесь (${p.evidence.join("; ")})`,
+      positive: n,
+      total: n,
+      prevalence: 1,
+      tier: n >= 2 ? "привычка" : "гипотеза"
+    };
+  });
+}
+
+// src/core/statements.ts
+init_constitution_derive();
+
+// src/passport/build.ts
+import { readFileSync as readFileSync10, writeFileSync as writeFileSync3, mkdirSync, existsSync as existsSync6 } from "node:fs";
+import { basename, join as join11, relative, dirname as dirname3 } from "node:path";
+import { spawnSync as spawnSync2 } from "node:child_process";
+
+// src/graph/cochange.ts
+init_walk();
+import { extname as extname2 } from "node:path";
+var CODE_EXT2 = new Set([...CODE_EXT, ".sql"]);
+var MAX_FILES_PER_COMMIT = 30;
+function parseNameOnlyLog(text) {
+  const commits = [];
+  let current2 = null;
+  for (const raw of text.split(`
+`)) {
+    const line = raw.trim();
+    if (line.startsWith("@")) {
+      if (current2 && current2.length > 0)
+        commits.push(current2);
+      current2 = [];
+      continue;
+    }
+    if (!line || current2 === null)
+      continue;
+    const f = line.replaceAll("\\", "/");
+    if (CODE_EXT2.has(extname2(f).toLowerCase()))
+      current2.push(f);
+  }
+  if (current2 && current2.length > 0)
+    commits.push(current2);
+  return commits;
+}
+function pairCounts(commits, maxPerCommit = MAX_FILES_PER_COMMIT) {
+  const pairs = new Map;
+  const totals = new Map;
+  for (const files of commits) {
+    const uniq = [...new Set(files)];
+    if (uniq.length < 1 || uniq.length > maxPerCommit)
+      continue;
+    for (const f of uniq)
+      totals.set(f, (totals.get(f) ?? 0) + 1);
+    for (let i = 0;i < uniq.length; i++) {
+      for (let j = i + 1;j < uniq.length; j++) {
+        const [a, b] = uniq[i] < uniq[j] ? [uniq[i], uniq[j]] : [uniq[j], uniq[i]];
+        pairs.set(`${a}|${b}`, (pairs.get(`${a}|${b}`) ?? 0) + 1);
+      }
+    }
+  }
+  return { pairs, totals };
+}
+
+// src/core/salsa.ts
+import { createHash } from "node:crypto";
+var sha1 = (s) => createHash("sha1").update(s).digest("hex");
+
+class Engine {
+  db;
+  queries = new Map;
+  execCount = new Map;
+  constructor(dbPath) {
+    this.db = openDb(dbPath);
+    this.db.run("PRAGMA journal_mode = WAL");
+    this.db.run("PRAGMA synchronous = NORMAL");
+    this.db.run("CREATE TABLE IF NOT EXISTS inputs(key TEXT PRIMARY KEY, hash TEXT NOT NULL, changed_at INTEGER NOT NULL)");
+    this.db.run("CREATE TABLE IF NOT EXISTS memo(query TEXT PRIMARY KEY, value TEXT NOT NULL, value_hash TEXT NOT NULL, verified_at INTEGER NOT NULL, changed_at INTEGER NOT NULL)");
+    this.db.run("CREATE TABLE IF NOT EXISTS deps(query TEXT NOT NULL, dep TEXT NOT NULL, PRIMARY KEY(query, dep))");
+    this.db.run("CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v INTEGER NOT NULL)");
+    this.db.run("INSERT OR IGNORE INTO meta VALUES('rev', 0)");
+  }
+  invalidateIfCodeChanged(codeVersion) {
+    this.db.run("CREATE TABLE IF NOT EXISTS code_meta(k TEXT PRIMARY KEY, v TEXT NOT NULL)");
+    const row = this.db.query("SELECT v FROM code_meta WHERE k='projection_version'").get();
+    if (row && row.v === codeVersion)
+      return false;
+    this.db.run("DELETE FROM memo");
+    this.db.run("DELETE FROM deps");
+    this.db.query("INSERT INTO code_meta(k,v) VALUES('projection_version',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(codeVersion);
+    return true;
+  }
+  get rev() {
+    return this.db.query("SELECT v FROM meta WHERE k='rev'").get().v;
+  }
+  bumpRev() {
+    this.db.run("UPDATE meta SET v = v + 1 WHERE k='rev'");
+    return this.rev;
+  }
+  setInput(key, hash) {
+    const row = this.db.query("SELECT hash FROM inputs WHERE key=?").get(key);
+    if (row && row.hash === hash)
+      return;
+    const rev = this.bumpRev();
+    this.db.query("INSERT INTO inputs(key,hash,changed_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET hash=excluded.hash, changed_at=excluded.changed_at").run(key, hash, rev);
+  }
+  register(name, fn) {
+    this.queries.set(name, fn);
+  }
+  executions(name) {
+    return this.execCount.get(name) ?? 0;
+  }
+  changedAtOf(dep) {
+    if (dep.startsWith("input:")) {
+      const row2 = this.db.query("SELECT changed_at FROM inputs WHERE key=?").get(dep.slice(6));
+      return row2 ? row2.changed_at : Number.POSITIVE_INFINITY;
+    }
+    this.get(dep);
+    const row = this.db.query("SELECT changed_at FROM memo WHERE query=?").get(dep);
+    return row ? row.changed_at : Number.POSITIVE_INFINITY;
+  }
+  get(name) {
+    const rev = this.rev;
+    const memo = this.db.query("SELECT * FROM memo WHERE query=?").get(name);
+    if (memo && memo.verified_at === rev)
+      return JSON.parse(memo.value);
+    if (memo) {
+      const deps2 = this.db.query("SELECT dep FROM deps WHERE query=?").all(name).map((d) => d.dep);
+      const clean = deps2.length > 0 && deps2.every((d) => this.changedAtOf(d) <= memo.verified_at);
+      if (clean) {
+        this.db.query("UPDATE memo SET verified_at=? WHERE query=?").run(rev, name);
+        return JSON.parse(memo.value);
+      }
+    }
+    const fn = this.queries.get(name);
+    if (!fn)
+      throw new Error(`Запрос не зарегистрирован: ${name}`);
+    const deps = new Set;
+    const ctx = {
+      input: (key) => {
+        deps.add("input:" + key);
+        const row = this.db.query("SELECT hash FROM inputs WHERE key=?").get(key);
+        return row ? row.hash : null;
+      },
+      get: (q) => {
+        deps.add(q);
+        return this.get(q);
+      }
+    };
+    this.execCount.set(name, (this.execCount.get(name) ?? 0) + 1);
+    const value = fn(ctx);
+    const valueText = JSON.stringify(value ?? null);
+    const valueHash = sha1(valueText);
+    const changedAt = memo && memo.value_hash === valueHash ? memo.changed_at : rev;
+    this.db.query("INSERT INTO memo(query,value,value_hash,verified_at,changed_at) VALUES(?,?,?,?,?) ON CONFLICT(query) DO UPDATE SET value=excluded.value, value_hash=excluded.value_hash, verified_at=excluded.verified_at, changed_at=excluded.changed_at").run(name, valueText, valueHash, rev, changedAt);
+    this.db.query("DELETE FROM deps WHERE query=?").run(name);
+    const insDep = this.db.query("INSERT OR IGNORE INTO deps(query,dep) VALUES(?,?)");
+    for (const d of deps)
+      insDep.run(name, d);
+    return value;
+  }
+  close() {
+    this.db.close();
+  }
+}
+
+// src/passport/build.ts
+init_walk();
 
 // src/miner/analyze.ts
 init_i18n();
@@ -1970,232 +2862,8 @@ function aggregate(obs, allExts) {
   return agg;
 }
 
-// src/miner/facts.ts
-init_i18n();
-function tierOf(prevalence, total) {
-  if (prevalence >= 0.95 && total >= 30)
-    return "закон";
-  if (prevalence >= 0.7 && total >= 10)
-    return "привычка";
-  if (prevalence >= 0.55)
-    return "гипотеза";
-  return "нет консенсуса";
-}
-function dominant(rec) {
-  const entries = Object.entries(rec);
-  const total = entries.reduce((s, [, n]) => s + n, 0);
-  if (total === 0)
-    return null;
-  entries.sort((a, b) => b[1] - a[1]);
-  return { key: entries[0][0], positive: entries[0][1], total };
-}
-function pushDominant(facts, area2, rec, label) {
-  const d = dominant(rec);
-  if (!d)
-    return;
-  const prevalence = d.positive / d.total;
-  facts.push({
-    area: area2,
-    statement: label(d.key),
-    positive: d.positive,
-    total: d.total,
-    prevalence,
-    tier: tierOf(prevalence, d.total)
-  });
-}
-var L = {
-  L0: pair("отступы — 2 пробела", "indentation — 2 spaces"),
-  L1: pair("отступы — 4 пробела", "indentation — 4 spaces"),
-  L2: pair("отступы — табы", "indentation — tabs"),
-  L3: pair("отступы — нестандартный шаг", "indentation — non-standard step"),
-  L4: pair("кавычки — одинарные", "quotes — single"),
-  L5: pair("кавычки — двойные", "quotes — double"),
-  L6: pair("точки с запятой — используются", "semicolons — used"),
-  L7: pair("точки с запятой — не используются", "semicolons — not used"),
-  L8: pair("переменные — только var", "variables — var only"),
-  L9: pair("переменные — const/let (var не используется)", "variables — const/let (no var)"),
-  L10: pair("стрелочные функции — не используются", "arrow functions — not used"),
-  L11: pair("стрелочные функции — используются свободно", "arrow functions — used freely"),
-  L12: pair("filter/map/reduce — не используются (только циклы)", "filter/map/reduce — not used (loops only)"),
-  L13: pair("filter/map/reduce — используются свободно", "filter/map/reduce — used freely"),
-  L14: pair("идентификаторы — snake_case", "identifiers — snake_case"),
-  L15: pair("идентификаторы — camelCase", "identifiers — camelCase"),
-  L16: pair("параметры функций — с префиксом _", "function parameters — prefixed with _"),
-  L17: pair("деструктуризация в параметрах — не используется", "destructuring in parameters — not used"),
-  L18: pair("Vue-компоненты — <script setup>", "Vue components — <script setup>"),
-  L19: pair("Vue-компоненты — Options API", "Vue components — Options API")
-};
-var INDENT_LABEL = {
-  s2: L.L0,
-  s4: L.L1,
-  tab: L.L2,
-  other: L.L3
-};
-function deriveFacts(agg) {
-  const facts = [];
-  pushDominant(facts, "форматирование", agg.indent, (k) => INDENT_LABEL[k] ?? k);
-  pushDominant(facts, "форматирование", agg.quotes, (k) => k === "single" ? L.L4 : L.L5);
-  pushDominant(facts, "форматирование", agg.semis, (k) => k === "with" ? L.L6 : L.L7);
-  const declTotal = agg.decl.var + agg.decl.let + agg.decl.const;
-  if (declTotal > 0) {
-    const modern = agg.decl.let + agg.decl.const;
-    const varShare = agg.decl.var / declTotal;
-    if (varShare >= 0.5) {
-      facts.push({
-        area: "объявления",
-        statement: L.L8,
-        positive: agg.decl.var,
-        total: declTotal,
-        prevalence: varShare,
-        tier: tierOf(varShare, declTotal)
-      });
-    } else {
-      const p = modern / declTotal;
-      facts.push({
-        area: "объявления",
-        statement: L.L9,
-        positive: modern,
-        total: declTotal,
-        prevalence: p,
-        tier: tierOf(p, declTotal)
-      });
-    }
-  }
-  const fnTotal = agg.fn.arrow + agg.fn.decl;
-  if (fnTotal >= 20) {
-    const arrowShare = agg.fn.arrow / fnTotal;
-    if (arrowShare <= 0.05) {
-      facts.push({
-        area: "функции",
-        statement: L.L10,
-        positive: agg.fn.decl,
-        total: fnTotal,
-        prevalence: 1 - arrowShare,
-        tier: tierOf(1 - arrowShare, fnTotal)
-      });
-    } else {
-      facts.push({
-        area: "функции",
-        statement: L.L11,
-        positive: agg.fn.arrow,
-        total: fnTotal,
-        prevalence: arrowShare,
-        tier: tierOf(arrowShare, fnTotal)
-      });
-    }
-  }
-  const fmr = agg.fmr.filter + agg.fmr.map + agg.fmr.reduce;
-  const iter = fmr + agg.fmr.forLoops;
-  if (iter >= 20) {
-    if (fmr / iter <= 0.05) {
-      facts.push({
-        area: "итерации",
-        statement: L.L12,
-        positive: agg.fmr.forLoops,
-        total: iter,
-        prevalence: 1 - fmr / iter,
-        tier: tierOf(1 - fmr / iter, iter)
-      });
-    } else {
-      facts.push({
-        area: "итерации",
-        statement: L.L13,
-        positive: fmr,
-        total: iter,
-        prevalence: fmr / iter,
-        tier: tierOf(fmr / iter, iter)
-      });
-    }
-  }
-  const namingTotal = agg.naming.camel + agg.naming.snake + agg.naming.plain + agg.naming.pascal;
-  if (namingTotal >= 20) {
-    const camelish = agg.naming.camel + agg.naming.plain;
-    const p = camelish / namingTotal;
-    if (agg.naming.snake > camelish) {
-      facts.push({
-        area: "именование",
-        statement: L.L14,
-        positive: agg.naming.snake,
-        total: namingTotal,
-        prevalence: agg.naming.snake / namingTotal,
-        tier: tierOf(agg.naming.snake / namingTotal, namingTotal)
-      });
-    } else {
-      facts.push({
-        area: "именование",
-        statement: L.L15,
-        positive: camelish,
-        total: namingTotal,
-        prevalence: p,
-        tier: tierOf(p, namingTotal)
-      });
-    }
-  }
-  const hungarianTotal = Object.values(agg.hungarianPrefixes).reduce((s, n) => s + n, 0);
-  if (agg.hungarianBase >= 30) {
-    const share = hungarianTotal / agg.hungarianBase;
-    if (share >= 0.3) {
-      const top = Object.entries(agg.hungarianPrefixes).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([p, n]) => `${p}* (${n})`).join(", ");
-      facts.push({
-        area: "именование",
-        statement: `венгерская нотация — префиксы типа: ${top}`,
-        positive: hungarianTotal,
-        total: agg.hungarianBase,
-        prevalence: share,
-        tier: tierOf(share, agg.hungarianBase)
-      });
-    }
-  }
-  const paramsTotal = agg.params.underscore + agg.params.plain;
-  if (paramsTotal >= 30) {
-    const share = agg.params.underscore / paramsTotal;
-    if (share >= 0.5) {
-      facts.push({
-        area: "параметры",
-        statement: L.L16,
-        positive: agg.params.underscore,
-        total: paramsTotal,
-        prevalence: share,
-        tier: tierOf(share, paramsTotal)
-      });
-    }
-    const destrTotal = paramsTotal + agg.destructuredParams;
-    const destrShare = agg.destructuredParams / destrTotal;
-    if (destrShare <= 0.02 && destrTotal >= 50) {
-      facts.push({
-        area: "параметры",
-        statement: L.L17,
-        positive: destrTotal - agg.destructuredParams,
-        total: destrTotal,
-        prevalence: 1 - destrShare,
-        tier: tierOf(1 - destrShare, destrTotal)
-      });
-    }
-  }
-  pushDominant(facts, "vue", agg.vue, (k) => k === "setup" ? L.L18 : L.L19);
-  for (const axis of AXES) {
-    const c = agg.axes[axis.id];
-    if (!c)
-      continue;
-    const total = c.a + c.b;
-    if (total < axis.min)
-      continue;
-    const positive = Math.max(c.a, c.b);
-    const prevalence = positive / total;
-    facts.push({
-      area: axis.area,
-      statement: c.a >= c.b ? axis.labelA : axis.labelB,
-      positive,
-      total,
-      prevalence,
-      tier: tierOf(prevalence, total)
-    });
-  }
-  return facts;
-}
-
 // src/graph/imports.ts
-import { dirname, join as join5, normalize as normalize2 } from "node:path/posix";
+import { dirname as dirname2, join as join7, normalize as normalize3 } from "node:path/posix";
 var defaults = {
   targets: [],
   indexes: [],
@@ -2500,7 +3168,7 @@ ${spec}`;
   }
   return out;
 }
-var push = (map, key, value) => {
+var push2 = (map, key, value) => {
   const list = map.get(key);
   if (list)
     list.push(value);
@@ -2529,10 +3197,10 @@ function buildImportIndex(files) {
   const dirs = new Set;
   for (const f of files) {
     const ext = extOf(f.rel);
-    push(index.byBase, baseOf(f.rel), { path: f.rel, noExt: ext ? f.rel.slice(0, -ext.length) : f.rel, ext });
+    push2(index.byBase, baseOf(f.rel), { path: f.rel, noExt: ext ? f.rel.slice(0, -ext.length) : f.rel, ext });
     const slash = f.rel.lastIndexOf("/");
     const dir = slash === -1 ? "" : f.rel.slice(0, slash);
-    push(index.dirFiles, dir, f.rel);
+    push2(index.dirFiles, dir, f.rel);
     if (dir) {
       dirs.add(dir);
       index.rootDirs.add(dir.split("/")[0]);
@@ -2541,15 +3209,15 @@ function buildImportIndex(files) {
     if (p && f.content) {
       const ns = p.nsDecl ? f.content.match(p.nsDecl)?.[1] ?? null : null;
       if (ns !== null)
-        push(index.byNs, nsKey(ns), f.rel);
+        push2(index.byNs, nsKey(ns), f.rel);
       if (p.typeDecl) {
         for (const m of f.content.matchAll(p.typeDecl))
-          push(index.byType, m[1], { path: f.rel, ns });
+          push2(index.byType, m[1], { path: f.rel, ns });
       }
     }
   }
   for (const d of dirs)
-    push(index.byDirName, d.slice(d.lastIndexOf("/") + 1), d);
+    push2(index.byDirName, d.slice(d.lastIndexOf("/") + 1), d);
   return index;
 }
 var DIR_SEGS = new Map;
@@ -2568,7 +3236,7 @@ function nearest(fromRel, candidates) {
   if (candidates.length === 1)
     return candidates[0];
   const a = dirSegs(fromRel);
-  let best = null;
+  let best2 = null;
   let bestDist = Infinity;
   let tie = false;
   for (const c of candidates) {
@@ -2579,12 +3247,12 @@ function nearest(fromRel, candidates) {
     const dist = a.length - s + (b.length - s);
     if (dist < bestDist) {
       bestDist = dist;
-      best = c;
+      best2 = c;
       tie = false;
     } else if (dist === bestDist)
       tie = true;
   }
-  return tie ? null : best;
+  return tie ? null : best2;
 }
 var MAX_SAME_NAME = 64;
 var INDEX_BASES = new Map;
@@ -2666,7 +3334,7 @@ var bareAllowed = (segs, rooted) => segs.length >= 2 || rooted;
 function resolvePath(fromRel, spec, p, index) {
   const clean = spec.replace(/^package:/, "").replace(/[?#].*$/, "");
   if (clean.startsWith("./") || clean.startsWith("../")) {
-    const base = normalize2(join5(dirname(fromRel), clean));
+    const base = normalize3(join7(dirname2(fromRel), clean));
     if (base.startsWith(".."))
       return [];
     const hit = matchTail(base, p, index).filter((f) => f === base || f.startsWith(`${base}.`) || f.startsWith(`${base}/`));
@@ -2674,7 +3342,7 @@ function resolvePath(fromRel, spec, p, index) {
     return exact ? [exact] : [];
   }
   const sigil = SIGIL.test(clean);
-  const rest = normalize2(clean.replace(SIGIL, "")).replace(/^(?:\.\.\/)+/, "");
+  const rest = normalize3(clean.replace(SIGIL, "")).replace(/^(?:\.\.\/)+/, "");
   if (!rest || rest === ".")
     return [];
   const segs = rest.split("/").filter((s) => s && s !== ".");
@@ -2719,7 +3387,7 @@ function resolveSymbol(fromRel, spec, p, index) {
     return [];
   if (rel > 0) {
     const up = Array.from({ length: rel - 1 }, () => "..").join("/");
-    const base = normalize2(join5(dirname(fromRel), up, segs.join("/")));
+    const base = normalize3(join7(dirname2(fromRel), up, segs.join("/")));
     if (base.startsWith(".."))
       return [];
     const hit = matchTail(base, p, index).filter((f) => f === base || f.startsWith(`${base}.`) || f.startsWith(`${base}/`));
@@ -2739,7 +3407,7 @@ function resolveSymbol(fromRel, spec, p, index) {
     return [];
   }
   if (p.id === "py") {
-    const sibling = normalize2(join5(dirname(fromRel), segs.join("/")));
+    const sibling = normalize3(join7(dirname2(fromRel), segs.join("/")));
     if (!sibling.startsWith("..")) {
       const hit = matchTail(sibling, p, index).filter((f) => f === sibling || f.startsWith(`${sibling}.`) || f.startsWith(`${sibling}/`));
       const exact = nearest(fromRel, hit);
@@ -2800,7 +3468,7 @@ function resolveSpec(fromRel, spec, index) {
   const p = packOf(fromRel);
   if (!p)
     return [];
-  const key = `${dirname(fromRel)}
+  const key = `${dirname2(fromRel)}
 ${spec.form}
 ${spec.spec}`;
   const memo = index.memo.get(key);
@@ -2947,351 +3615,6 @@ function nodeStats(g) {
     inDeg: inDeg.get(file) ?? 0,
     outDeg: outDeg.get(file) ?? 0
   })).sort((a, b) => b.rank - a.rank);
-}
-
-// src/graph/entities.ts
-init_i18n();
-import { dirname as dirname2, join as join6, normalize as normalize3 } from "node:path/posix";
-var ENTITY_EXT = new Set([".md", ".mdx", ".markdown", ".html", ".htm", ".yaml", ".yml"]);
-var EXTERNAL_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
-var MD_LINK_RE = /(^|[^!])\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
-var MD_DEF_RE = /^\[([^\]^]+)\]:\s+(\S+)/gm;
-var WIKI_LINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g;
-var HREF_RE = /href\s*=\s*["']([^"'#][^"']*)["'][^>]*>([^<]*)/gi;
-var YAML_VALUE_RE = /^[ \t]*(?:-[ \t]+)?(?:([\w.-]+):[ \t]+)?["']?([^"'\n#]+?)["']?[ \t]*$/gm;
-var hasEntityExt = (target) => {
-  const dot = target.lastIndexOf(".");
-  return dot !== -1 && ENTITY_EXT.has(target.slice(dot).toLowerCase());
-};
-var looksPathish = (v) => v.includes("/") || hasEntityExt(v);
-function extractContentLinks(ext, content) {
-  const out = [];
-  const push2 = (anchor, target, explicit) => {
-    const t2 = target.trim();
-    if (t2.length === 0 || t2.startsWith("#"))
-      return;
-    out.push({ anchor: anchor.trim().toLowerCase().replace(/\s+/g, " "), target: t2, explicit });
-  };
-  for (const m of content.matchAll(MD_LINK_RE))
-    push2(m[2], m[3], true);
-  for (const m of content.matchAll(MD_DEF_RE))
-    push2(m[1], m[2], true);
-  for (const m of content.matchAll(WIKI_LINK_RE))
-    push2(m[2] ?? m[1], m[1].trim(), true);
-  for (const m of content.matchAll(HREF_RE))
-    push2(m[2], m[1], true);
-  if (ext === ".yaml" || ext === ".yml") {
-    for (const m of content.matchAll(YAML_VALUE_RE)) {
-      const value = (m[2] ?? "").trim();
-      if (looksPathish(value) && !value.includes(" ") && !value.includes("]("))
-        push2(m[1] ?? "", value, false);
-    }
-  }
-  return out;
-}
-var stripExt = (rel) => {
-  const dot = rel.lastIndexOf(".");
-  const slash = rel.lastIndexOf("/");
-  return dot > slash ? rel.slice(0, dot) : rel;
-};
-function buildResolveIndex(rels) {
-  const byPath = new Map;
-  const noExt = new Map;
-  const add = (key, rel) => {
-    const list = noExt.get(key);
-    if (list)
-      list.push(rel);
-    else
-      noExt.set(key, [rel]);
-  };
-  for (const rel of rels) {
-    byPath.set(rel.toLowerCase(), rel);
-    const bare = stripExt(rel).toLowerCase();
-    add(bare, rel);
-    if (bare.endsWith("/index"))
-      add(bare.slice(0, -"/index".length), rel);
-  }
-  return { byPath, noExt };
-}
-function suffixMatch(index, key) {
-  const exact = index.noExt.get(key);
-  if (exact)
-    return best(exact);
-  const candidates = [];
-  for (const [k, rels] of index.noExt) {
-    if (k.endsWith("/" + key))
-      candidates.push(...rels);
-  }
-  return candidates.length > 0 ? best(candidates) : null;
-}
-var best = (rels) => [...rels].sort((a, b) => a.length - b.length || (a < b ? -1 : 1))[0];
-function resolveContentTarget(fromRel, rawTarget, index) {
-  if (EXTERNAL_RE.test(rawTarget))
-    return { kind: "external" };
-  let t2 = rawTarget.split("#")[0].split("?")[0].trim().replaceAll("\\", "/");
-  if (t2.endsWith("/"))
-    t2 = t2.slice(0, -1);
-  if (t2.length === 0)
-    return { kind: "external" };
-  const lower = t2.toLowerCase();
-  const tryKeys = (base) => {
-    const direct = index.byPath.get(base);
-    if (direct)
-      return direct;
-    const bare = index.noExt.get(hasEntityExt(base) ? stripExt(base) : base);
-    return bare ? best(bare) : null;
-  };
-  if (lower.startsWith("/")) {
-    const hit = tryKeys(lower.slice(1)) ?? suffixMatch(index, hasEntityExt(lower) ? stripExt(lower.slice(1)) : lower.slice(1));
-    if (hit)
-      return { kind: "entity", rel: hit };
-    return hasEntityExt(lower) ? { kind: "broken" } : { kind: "unresolved" };
-  }
-  const joined = normalize3(join6(dirname2(fromRel.toLowerCase()), lower));
-  if (!joined.startsWith("..")) {
-    const hit = tryKeys(joined);
-    if (hit)
-      return { kind: "entity", rel: hit };
-  }
-  const slug = suffixMatch(index, hasEntityExt(lower) ? stripExt(lower) : lower);
-  if (slug)
-    return { kind: "entity", rel: slug };
-  return hasEntityExt(lower) ? { kind: "broken" } : { kind: "unresolved" };
-}
-var kindOf = (ext) => ext === ".yaml" || ext === ".yml" ? "yaml" : ext === ".html" || ext === ".htm" ? "html" : "md";
-var HUB_MIN_OUT = 5;
-var HUB_NAMES = new Set(["index", "readme", "home"]);
-function buildEntityGraph(files) {
-  const rels = files.map((f) => f.rel);
-  const index = buildResolveIndex(rels);
-  const edges = [];
-  const edgeSeen = new Set;
-  const broken = [];
-  const brokenSeen = new Set;
-  let unresolved = 0;
-  const anchorTargets = new Map;
-  for (const f of files) {
-    for (const link of extractContentLinks(f.ext, f.content)) {
-      const res = resolveContentTarget(f.rel, link.target, index);
-      if (res.kind === "external")
-        continue;
-      if (res.kind === "unresolved") {
-        unresolved++;
-        continue;
-      }
-      if (res.kind === "broken") {
-        if (!link.explicit)
-          continue;
-        const key2 = `${f.rel}|${link.target}`;
-        if (!brokenSeen.has(key2)) {
-          brokenSeen.add(key2);
-          broken.push({ from: f.rel, target: link.target });
-        }
-        continue;
-      }
-      if (res.rel === f.rel)
-        continue;
-      const key = `${f.rel}|${res.rel}|${link.anchor}`;
-      if (edgeSeen.has(key))
-        continue;
-      edgeSeen.add(key);
-      edges.push({ from: f.rel, to: res.rel, anchor: link.anchor });
-      if (link.anchor.length > 0) {
-        const set = anchorTargets.get(link.anchor) ?? new Set;
-        set.add(res.rel);
-        anchorTargets.set(link.anchor, set);
-      }
-    }
-  }
-  const inSets = new Map;
-  const outSets = new Map;
-  for (const e of edges) {
-    let out = outSets.get(e.from);
-    if (!out) {
-      out = new Set;
-      outSets.set(e.from, out);
-    }
-    out.add(e.to);
-    let into = inSets.get(e.to);
-    if (!into) {
-      into = new Set;
-      inSets.set(e.to, into);
-    }
-    into.add(e.from);
-  }
-  const hubs = rels.filter((rel) => {
-    const out = outSets.get(rel)?.size ?? 0;
-    const base = stripExt(rel).split("/").pop() ?? "";
-    return out >= HUB_MIN_OUT || HUB_NAMES.has(base.toLowerCase()) && out > 0;
-  });
-  const depth = new Map;
-  let frontier = hubs;
-  for (const h of hubs)
-    depth.set(h, 0);
-  let d = 0;
-  while (frontier.length > 0) {
-    d++;
-    const next = [];
-    for (const node of frontier) {
-      for (const to of outSets.get(node) ?? []) {
-        if (depth.has(to))
-          continue;
-        depth.set(to, d);
-        next.push(to);
-      }
-    }
-    frontier = next;
-  }
-  const nodes = files.map((f) => ({
-    file: f.rel,
-    kind: kindOf(f.ext),
-    inDeg: inSets.get(f.rel)?.size ?? 0,
-    outDeg: outSets.get(f.rel)?.size ?? 0,
-    depth: depth.get(f.rel) ?? null,
-    isHub: false
-  })).sort((a, b) => b.inDeg - a.inDeg || (a.file < b.file ? -1 : 1));
-  const hubSet = new Set(hubs);
-  for (const n of nodes)
-    n.isHub = hubSet.has(n.file);
-  const orphans = nodes.filter((n) => n.inDeg === 0 && !n.isHub).map((n) => n.file);
-  const orphanSet = new Set(orphans);
-  const unreachable = hubs.length === 0 ? [] : nodes.filter((n) => n.depth === null && !orphanSet.has(n.file)).map((n) => n.file);
-  const dupAnchors = [...anchorTargets.entries()].filter((pair2) => pair2[1].size >= 2).map((pair2) => ({ anchor: pair2[0], targets: [...pair2[1]].sort() })).sort((a, b) => b.targets.length - a.targets.length);
-  return { nodes, edges, broken, unresolved, hubs, unreachable, orphans, dupAnchors };
-}
-function renderEntityBlock(g) {
-  if (g.nodes.length < 5 || g.edges.length < 3)
-    return "";
-  const lines = [
-    t("## Контент-граф (сущности и перелинковка; детали: passport_orphans / passport_reach)", "## Content graph (entities and interlinking; details: passport_orphans / passport_reach)"),
-    "",
-    `- ${t("сущностей", "entities")}: ${g.nodes.length} · ${t("перелинковок", "links")}: ${g.edges.length} · ${t("хабов", "hubs")}: ${g.hubs.length}`
-  ];
-  const issues = [];
-  if (g.orphans.length > 0)
-    issues.push(`${t("сироты (0 входящих)", "orphans (0 inbound)")}: ${g.orphans.length}`);
-  if (g.unreachable.length > 0)
-    issues.push(`${t("недостижимы из хабов", "unreachable from hubs")}: ${g.unreachable.length}`);
-  if (g.broken.length > 0)
-    issues.push(`${t("битые внутренние ссылки", "broken internal links")}: ${g.broken.length}`);
-  if (g.dupAnchors.length > 0)
-    issues.push(`${t("анкоры на разные цели", "anchors pointing to different targets")}: ${g.dupAnchors.length}`);
-  if (issues.length > 0)
-    lines.push(`- ⚠ ${issues.join(" · ")}`);
-  lines.push("");
-  return lines.join(`
-`);
-}
-
-// src/passport/profile.ts
-init_signals();
-init_i18n();
-import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
-import { join as join7 } from "node:path";
-var evidenceEn = (ru) => ru === "заявлено в доках" ? "declared in the docs" : ru.startsWith("тестовых файлов: ") ? `test files: ${ru.slice("тестовых файлов: ".length)}` : ru;
-var evidenceListEn = (ru, sep) => ru.split(sep).map(evidenceEn).join(sep);
-pattern(/^безопасность — защитные слои: (.+) \(их ослабление — не рядовая правка\)$/, (m) => `security — protective layers: ${m[1]} (weakening them is not an ordinary change)`);
-pattern(/^безопасность — явных защитных слоёв не обнаружено \(появятся — станут неприкосновенными\)$/, () => "security — no explicit protective layers found (once they appear, they become inviolable)");
-pattern(/^(.+) — заявлена в доках, в коде проекта не обнаружена$/, (m) => `${axisName(m[1])} — declared in the docs, not found in the project's code`);
-pattern(/^(.+) — ось качества здесь \((.+)\)$/, (m) => `${axisName(m[1])} — a quality axis here (${evidenceListEn(m[2], "; ")})`);
-var DETECTORS = [
-  { axis: "корректность", signal: "testing" },
-  { axis: "производительность", signal: "performance" },
-  { axis: "SEO", signal: "seo" },
-  { axis: "целостность данных", signal: "db" },
-  { axis: "поставляемость", signal: "deploy" },
-  { axis: "наблюдаемость", signal: "observability" },
-  { axis: "доступность", signal: "a11y" },
-  { axis: "совместимость", signal: "compat" },
-  { axis: "приватность", signal: "privacy" }
-];
-var README_LIMIT = 40000;
-function readConceptText(root, relPaths) {
-  const parts = [];
-  for (const name of ["README.md", "readme.md", "README.rst", "CONCEPT.md", "AGENTS.md", "CLAUDE.md"]) {
-    try {
-      parts.push(readFileSync5(join7(root, name), "utf8").slice(0, README_LIMIT));
-    } catch {}
-  }
-  const docFiles = relPaths.filter((p) => /^(docs|\.docs|doc)\//i.test(p) && p.endsWith(".md")).slice(0, 12);
-  for (const rel of docFiles) {
-    try {
-      parts.push(readFileSync5(join7(root, rel), "utf8").slice(0, 8000));
-    } catch {}
-  }
-  return parts.join(`
-`);
-}
-function readPackageSignals(root) {
-  const { all } = readManifestDeps(root);
-  let scripts = "";
-  try {
-    const pkg = JSON.parse(readFileSync5(join7(root, "package.json"), "utf8"));
-    scripts = Object.values(pkg.scripts ?? {}).join(" ");
-  } catch {}
-  return { deps: all, scripts };
-}
-function probeProfile(root, relPaths) {
-  const { deps } = readPackageSignals(root);
-  const docsText = readConceptText(root, relPaths);
-  if (relPaths.length === 0 && deps.length === 0 && docsText.trim().length === 0)
-    return [];
-  const probes = [];
-  const ciPresent = [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].filter((p) => existsSync3(join7(root, p)));
-  for (const d of DETECTORS) {
-    const sig = SIGNALS[d.signal];
-    const evidence = [];
-    if (sig.paths) {
-      const hits = relPaths.filter((p) => sig.paths.test(p));
-      if (hits.length > 0) {
-        evidence.push(d.axis === "корректность" ? `тестовых файлов: ${hits.length}` : hits.slice(0, 2).join(", "));
-      }
-    }
-    if (d.axis === "поставляемость" && ciPresent.length > 0)
-      evidence.push(ciPresent.join(", "));
-    if (d.axis === "корректность" && ciPresent.length > 0 && evidence.length > 0)
-      evidence.push("CI");
-    if (sig.deps) {
-      const hits = deps.filter((x) => sig.deps.test(x)).slice(0, 3);
-      if (hits.length > 0)
-        evidence.push(hits.join(", "));
-    }
-    if (sig.docs && sig.docs.test(docsText))
-      evidence.push("заявлено в доках");
-    if (evidence.length > 0)
-      probes.push({ axis: d.axis, evidence });
-  }
-  const sec = SIGNALS.security;
-  const layers = [
-    ...deps.filter((x) => sec.deps.test(x)).slice(0, 4),
-    ...relPaths.filter((p) => sec.paths.test(p)).slice(0, 3)
-  ];
-  probes.push({ axis: "безопасность", evidence: layers });
-  return probes;
-}
-function profileFacts(probes) {
-  return probes.map((p) => {
-    const n = p.evidence.length;
-    if (p.axis === "безопасность") {
-      return {
-        area: "профиль качества",
-        statement: n > 0 ? `безопасность — защитные слои: ${p.evidence.join(", ")} (их ослабление — не рядовая правка)` : "безопасность — явных защитных слоёв не обнаружено (появятся — станут неприкосновенными)",
-        positive: Math.max(n, 1),
-        total: Math.max(n, 1),
-        prevalence: 1,
-        tier: n > 0 ? "привычка" : "гипотеза"
-      };
-    }
-    const onlyDocs = p.evidence.length === 1 && p.evidence[0] === "заявлено в доках";
-    return {
-      area: "профиль качества",
-      statement: onlyDocs ? `${p.axis} — заявлена в доках, в коде проекта не обнаружена` : `${p.axis} — ось качества здесь (${p.evidence.join("; ")})`,
-      positive: n,
-      total: n,
-      prevalence: 1,
-      tier: n >= 2 ? "привычка" : "гипотеза"
-    };
-  });
 }
 
 // src/passport/build.ts
@@ -4008,164 +4331,6 @@ function renderStack(s) {
 `);
 }
 
-// src/passport/maturity.ts
-init_i18n();
-var clamp01 = (x) => Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0;
-function binaryEntropy(p) {
-  if (p <= 0 || p >= 1)
-    return 0;
-  return -(p * Math.log2(p) + (1 - p) * Math.log2(1 - p));
-}
-function canonCertainty(prevalences) {
-  if (prevalences.length === 0)
-    return 0;
-  const mean = prevalences.reduce((s, p) => s + binaryEntropy(clamp01(p)), 0) / prevalences.length;
-  return clamp01(1 - mean);
-}
-var MASS_HALF_FILES = 40;
-var MASS_HALF_COMMITS = 60;
-function massScore(codeFiles2, commits) {
-  const f = Math.max(0, codeFiles2) / (Math.max(0, codeFiles2) + MASS_HALF_FILES);
-  const c = Math.max(0, commits) / (Math.max(0, commits) + MASS_HALF_COMMITS);
-  return clamp01((clamp01(f) + clamp01(c)) / 2);
-}
-function verifiabilityScore(codeFiles2, testFiles, hasCi) {
-  if (codeFiles2 === 0)
-    return 0;
-  const ratio = clamp01(testFiles / (codeFiles2 / 3));
-  return clamp01(ratio * 0.8 + (hasCi ? 0.2 : 0));
-}
-function contentIntegrityScore(c) {
-  if (c.entities === 0)
-    return 0;
-  const brokenShare = clamp01(c.broken / c.entities);
-  const orphanShare = clamp01(c.orphans / c.entities);
-  return clamp01(1 - brokenShare * 1.5 - orphanShare * 0.5);
-}
-function stabilityScore(commits, fixCommits, reverts) {
-  if (commits === 0)
-    return 0;
-  const fixShare = clamp01(fixCommits / commits);
-  const revertPenalty = clamp01(reverts / Math.max(commits, 1)) * 2;
-  return clamp01(1 - fixShare - revertPenalty);
-}
-function harmonicMean(values) {
-  if (values.length === 0)
-    return 0;
-  const floored = values.map((v) => Math.max(v, 0.02));
-  const sumInverse = floored.reduce((s, v) => s + 1 / v, 0);
-  return clamp01(floored.length / sumInverse);
-}
-function levelOf(score) {
-  if (score >= 0.62)
-    return "зрелый";
-  if (score >= 0.3)
-    return "растущий";
-  return "молодой";
-}
-function verifiabilityDimension(input) {
-  const nature = input.nature ?? (input.codeFiles > 0 ? "код" : "контент");
-  if (nature === "контент" && input.content && input.content.entities > 0) {
-    const c = input.content;
-    return {
-      name: "целостность контента",
-      value: contentIntegrityScore(c),
-      known: true,
-      detail: t(`${c.entities} сущностей, битых ссылок ${c.broken}, сирот ${c.orphans}`, `${c.entities} entities, ${c.broken} broken links, ${c.orphans} orphans`)
-    };
-  }
-  return {
-    name: "проверяемость",
-    value: verifiabilityScore(input.codeFiles, input.testFiles, input.hasCi),
-    known: input.codeFiles > 0,
-    detail: t(`${input.testFiles} тестов${input.hasCi ? ", CI настроен" : ", CI не найден"}`, `${input.testFiles} test files${input.hasCi ? ", CI configured" : ", no CI found"}`)
-  };
-}
-function assessMaturity(input) {
-  const empty = input.codeFiles === 0 && input.commits === 0;
-  const dimensions = [
-    {
-      name: "определённость канона",
-      value: canonCertainty(input.prevalences),
-      known: input.prevalences.length > 0,
-      detail: input.prevalences.length === 0 ? t("конвенций пока не выведено", "no conventions derived yet") : t(`${input.prevalences.length} конвенций, средняя неопределённость ${(1 - canonCertainty(input.prevalences)).toFixed(2)} бит`, `${input.prevalences.length} conventions, average uncertainty ${(1 - canonCertainty(input.prevalences)).toFixed(2)} bits`)
-    },
-    {
-      name: "масса",
-      value: massScore(input.codeFiles, input.commits),
-      known: true,
-      detail: t(`${input.codeFiles} файлов кода, ${input.commits} коммитов`, `${input.codeFiles} code files, ${input.commits} commits`)
-    },
-    verifiabilityDimension(input),
-    {
-      name: "стабильность",
-      value: stabilityScore(input.commits, input.fixCommits, input.reverts),
-      known: input.commits > 0,
-      detail: input.commits === 0 ? t("истории ещё нет", "no history yet") : t(`починок ${input.fixCommits} из ${input.commits}${input.reverts > 0 ? `, откатов ${input.reverts}` : ""}`, `${input.fixCommits} fixes out of ${input.commits}${input.reverts > 0 ? `, ${input.reverts} reverts` : ""}`)
-    }
-  ];
-  const measured = dimensions.filter((d) => d.known);
-  const score = empty || measured.length === 0 ? 0 : harmonicMean(measured.map((d) => d.value));
-  const weakest = measured.length === 0 ? null : measured.reduce((a, b) => b.value < a.value ? b : a);
-  return { score, level: levelOf(score), dimensions, weakest, empty };
-}
-function maturityStance(level) {
-  if (level === "зрелый") {
-    return [
-      t("канон проекта сложился: типовая работа делается по прецеденту, а не изобретается заново", "the canon here is settled: routine work follows precedent instead of being reinvented"),
-      t("отклонение от конвенции здесь — осознанное решение, которое стоит назвать вслух", "departing from a convention here is a deliberate decision worth saying out loud"),
-      t("ограничение: массовые переделки работающего кода не входят в задачу", "constraint: sweeping rewrites of working code are out of scope")
-    ];
-  }
-  if (level === "растущий") {
-    return [
-      t("канон ещё складывается: удачное решение стоит закреплять, повторяя его", "the canon is still forming: a good decision is worth cementing by repeating it"),
-      t("противоречие с уже принятым решением — повод выбрать одно, а не держать оба", "a contradiction with an earlier decision is a reason to pick one, not to keep both"),
-      t("ограничение: единообразие важнее локальной элегантности", "constraint: consistency outweighs local elegance")
-    ];
-  }
-  return [
-    t("канона ещё нет: решения принимаются впервые и станут прецедентом для всего проекта", "there is no canon yet: decisions are being made for the first time and will become precedent"),
-    t("планка задаётся сразу — структура, обработка ошибок, границы модулей и проверяемость закладываются с первой строки, а не «потом»", "the bar is set now — structure, error handling, module boundaries and testability start with the first line, not “later”"),
-    t("подражать текущему коду нечему: несколько файлов — это случайность, а не конвенция", "there is nothing to imitate yet: a handful of files is an accident, not a convention"),
-    t("ограничение: сложность вводится только под названную задачу, архитектура «на вырост» без потребности запрещена", "constraint: complexity only for a named task; architecture “for future growth” without a need is out")
-  ];
-}
-function maturityFact(m) {
-  const dims = m.dimensions.filter((d) => d.known).map((d) => `${d.name} ${d.value.toFixed(2)}`).join(", ");
-  return {
-    area: "зрелость проекта",
-    statement: `зрелость проекта — ${m.score.toFixed(2)} (${m.level}): ${dims}`,
-    positive: 1,
-    total: 1,
-    prevalence: 1,
-    tier: "привычка"
-  };
-}
-var dimName = (ru) => t(ru, { "определённость канона": "canon certainty", масса: "mass", проверяемость: "testability", стабильность: "stability" }[ru] ?? ru);
-var levelName = (ru) => t(ru, { зрелый: "mature", растущий: "growing", молодой: "young", "только начат": "just started" }[ru] ?? ru);
-pattern(/^зрелость проекта — ([\d.]+) \((.+?)\): (.+)$/, (m) => {
-  const dims = m[3].split(", ").map((part) => {
-    const cut = part.lastIndexOf(" ");
-    return cut > 0 ? `${dimName(part.slice(0, cut))} ${part.slice(cut + 1)}` : part;
-  }).join(", ");
-  return `project maturity — ${m[1]} (${levelName(m[2])}): ${dims}`;
-});
-function renderMaturity(m) {
-  if (m.empty)
-    return "";
-  const dims = m.dimensions.map((d) => d.known ? `${dimName(d.name)} ${d.value.toFixed(2)}` : `${dimName(d.name)}${t(" — нет данных", " — no data")}`).join(" · ");
-  const lines = [t(`## Зрелость проекта: ${m.score.toFixed(2)} из 1 — ${m.level}`, `## Project maturity: ${m.score.toFixed(2)} of 1 — ${levelName(m.level)}`), "", t(`- измерения: ${dims}`, `- dimensions: ${dims}`)];
-  if (m.weakest && m.weakest.value < 0.5) {
-    lines.push(t(`- слабее всего: ${m.weakest.name} (${m.weakest.value.toFixed(2)}) — ${m.weakest.detail}`, `- weakest: ${dimName(m.weakest.name)} (${m.weakest.value.toFixed(2)}) — ${m.weakest.detail}`));
-  }
-  lines.push("");
-  for (const s of maturityStance(m.level))
-    lines.push(`- ${s}`);
-  return lines.join(`
-`);
-}
-
 // src/layer2/prompt.ts
 function jsonOnly(shape) {
   const array = shape.trimStart().startsWith("[");
@@ -4531,173 +4696,6 @@ function readFrame(dataDir) {
 
 // src/passport/build.ts
 init_i18n();
-
-// src/layer1/facts1.ts
-init_i18n();
-var push2 = (facts, area2, statement2, positive, total) => {
-  const prevalence = total > 0 ? positive / total : 0;
-  facts.push({ area: area2, statement: statement2, positive, total, prevalence, tier: tierOf(prevalence, total) });
-};
-var L2 = {
-  L0: pair("пустые catch-блоки — не встречаются (ошибка всегда обрабатывается)", "empty catch blocks — never (errors are always handled)"),
-  L1: pair("пустые catch-блоки — обычное дело (осознанное глушение)", "empty catch blocks — common (deliberate silencing)"),
-  L2: pair("ошибки из catch — возвращаются значением, не пробрасываются", "errors from catch — returned as a value, not rethrown"),
-  L3: pair("ошибки из catch — пробрасываются дальше (re-throw)", "errors from catch — rethrown further"),
-  L4: pair("исключения — ловятся, но свои не бросаются (throw почти не встречается)", "exceptions — caught but not raised (throw is rare)"),
-  L5: pair("async-функции — преобладают", "async functions — predominant"),
-  L6: pair("async-функции — почти не используются", "async functions — barely used"),
-  L7: pair("классы — не используются (функции и модули)", "classes — not used (functions and modules)"),
-  L8: pair("классы — основной строительный блок", "classes — the main building block")
-};
-function deriveAstFacts(m) {
-  const facts = [];
-  if (m.catchCount >= 10) {
-    const nonEmpty = m.catchCount - m.emptyCatch;
-    if (m.emptyCatch / m.catchCount <= 0.05) {
-      push2(facts, "обработка ошибок", L2.L0, nonEmpty, m.catchCount);
-    } else if (m.emptyCatch / m.catchCount >= 0.3) {
-      push2(facts, "обработка ошибок", L2.L1, m.emptyCatch, m.catchCount);
-    }
-    if (m.catchWithReturn / m.catchCount >= 0.7) {
-      push2(facts, "обработка ошибок", L2.L2, m.catchWithReturn, m.catchCount);
-    } else if (m.catchWithRethrow / m.catchCount >= 0.7) {
-      push2(facts, "обработка ошибок", L2.L3, m.catchWithRethrow, m.catchCount);
-    }
-  }
-  if (m.tryCount >= 10 && m.throwCount <= m.tryCount * 0.05) {
-    push2(facts, "обработка ошибок", L2.L4, m.tryCount, m.tryCount + m.throwCount);
-  }
-  if (m.fnTotal >= 20) {
-    const asyncShare = m.fnAsync / m.fnTotal;
-    if (asyncShare >= 0.5) {
-      push2(facts, "функции", L2.L5, m.fnAsync, m.fnTotal);
-    } else if (asyncShare <= 0.05 && m.fnAsync >= 0) {
-      push2(facts, "функции", L2.L6, m.fnTotal - m.fnAsync, m.fnTotal);
-    }
-    if (m.classCount === 0) {
-      push2(facts, "архитектура", L2.L7, m.fnTotal, m.fnTotal);
-    } else if (m.classCount >= m.fnTotal * 0.15) {
-      push2(facts, "архитектура", L2.L8, m.classCount, m.classCount + m.fnTotal);
-    }
-  }
-  return facts;
-}
-
-// src/verifiers/content.ts
-init_i18n();
-var V = {
-  ALPHABET: pair("чистота алфавита (кир/лат микс в слове)", "alphabet purity (Cyrillic/Latin mix inside a word)"),
-  BROKEN: pair("битая внутренняя ссылка", "broken internal link"),
-  ANCHOR_DUP: pair("один анкор на разные цели", "one anchor pointing to different targets"),
-  EMPTY_ANCHOR: pair("ссылка без текста (a11y/SEO)", "link without text (a11y/SEO)")
-};
-function makeResolver(entityRels) {
-  const index = buildResolveIndex(entityRels);
-  return (fromRel, target) => resolveContentTarget(fromRel, target, index);
-}
-function contentVerifierActive(ext) {
-  return ENTITY_EXT.has(ext.toLowerCase());
-}
-function loadEntityResolver(db) {
-  try {
-    const has = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='entity_nodes'").get().n > 0;
-    if (!has)
-      return;
-    const rels = db.query("SELECT file FROM entity_nodes").all().map((r) => r.file);
-    return rels.length > 0 ? makeResolver(rels) : undefined;
-  } catch {
-    return;
-  }
-}
-var CYRILLIC = /[Ѐ-ӿ]/;
-var LATIN = /[A-Za-z]/;
-var WORD_RE = /[A-Za-zЀ-ӿ][A-Za-zЀ-ӿ\d]*/g;
-function stripNonProse(text) {
-  return text.replace(/```[\s\S]*?```/g, " ").replace(/`[^`]*`/g, " ").replace(/https?:\/\/\S+/gi, " ").replace(/\b[\w.-]+\/[\w./-]+/g, " ");
-}
-function mixedScriptTokens(text) {
-  const out = [];
-  const seen = new Set;
-  for (const m of stripNonProse(text).matchAll(WORD_RE)) {
-    const tok = m[0];
-    if (CYRILLIC.test(tok) && LATIN.test(tok) && !seen.has(tok)) {
-      seen.add(tok);
-      out.push(tok);
-    }
-  }
-  return out;
-}
-var MAX_EXAMPLES = 5;
-function checkAlphabetPurity(content) {
-  const bad = mixedScriptTokens(content);
-  if (bad.length === 0)
-    return [];
-  const examples = bad.slice(0, MAX_EXAMPLES).map((t2) => `«${t2}»`).join(", ");
-  return [
-    {
-      verifier: V.ALPHABET,
-      detail: `${bad.length} слов со смешением алфавитов: ${examples}${bad.length > MAX_EXAMPLES ? " …" : ""}`
-    }
-  ];
-}
-function checkContentLinks(rel, content, ext, resolve) {
-  const links = extractContentLinks(ext, content);
-  const broken = [];
-  const emptyAnchors = [];
-  const anchorTargets = new Map;
-  for (const link of links) {
-    if (!link.explicit)
-      continue;
-    if (link.anchor.length === 0) {
-      if (emptyAnchors.length < MAX_EXAMPLES)
-        emptyAnchors.push(link.target);
-      continue;
-    }
-    if (resolve) {
-      const res = resolve(rel, link.target);
-      if (res.kind === "broken") {
-        broken.push(link.target);
-        continue;
-      }
-      if (res.kind === "entity") {
-        const set = anchorTargets.get(link.anchor) ?? new Set;
-        set.add(res.rel);
-        anchorTargets.set(link.anchor, set);
-      }
-    }
-  }
-  const out = [];
-  if (broken.length > 0) {
-    out.push({
-      verifier: V.BROKEN,
-      detail: `${broken.length}: ${broken.slice(0, MAX_EXAMPLES).map((t2) => `→ ${t2}`).join(", ")}${broken.length > MAX_EXAMPLES ? " …" : ""}`
-    });
-  }
-  const dup = [...anchorTargets.entries()].filter((entry) => entry[1].size >= 2);
-  if (dup.length > 0) {
-    out.push({
-      verifier: V.ANCHOR_DUP,
-      detail: dup.slice(0, MAX_EXAMPLES).map((entry) => `«${entry[0]}» → ${entry[1].size} ${t("целей", "targets")}`).join(", ")
-    });
-  }
-  if (emptyAnchors.length > 0) {
-    out.push({
-      verifier: V.EMPTY_ANCHOR,
-      detail: `${emptyAnchors.length}: ${emptyAnchors.map((t2) => `→ ${t2}`).join(", ")}`
-    });
-  }
-  return out;
-}
-function runContentVerifiers(rel, content, ext, ctx = {}) {
-  if (!contentVerifierActive(ext))
-    return [];
-  return [...checkAlphabetPurity(content), ...checkContentLinks(rel, content, ext, ctx.resolve)];
-}
-
-// src/core/statements.ts
-init_constitution_derive();
-
-// src/passport/build.ts
 var tierSections = () => [
   ["закон", t("Законы стиля (в этом репозитории соблюдаются практически всегда)", "Style laws (in this repository they hold almost always)")],
   ["привычка", t("Преобладающий стиль (возможны легитимные исключения)", "Prevailing style (legitimate exceptions possible)")]
@@ -4775,7 +4773,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-88f7d20f0393";
+    return "bundle-a112e53765c8";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5572,6 +5570,47 @@ init_i18n();
 function tableExists2(db, name) {
   return db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?").get(name).n > 0;
 }
+var PRECEDENT_MIN_OVERLAP = 2;
+var PRECEDENT_LOOKBACK = 40;
+function findPrecedent(db, work, lastThread, nowMs) {
+  try {
+    if (!tableExists2(db, "session_threads"))
+      return "";
+    const cols = db.query("PRAGMA table_info(session_threads)").all().map((c) => c.name);
+    if (!cols.includes("commits"))
+      return "";
+    const rows = db.query("SELECT files, commits, updated_at FROM session_threads ORDER BY updated_at DESC LIMIT ?").all(PRECEDENT_LOOKBACK);
+    const workSet = new Set(work);
+    const lastKey = JSON.stringify(lastThread);
+    let best2 = null;
+    for (const r of rows) {
+      let files;
+      let commits;
+      try {
+        files = JSON.parse(r.files);
+        commits = JSON.parse(r.commits);
+      } catch {
+        continue;
+      }
+      if (JSON.stringify(files) === lastKey)
+        continue;
+      const overlap = files.filter((f) => workSet.has(f)).length;
+      if (overlap < PRECEDENT_MIN_OVERLAP)
+        continue;
+      if (best2 === null || overlap > best2.overlap) {
+        best2 = { files, commits, ageDays: Math.max(0, Math.round((nowMs - Date.parse(r.updated_at)) / 86400000)), overlap };
+      }
+    }
+    if (best2 === null)
+      return "";
+    const shownFiles = best2.files.slice(0, 5).join(", ") + (best2.files.length > 5 ? ", …" : "");
+    const outcome = best2.commits.length > 0 ? ` → "${best2.commits[best2.commits.length - 1].replace(/`/g, "'").slice(0, 90)}"` : "";
+    const age = best2.ageDays < 1 ? t("сегодня", "today") : t(`${best2.ageDays}д назад`, `${best2.ageDays}d ago`);
+    return t(`- похожая работа уже делалась (${age}): затронула ${shownFiles}${outcome} — рецепт, с которым стоит свериться`, `- similar work was already done (${age}): it touched ${shownFiles}${outcome} — a recipe worth checking against`);
+  } catch {
+    return "";
+  }
+}
 function reconstructEntry(db, thread, dirty, nowMs) {
   try {
     if (!tableExists2(db, "graph_nodes") || !tableExists2(db, "graph_edges"))
@@ -5597,6 +5636,9 @@ function reconstructEntry(db, thread, dirty, nowMs) {
     if (related.length > 0) {
       lines.push(t(`- рядом по связям проекта (не названо, но связано): ${related.join(", ")}`, `- nearby through the project's links (not named, but connected): ${related.join(", ")}`));
     }
+    const precedent = findPrecedent(db, work, thread, nowMs);
+    if (precedent)
+      lines.push(precedent);
     lines.push(t("- «продолжи» ложи на это состояние, а не на букву промпта: восстанови намерение, сверь с git-диффом и нитью, затем действуй", '- read "carry on" against this state, not against the letter of the prompt: reconstruct the intent, check it against the git diff and the thread, then act'));
     return lines.join(`
 `);

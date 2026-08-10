@@ -54,6 +54,31 @@ describe('reconstructEntry — протокол самостарта', () => {
     db.close()
   })
 
+  it('прецедент: прошлая сессия с той же зоной работы всплывает рецептом', () => {
+    const db = graphDb()
+    db.run("CREATE TABLE session_threads(session_id TEXT PRIMARY KEY, files TEXT NOT NULL, updated_at TEXT NOT NULL, commits TEXT NOT NULL DEFAULT '[]')")
+    const ins = db.query('INSERT INTO session_threads(session_id, files, commits, updated_at) VALUES(?,?,?,?)')
+    // Давняя сессия с пересечением ≥2 файлов и итоговым коммитом — прецедент
+    ins.run('old', JSON.stringify(['app.js', 'service.js', 'core.js']), JSON.stringify(['feat: rewire the service layer']), '2026-07-20T10:00:00Z')
+    const block = reconstructEntry(db, ['app.js', 'service.js'], [], NOW)
+    expect(block).toContain('похожая работа уже делалась')
+    expect(block).toContain('rewire the service layer')
+    db.close()
+  })
+
+  it('прецедент не дублирует показанную нить и не срабатывает на 1 общем файле', () => {
+    const db = graphDb()
+    db.run("CREATE TABLE session_threads(session_id TEXT PRIMARY KEY, files TEXT NOT NULL, updated_at TEXT NOT NULL, commits TEXT NOT NULL DEFAULT '[]')")
+    const ins = db.query('INSERT INTO session_threads(session_id, files, commits, updated_at) VALUES(?,?,?,?)')
+    // Ровно та нить, что уже показана строкой нити, — не прецедент
+    ins.run('last', JSON.stringify(['app.js', 'service.js']), JSON.stringify(['feat: shown already']), '2026-07-29T10:00:00Z')
+    // Пересечение в один файл — совпадение, не рецепт
+    ins.run('weak', JSON.stringify(['app.js', 'other.js']), JSON.stringify(['chore: unrelated']), '2026-07-28T10:00:00Z')
+    const block = reconstructEntry(db, ['app.js', 'service.js'], [], NOW)
+    expect(block).not.toContain('похожая работа')
+    db.close()
+  })
+
   it('нет сигнала непрерывности → пусто (молчание)', () => {
     const db = graphDb()
     expect(reconstructEntry(db, [], [], NOW)).toBe('')

@@ -17,6 +17,61 @@ function tableExists(db: Database, name: string): boolean {
   return (db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?").get(name) as { n: number }).n > 0
 }
 
+/** Минимум общих файлов, чтобы прошлая сессия считалась прецедентом текущей работы: один общий файл — совпадение, не рецепт. */
+const PRECEDENT_MIN_OVERLAP = 2
+/** Сколько прошлых нитей просматривается: дальше по времени рецепт устаревает быстрее, чем находится. */
+const PRECEDENT_LOOKBACK = 40
+
+/**
+ * Прецедент похожей работы — процедурная память без LLM: если сид текущей
+ * работы заметно пересекается с нитью ПРОШЛОЙ сессии (не последней — та уже
+ * показана строкой нити), её файловый рецепт и итоговый коммит дешевле
+ * поднять из журнала, чем переоткрывать разведкой. Совпадение — по файлам
+ * (≥PRECEDENT_MIN_OVERLAP общих), при равенстве побеждает более свежая.
+ * Коммиты — untrusted-текст: бэктики вычищаются, длина ограничена.
+ */
+export function findPrecedent(db: Database, work: string[], lastThread: string[], nowMs: number): string {
+  try {
+    if (!tableExists(db, 'session_threads')) return ''
+    const cols = (db.query('PRAGMA table_info(session_threads)').all() as Array<{ name: string }>).map((c) => c.name)
+    if (!cols.includes('commits')) return '' // старой схеме нечем назвать работу — прецедент без итога не подаём
+    const rows = db
+      .query('SELECT files, commits, updated_at FROM session_threads ORDER BY updated_at DESC LIMIT ?')
+      .all(PRECEDENT_LOOKBACK) as Array<{ files: string; commits: string; updated_at: string }>
+    const workSet = new Set(work)
+    const lastKey = JSON.stringify(lastThread)
+    let best: { files: string[]; commits: string[]; ageDays: number; overlap: number } | null = null
+    for (const r of rows) {
+      let files: string[]
+      let commits: string[]
+      try {
+        files = JSON.parse(r.files) as string[]
+        commits = JSON.parse(r.commits) as string[]
+      } catch {
+        continue // битая строка журнала — не основание молчать обо всех
+      }
+      if (JSON.stringify(files) === lastKey) continue // это и есть показанная нить
+      const overlap = files.filter((f) => workSet.has(f)).length
+      if (overlap < PRECEDENT_MIN_OVERLAP) continue
+      // Строки отсортированы по свежести: первый достаточный прецедент и есть
+      // лучший при равном пересечении; больший overlap побеждает свежесть
+      if (best === null || overlap > best.overlap) {
+        best = { files, commits, ageDays: Math.max(0, Math.round((nowMs - Date.parse(r.updated_at)) / 86_400_000)), overlap }
+      }
+    }
+    if (best === null) return ''
+    const shownFiles = best.files.slice(0, 5).join(', ') + (best.files.length > 5 ? ', …' : '')
+    const outcome = best.commits.length > 0 ? ` → "${best.commits[best.commits.length - 1].replace(/`/g, "'").slice(0, 90)}"` : ''
+    const age = best.ageDays < 1 ? t('сегодня', 'today') : t(`${best.ageDays}д назад`, `${best.ageDays}d ago`)
+    return t(
+      `- похожая работа уже делалась (${age}): затронула ${shownFiles}${outcome} — рецепт, с которым стоит свериться`,
+      `- similar work was already done (${age}): it touched ${shownFiles}${outcome} — a recipe worth checking against`,
+    )
+  } catch {
+    return '' // прецедент — обогащение входа, не обязанность
+  }
+}
+
 /**
  * Блок «Вход в работу» для сводки SessionStart. thread — файлы прошлой сессии,
  * dirty — незакоммиченные сейчас. Сид PPR: работа ×50, недавно тронутое ×10.
@@ -64,6 +119,8 @@ export function reconstructEntry(db: Database, thread: string[], dirty: string[]
         ),
       )
     }
+    const precedent = findPrecedent(db, work, thread, nowMs)
+    if (precedent) lines.push(precedent)
     lines.push(
       t(
         '- «продолжи» ложи на это состояние, а не на букву промпта: восстанови намерение, сверь с git-диффом и нитью, затем действуй',

@@ -3,7 +3,7 @@ import {
   detectIndent,
   init_i18n,
   t
-} from "./session-start-xqeg8ejq.js";
+} from "./session-start-daqc63bv.js";
 
 // src/gates/checks.ts
 init_i18n();

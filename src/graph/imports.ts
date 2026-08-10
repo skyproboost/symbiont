@@ -24,6 +24,17 @@
  *      хвостом; ребро ставится, только если кандидат один. При нескольких копиях
  *      (два бандла AWS SDK в одном WordPress) выигрывает ближайшая по дереву —
  *      ровно так и работает автозагрузка внутри пакета; при равенстве — молчим.
+ *   3) ССЫЛКИ ПО ИМЕНИ ТИПА (форма name) — для стеков, где импортов почти нет.
+ *      Yii 1.x, WordPress-классика, Rails: код связывает автозагрузка по имени
+ *      класса, а не import (боевой замер: из 1227 файлов Yii-проекта require
+ *      был в 3, use — в 32; граф выходил точками без рёбер). Ребро дают
+ *      `extends`/`new X`/`X::`/тайп-хинты/строковый литерал-класс, а резолв —
+ *      индекс типов, ОБЪЯВЛЕННЫХ файлами проекта (typeDecl), с семантикой
+ *      пространств самого языка: голое имя в namespace-файле живёт в этом
+ *      пространстве, голая строка класса разрешается только в глобальное — как
+ *      и делает автозагрузчик. JVM/C#-ссылки внутри пакета сознательно не
+ *      извлекаются: там import обязателен для всего внепакетного, граф уже есть,
+ *      а внутрипакетные рёбра лишь уплотнили бы его ценой нового шума.
  *
  * Инвариант прежний: догадка в графе хуже отсутствия ребра, потому что врёт про
  * структуру проекта. Неоднозначность = нет ребра, всегда.
@@ -43,9 +54,10 @@ import { dirname, join, normalize } from 'node:path/posix'
  * Форма спецификатора — она же способ резолва.
  * path — путь (относительный/от корня/через алиас); symbol — имя модуля через
  * разделители (Go, Python, Rust, Lua); decl — имя в пространстве имён, которое
- * ищется среди объявленных в проекте.
+ * ищется среди объявленных в проекте; name — ссылка по имени типа (extends,
+ * new X, X::, класс строкой), ищется среди типов, объявленных в проекте.
  */
-export type SpecForm = 'path' | 'symbol' | 'decl'
+export type SpecForm = 'path' | 'symbol' | 'decl' | 'name'
 
 interface SpecPattern {
   re: RegExp
@@ -54,6 +66,8 @@ interface SpecPattern {
   expand?: (m: RegExpMatchArray) => string[]
   /** форма живёт В комментарии (заголовок-ссылка) или в директиве препроцессора */
   inComment?: boolean
+  /** имя всегда полное (строковый литерал класса) — пространством файла не достраивается */
+  bare?: boolean
 }
 
 interface LangPack {
@@ -68,6 +82,10 @@ interface LangPack {
   sep: RegExp
   /** объявление пространства имён — источник индекса для формы decl */
   nsDecl: RegExp | null
+  /** объявление типа (класс/интерфейс/трейт) — источник индекса для формы name */
+  typeDecl: RegExp | null
+  /** ссылки на типы по имени — рёбра стеков, где импортов почти нет (автозагрузка) */
+  refPatterns: SpecPattern[]
   /** спецификатор указывает на КАТАЛОГ-пакет (Go): рёбра ко всем файлам каталога */
   packageDir: boolean
   /** допустимо отбрасывать ведущие сегменты (корень алиаса/автозагрузки неизвестен) */
@@ -81,6 +99,8 @@ const defaults = {
   indexes: [] as string[],
   sep: /[./\\]/,
   nsDecl: null,
+  typeDecl: null,
+  refPatterns: [] as SpecPattern[],
   packageDir: false,
   leadingDrop: false,
   trailingDrop: false,
@@ -161,7 +181,35 @@ const PACKS: LangPack[] = [
     ],
     targets: ['.php', '.phtml', '.inc'],
     sep: /[\\/]/,
-    nsDecl: /^[ \t]*namespace\s+([\w\\]+)/m,
+    // `<?php class X {}` в одну строку — легитимная форма короткого файла,
+    // поэтому якорь строки допускает открывающий тег перед объявлением
+    nsDecl: /^[ \t]*(?:<\?php\s+)?namespace\s+([\w\\]+)/m,
+    typeDecl: /^[ \t]*(?:<\?php\s+)?(?:abstract\s+|final\s+|readonly\s+)*(?:class|interface|trait|enum)\s+(\w+)/gm,
+    // Легаси-PHP (Yii 1.x, WordPress-классика) связан автозагрузкой по имени
+    // класса, а не импортами: require был в 3 файлах из 1227, use — в 32.
+    // Ссылка на тип — единственная форма связи; шум режет резолв (имя обязано
+    // быть ОБЪЯВЛЕНО проектом), а не извлечение
+    refPatterns: [
+      // `class A extends B implements C, D` — у интерфейсов extends тоже список
+      { re: /\bextends\s+(\\?\w+(?:\\\w+)*(?:\s*,\s*\\?\w+(?:\\\w+)*)*)/g, form: 'name', expand: (m) => m[1].split(',') },
+      { re: /\bimplements\s+(\\?\w+(?:\\\w+)*(?:\s*,\s*\\?\w+(?:\\\w+)*)*)/g, form: 'name', expand: (m) => m[1].split(',') },
+      { re: /\bnew\s+(\\?[A-Za-z_][\w\\]*)/g, form: 'name' },
+      // Статический доступ `X::` — лукбихайнд отсекает `$var::` и хвосты
+      // квалифицированных имён (сегмент после `\` — не начало ссылки)
+      { re: /(?<![\w$>\\])(\\?[A-Za-z_][\w\\]*)\s*::/g, form: 'name' },
+      { re: /\binstanceof\s+(\\?[A-Za-z_][\w\\]*)/g, form: 'name' },
+      { re: /\bcatch\s*\(\s*(\\?[\w\\]+(?:\s*\|\s*\\?[\w\\]+)*)/g, form: 'name', expand: (m) => m[1].split('|') },
+      // Тайп-хинты: параметр `(?User $u` и возврат `): ?User` — рёбра DI-стиля
+      { re: /[(,]\s*\??(\\?[A-Za-z_][\w\\]*)\s+\$\w/g, form: 'name' },
+      { re: /\)\s*:\s*\??(\\?[A-Za-z_][\w\\]*)/g, form: 'name' },
+      // Класс строковым литералом: конфиги компонентов (`'class' => 'Api'`),
+      // фабрики, AR-relations Yii (`self::BELONGS_TO, 'UserAro'`). bare: строка —
+      // всегда полное имя, и голая разрешается только в глобальный тип (так
+      // работает автозагрузчик), поэтому надпись 'Active' не поймает App\Active
+      { re: /['"](\\?[A-Za-z_]\w*(?:\\+[A-Za-z_]\w*)*)['"]/g, form: 'name', bare: true },
+      // Точечный алиас пути (Yii): 'application.components.Foo' — класс это последний сегмент
+      { re: /['"](?:[a-z]\w*\.)+([A-Z]\w*)['"]/g, form: 'name', bare: true },
+    ],
     leadingDrop: true,
   }),
   pack({
@@ -230,6 +278,19 @@ const PACKS: LangPack[] = [
       { re: /\brequire\s*\(?\s*['"]([^'"\n]+)['"]/g, form: 'path' },
     ],
     targets: ['.rb', '.rake'],
+    // Rails/Zeitwerk — тот же пробел, что у легаси-PHP: код app/ не пишет
+    // require вовсе, связывает автозагрузка констант. Инфлексия ИМЕНИ В ПУТЬ
+    // (`UsersController` → users_controller.rb) отвергнута — это догадка о
+    // конфигурации загрузчика; индекс объявленных типов — знание самого проекта
+    sep: /::|[./\\]/,
+    typeDecl: /^[ \t]*(?:class|module)\s+(?:\w+::)*([A-Z]\w*)/gm,
+    refPatterns: [
+      { re: /^[ \t]*class\s+(?:\w+::)*\w+\s*<\s*((?:\w+::)*[A-Z]\w*)/gm, form: 'name' },
+      { re: /\b(?:include|extend|prepend)\s+((?:\w+::)*[A-Z]\w*)/g, form: 'name' },
+      { re: /\b([A-Z]\w*(?:::[A-Z]\w*)+)/g, form: 'name' },
+      // Константа-получатель: `User.find`, `Gateway.new` — самая частая форма ссылки
+      { re: /\b([A-Z]\w*)(?=\.[a-z_])/g, form: 'name' },
+    ],
     leadingDrop: true,
   }),
   pack({
@@ -297,25 +358,68 @@ export interface ImportSpec {
  */
 const COMMENTED = /(?:^|\n)[ \t]*(?:\/\/|\/\*|\*|#|--)[^\n]*$/
 
+/**
+ * Слова языка, которые шаблоны ссылок ловят наравне с именами типов (`new
+ * static`, `(array $x`, `parent::`): резолв их и так отбросил бы (проект таких
+ * типов не объявляет), но стоп-лист снимает заведомо пустую работу с самых
+ * частых совпадений. Регистронезависим — PHP-ключевые слова пишут по-разному.
+ */
+const REF_STOP = new Set([
+  'self', 'parent', 'static', 'class', 'function', 'fn', 'new', 'clone', 'return',
+  'string', 'int', 'float', 'bool', 'array', 'object', 'mixed', 'void', 'never',
+  'null', 'true', 'false', 'callable', 'iterable', 'this', 'match', 'list',
+  'if', 'else', 'elseif', 'for', 'foreach', 'while', 'switch', 'case', 'default',
+  'throw', 'try', 'catch', 'finally', 'global', 'echo', 'print', 'use', 'const',
+  'abstract', 'final', 'readonly', 'public', 'private', 'protected', 'var',
+  'extends', 'implements', 'interface', 'trait', 'enum', 'instanceof', 'insteadof',
+  'namespace', 'require', 'include', 'require_once', 'include_once', 'and', 'or', 'xor', 'yield',
+])
+
 /** Спецификаторы файла вместе с формой — вход резолва. */
 export function extractSpecs(content: string, rel: string): ImportSpec[] {
   const p = packOf(rel)
   if (!p) return []
   const seen = new Set<string>()
   const out: ImportSpec[] = []
+  const add = (form: SpecForm, spec: string): void => {
+    // Разделитель — перевод строки: ни форма, ни спецификатор его не
+    // содержат (все шаблоны запрещают перенос внутри имени). Сырой NUL в
+    // исходнике был бы хуже — он делает файл «бинарным» для grep, и модуль
+    // молча выпадает из поиска по коду (грабля из истории проекта)
+    const key = `${form}\n${spec}`
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({ spec, form })
+  }
+  const commented = (sp: SpecPattern, m: RegExpMatchArray): boolean =>
+    !sp.inComment && m.index !== undefined && COMMENTED.test(content.slice(Math.max(0, content.lastIndexOf('\n', m.index)), m.index + 1))
   for (const sp of p.patterns) {
     for (const m of content.matchAll(sp.re)) {
-      if (!sp.inComment && m.index !== undefined && COMMENTED.test(content.slice(Math.max(0, content.lastIndexOf('\n', m.index)), m.index + 1))) continue
+      if (commented(sp, m)) continue
       for (const spec of sp.expand ? sp.expand(m) : [m[1]]) {
-        if (!spec) continue
-        // Разделитель — перевод строки: ни форма, ни спецификатор его не
-        // содержат (все шаблоны запрещают перенос внутри имени). Сырой NUL в
-        // исходнике был бы хуже — он делает файл «бинарным» для grep, и модуль
-        // молча выпадает из поиска по коду (грабля из истории проекта)
-        const key = `${sp.form}\n${spec}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        out.push({ spec, form: sp.form })
+        if (spec) add(sp.form, spec)
+      }
+    }
+  }
+  if (p.refPatterns.length > 0) {
+    // Пространство файла определяет, ЧТО значит голое имя: `new X` при
+    // `namespace A\B` — это A\B\X и только оно (PHP не ищет в глобальном),
+    // поэтому квалификация происходит при извлечении, пока пространство под рукой
+    const ns = p.nsDecl ? (content.match(p.nsDecl)?.[1] ?? null) : null
+    for (const sp of p.refPatterns) {
+      for (const m of content.matchAll(sp.re)) {
+        if (commented(sp, m)) continue
+        for (const raw of sp.expand ? sp.expand(m) : [m[1]]) {
+          const name = (raw ?? '').trim()
+          if (!name) continue
+          const rooted = name.startsWith('\\')
+          const body = rooted ? name.replace(/^\\+/, '') : name
+          if (!body || REF_STOP.has(body.toLowerCase())) continue
+          // Строковые литералы (bare) и корневые `\X` — уже полные имена;
+          // голое имя кода в файле с пространством — имя ВНУТРИ пространства
+          const spec = !rooted && !sp.bare && ns !== null && !body.includes('\\') ? `${ns}\\${body}` : body
+          add('name', spec)
+        }
       }
     }
   }
@@ -342,6 +446,12 @@ interface IndexedFile {
   ext: string
 }
 
+/** Объявленный тип: где объявлен и в каком пространстве (null — глобальный или язык без пространств). */
+interface DeclaredType {
+  path: string
+  ns: string | null
+}
+
 export interface ImportIndex {
   files: Set<string>
   /** имя файла без расширения → файлы */
@@ -352,6 +462,8 @@ export interface ImportIndex {
   dirFiles: Map<string, string[]>
   /** пространство имён (сегменты через точку) → объявившие файлы */
   byNs: Map<string, string[]>
+  /** имя объявленного типа → объявления; источник резолва формы name */
+  byType: Map<string, DeclaredType[]>
   /** каталоги верхнего уровня — признак спецификатора «от корня проекта» */
   rootDirs: Set<string>
   total: number
@@ -399,6 +511,7 @@ export function buildImportIndex(files: Array<{ rel: string; content?: string }>
     byDirName: new Map(),
     dirFiles: new Map(),
     byNs: new Map(),
+    byType: new Map(),
     rootDirs: new Set(),
     total: files.length,
     memo: new Map(),
@@ -416,9 +529,12 @@ export function buildImportIndex(files: Array<{ rel: string; content?: string }>
       index.rootDirs.add(dir.split('/')[0])
     }
     const p = packOf(f.rel)
-    if (p?.nsDecl && f.content) {
-      const m = f.content.match(p.nsDecl)
-      if (m) push(index.byNs, nsKey(m[1]), f.rel)
+    if (p && f.content) {
+      const ns = p.nsDecl ? (f.content.match(p.nsDecl)?.[1] ?? null) : null
+      if (ns !== null) push(index.byNs, nsKey(ns), f.rel)
+      if (p.typeDecl) {
+        for (const m of f.content.matchAll(p.typeDecl)) push(index.byType, m[1], { path: f.rel, ns })
+      }
     }
   }
   for (const d of dirs) push(index.byDirName, d.slice(d.lastIndexOf('/') + 1), d)
@@ -720,6 +836,31 @@ function resolveDecl(fromRel: string, spec: string, p: LangPack, index: ImportIn
   return direct ? [direct] : []
 }
 
+/**
+ * Резолв формы name: имя типа ищется среди ОБЪЯВЛЕННЫХ проектом (typeDecl).
+ * Квалифицированное имя обязано совпасть пространством с объявлением; голое
+ * указывает на тип БЕЗ пространства — так разрешает голую строку класса
+ * автозагрузчик, и потому надпись в интерфейсе не поймает одноимённый класс
+ * из чужого namespace. У языков без объявляемых пространств (Ruby) все типы
+ * глобальны, и голое имя сверяется со всеми. Совпадение регистра требуется
+ * точное: PHP формально регистронезависим, но неточный регистр в живом коде —
+ * скорее совпадение слов, чем ссылка, а догадка в графе хуже пропуска.
+ */
+function resolveName(fromRel: string, spec: string, p: LangPack, index: ImportIndex): string[] {
+  const segs = spec.split(p.sep).filter(Boolean)
+  if (segs.length === 0) return []
+  const name = segs[segs.length - 1]
+  if (name.length < 2) return []
+  const all = index.byType.get(name) ?? []
+  if (all.length === 0 || all.length > MAX_SAME_NAME) return []
+  const ns = segs.length > 1 && p.nsDecl !== null ? nsKey(segs.slice(0, -1).join('.')) : null
+  const candidates = all
+    .filter((t) => (ns !== null ? t.ns !== null && nsKey(t.ns) === ns : p.nsDecl === null || t.ns === null))
+    .map((t) => t.path)
+  const hit = nearest(fromRel, candidates)
+  return hit ? [hit] : []
+}
+
 /** Все файлы проекта, на которые указывает спецификатор (обычно ноль или один). */
 export function resolveSpec(fromRel: string, spec: ImportSpec, index: ImportIndex): string[] {
   const p = packOf(fromRel)
@@ -735,7 +876,9 @@ export function resolveSpec(fromRel: string, spec: ImportSpec, index: ImportInde
       ? resolvePath(fromRel, spec.spec, p, index)
       : spec.form === 'symbol'
         ? resolveSymbol(fromRel, spec.spec, p, index)
-        : resolveDecl(fromRel, spec.spec, p, index)
+        : spec.form === 'name'
+          ? resolveName(fromRel, spec.spec, p, index)
+          : resolveDecl(fromRel, spec.spec, p, index)
   index.memo.set(key, hit)
   return hit.filter((f) => f !== fromRel)
 }

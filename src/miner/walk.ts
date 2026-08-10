@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { extname, join } from 'node:path'
 
 // Каталоги сборки и зависимостей: их содержимое — производное от исходников, и
@@ -13,6 +13,11 @@ const SKIP_DIRS = new Set([
   // окружение вносит в паспорт проекта тысячи чужих файлов и связей между ними
   // (замер: 13 365 .py и 30 тысяч рёбер от одного venv рядом с Nuxt-приложением)
   'venv', 'site-packages', '__pycache__', '.tox', 'bower_components', 'Pods',
+  // Множественное и «третьесторонние» написания того же самого: Yii 1.x кладёт
+  // Composer в protected/vendors/ (боевой замер: 9613 чужих файлов и 9686 из
+  // 9688 рёбер графа жили внутри), Chromium-подобные проекты — в third_party/.
+  // Имя каталога здесь и есть объявление «это не наш код»
+  'vendors', 'third_party', 'thirdparty',
 ])
 /**
  * Лежит ли путь в производном каталоге (сборка, зависимости, артефакт поставки).
@@ -25,6 +30,11 @@ const SKIP_DIRS = new Set([
  * Поймано вживую: гейт выкатил 27 претензий к plugin/dist после релиза, где
  * каждая строка — вывод bun build. Детектор по содержимому (looksGenerated)
  * здесь бессилен: bun не минифицирует, средняя строка 39 символов при пороге 200.
+ *
+ * Зоны из .gitignore сюда сознательно НЕ входят: у этой функции нет корня
+ * проекта (только rel), а её потребитель — гейт — судит правки владельца, где
+ * игнорируемый git'ом файл встречается исключением, и цена недобора мала.
+ * Обход же обязан их пропускать — там цена недобора — тысячи чужих узлов графа.
  */
 export function inDerivedZone(rel: string): boolean {
   return rel.split('/').some((seg) => SKIP_DIRS.has(seg))
@@ -50,12 +60,56 @@ export interface WalkedFile {
   mtimeMs: number
 }
 
-/** Обходит дерево проекта; скрытые и служебные каталоги пропускаются. */
+/** Производные зоны, объявленные самим проектом: имена — на любой глубине, префиксы — от корня. */
+interface DeclaredSkips {
+  names: Set<string>
+  prefixes: Set<string>
+}
+
+/**
+ * Проектные производные зоны из корневого .gitignore.
+ *
+ * Жёсткий список имён не догонит все экосистемы (боевой случай: Yii 1.x с
+ * Composer в protected/vendors/ — написание, которого в списке не было), а
+ * просить у владельца конфиг — против устройства плагина: всё выводится из
+ * данных проекта. Но проект УЖЕ объявляет свои производные зоны — в .gitignore:
+ * установленные зависимости, сборка, локальное. Игнорируемое git'ом — не
+ * источник истины проекта, значит и не свидетель его конвенций и связей.
+ *
+ * Разбор сознательно консервативен: только строки без wildcards и негаций
+ * (имя — на любой глубине, путь с «/» — от корня), только корневой .gitignore.
+ * Полная семантика gitignore (вложенные файлы, «!», глобы) отвергнута: её
+ * честная реализация — это `git check-ignore`, то есть спавн процесса в бюджете
+ * хука на каждый обход; недобор здесь безопасен (лишний каталог просто
+ * пройдётся, как раньше), перебор — нет.
+ */
+function declaredSkips(root: string): DeclaredSkips {
+  const names = new Set<string>()
+  const prefixes = new Set<string>()
+  let text = ''
+  try {
+    text = readFileSync(join(root, '.gitignore'), 'utf8')
+  } catch {
+    /* нет .gitignore — нет и объявленных зон; молчание безопасно */
+  }
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#') || /[*?![\]]/.test(line)) continue
+    const clean = line.replace(/\/+$/, '')
+    if (!clean) continue
+    if (clean.includes('/')) prefixes.add(clean.replace(/^\/+/, ''))
+    else names.add(clean)
+  }
+  return { names, prefixes }
+}
+
+/** Обходит дерево проекта; скрытые, служебные и объявленные в .gitignore каталоги пропускаются. */
 export function walkFiles(root: string): WalkedFile[] {
+  const skips = declaredSkips(root)
   const out: WalkedFile[] = []
-  const stack = [root]
+  const stack: Array<{ abs: string; rel: string }> = [{ abs: root, rel: '' }]
   while (stack.length > 0 && out.length < MAX_FILES) {
-    const dir = stack.pop() as string
+    const { abs: dir, rel } = stack.pop() as { abs: string; rel: string }
     let entries
     try {
       entries = readdirSync(dir, { withFileTypes: true })
@@ -64,7 +118,10 @@ export function walkFiles(root: string): WalkedFile[] {
     }
     for (const e of entries) {
       if (e.isDirectory()) {
-        if (!SKIP_DIRS.has(e.name) && !e.name.startsWith('.')) stack.push(join(dir, e.name))
+        if (SKIP_DIRS.has(e.name) || e.name.startsWith('.') || skips.names.has(e.name)) continue
+        const childRel = rel ? `${rel}/${e.name}` : e.name
+        if (skips.prefixes.has(childRel)) continue
+        stack.push({ abs: join(dir, e.name), rel: childRel })
         continue
       }
       const p = join(dir, e.name)

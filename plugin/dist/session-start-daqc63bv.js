@@ -570,16 +570,39 @@ __export(exports_walk, {
   JS_EXT: () => JS_EXT,
   CODE_EXT: () => CODE_EXT
 });
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync as readFileSync4, statSync } from "node:fs";
 import { extname, join as join4 } from "node:path";
 function inDerivedZone(rel) {
   return rel.split("/").some((seg) => SKIP_DIRS.has(seg));
 }
+function declaredSkips(root) {
+  const names = new Set;
+  const prefixes = new Set;
+  let text = "";
+  try {
+    text = readFileSync4(join4(root, ".gitignore"), "utf8");
+  } catch {}
+  for (const raw of text.split(`
+`)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || /[*?![\]]/.test(line))
+      continue;
+    const clean = line.replace(/\/+$/, "");
+    if (!clean)
+      continue;
+    if (clean.includes("/"))
+      prefixes.add(clean.replace(/^\/+/, ""));
+    else
+      names.add(clean);
+  }
+  return { names, prefixes };
+}
 function walkFiles(root) {
+  const skips = declaredSkips(root);
   const out = [];
-  const stack = [root];
+  const stack = [{ abs: root, rel: "" }];
   while (stack.length > 0 && out.length < MAX_FILES) {
-    const dir = stack.pop();
+    const { abs: dir, rel } = stack.pop();
     let entries;
     try {
       entries = readdirSync(dir, { withFileTypes: true });
@@ -588,8 +611,12 @@ function walkFiles(root) {
     }
     for (const e of entries) {
       if (e.isDirectory()) {
-        if (!SKIP_DIRS.has(e.name) && !e.name.startsWith("."))
-          stack.push(join4(dir, e.name));
+        if (SKIP_DIRS.has(e.name) || e.name.startsWith(".") || skips.names.has(e.name))
+          continue;
+        const childRel = rel ? `${rel}/${e.name}` : e.name;
+        if (skips.prefixes.has(childRel))
+          continue;
+        stack.push({ abs: join4(dir, e.name), rel: childRel });
         continue;
       }
       const p = join4(dir, e.name);
@@ -634,7 +661,10 @@ var init_walk = __esm(() => {
     "__pycache__",
     ".tox",
     "bower_components",
-    "Pods"
+    "Pods",
+    "vendors",
+    "third_party",
+    "thirdparty"
   ]);
   JS_EXT = new Set([".ts", ".js", ".mjs", ".cjs", ".tsx", ".jsx", ".vue"]);
   CODE_EXT = new Set([
@@ -1233,7 +1263,7 @@ function renderDriftReport(health, drift, hotspots) {
 }
 function hotspotsFromGit(projectRoot) {
   const { spawnSync: spawnSync2 } = __require("node:child_process");
-  const { readFileSync: readFileSync4 } = __require("node:fs");
+  const { readFileSync: readFileSync5 } = __require("node:fs");
   const { join: join5, extname: extname2 } = __require("node:path");
   const { parseCommitLog: parseCommitLog2 } = (init_constitution_derive(), __toCommonJS(exports_constitution_derive));
   const { CODE_EXT: CODE_EXT2 } = (init_walk(), __toCommonJS(exports_walk));
@@ -1257,7 +1287,7 @@ function hotspotsFromGit(projectRoot) {
     if (!CODE_EXT2.has(extname2(rel).toLowerCase()))
       continue;
     try {
-      sizeByFile.set(rel, readFileSync4(join5(projectRoot, rel), "utf8").split(`
+      sizeByFile.set(rel, readFileSync5(join5(projectRoot, rel), "utf8").split(`
 `).length);
     } catch {}
   }
@@ -1265,7 +1295,7 @@ function hotspotsFromGit(projectRoot) {
 }
 
 // src/passport/build.ts
-import { readFileSync as readFileSync9, writeFileSync as writeFileSync3, mkdirSync, existsSync as existsSync6 } from "node:fs";
+import { readFileSync as readFileSync10, writeFileSync as writeFileSync3, mkdirSync, existsSync as existsSync6 } from "node:fs";
 import { basename, join as join11, relative, dirname as dirname3 } from "node:path";
 import { spawnSync as spawnSync2 } from "node:child_process";
 
@@ -2162,6 +2192,8 @@ var defaults = {
   indexes: [],
   sep: /[./\\]/,
   nsDecl: null,
+  typeDecl: null,
+  refPatterns: [],
   packageDir: false,
   leadingDrop: false,
   trailingDrop: false
@@ -2221,7 +2253,20 @@ var PACKS = [
     ],
     targets: [".php", ".phtml", ".inc"],
     sep: /[\\/]/,
-    nsDecl: /^[ \t]*namespace\s+([\w\\]+)/m,
+    nsDecl: /^[ \t]*(?:<\?php\s+)?namespace\s+([\w\\]+)/m,
+    typeDecl: /^[ \t]*(?:<\?php\s+)?(?:abstract\s+|final\s+|readonly\s+)*(?:class|interface|trait|enum)\s+(\w+)/gm,
+    refPatterns: [
+      { re: /\bextends\s+(\\?\w+(?:\\\w+)*(?:\s*,\s*\\?\w+(?:\\\w+)*)*)/g, form: "name", expand: (m) => m[1].split(",") },
+      { re: /\bimplements\s+(\\?\w+(?:\\\w+)*(?:\s*,\s*\\?\w+(?:\\\w+)*)*)/g, form: "name", expand: (m) => m[1].split(",") },
+      { re: /\bnew\s+(\\?[A-Za-z_][\w\\]*)/g, form: "name" },
+      { re: /(?<![\w$>\\])(\\?[A-Za-z_][\w\\]*)\s*::/g, form: "name" },
+      { re: /\binstanceof\s+(\\?[A-Za-z_][\w\\]*)/g, form: "name" },
+      { re: /\bcatch\s*\(\s*(\\?[\w\\]+(?:\s*\|\s*\\?[\w\\]+)*)/g, form: "name", expand: (m) => m[1].split("|") },
+      { re: /[(,]\s*\??(\\?[A-Za-z_][\w\\]*)\s+\$\w/g, form: "name" },
+      { re: /\)\s*:\s*\??(\\?[A-Za-z_][\w\\]*)/g, form: "name" },
+      { re: /['"](\\?[A-Za-z_]\w*(?:\\+[A-Za-z_]\w*)*)['"]/g, form: "name", bare: true },
+      { re: /['"](?:[a-z]\w*\.)+([A-Z]\w*)['"]/g, form: "name", bare: true }
+    ],
     leadingDrop: true
   }),
   pack({
@@ -2284,6 +2329,14 @@ var PACKS = [
       { re: /\brequire\s*\(?\s*['"]([^'"\n]+)['"]/g, form: "path" }
     ],
     targets: [".rb", ".rake"],
+    sep: /::|[./\\]/,
+    typeDecl: /^[ \t]*(?:class|module)\s+(?:\w+::)*([A-Z]\w*)/gm,
+    refPatterns: [
+      { re: /^[ \t]*class\s+(?:\w+::)*\w+\s*<\s*((?:\w+::)*[A-Z]\w*)/gm, form: "name" },
+      { re: /\b(?:include|extend|prepend)\s+((?:\w+::)*[A-Z]\w*)/g, form: "name" },
+      { re: /\b([A-Z]\w*(?:::[A-Z]\w*)+)/g, form: "name" },
+      { re: /\b([A-Z]\w*)(?=\.[a-z_])/g, form: "name" }
+    ],
     leadingDrop: true
   }),
   pack({
@@ -2321,26 +2374,118 @@ var extOf = (rel) => {
 };
 var packOf = (rel) => BY_EXT2.get(extOf(rel)) ?? null;
 var COMMENTED = /(?:^|\n)[ \t]*(?:\/\/|\/\*|\*|#|--)[^\n]*$/;
+var REF_STOP = new Set([
+  "self",
+  "parent",
+  "static",
+  "class",
+  "function",
+  "fn",
+  "new",
+  "clone",
+  "return",
+  "string",
+  "int",
+  "float",
+  "bool",
+  "array",
+  "object",
+  "mixed",
+  "void",
+  "never",
+  "null",
+  "true",
+  "false",
+  "callable",
+  "iterable",
+  "this",
+  "match",
+  "list",
+  "if",
+  "else",
+  "elseif",
+  "for",
+  "foreach",
+  "while",
+  "switch",
+  "case",
+  "default",
+  "throw",
+  "try",
+  "catch",
+  "finally",
+  "global",
+  "echo",
+  "print",
+  "use",
+  "const",
+  "abstract",
+  "final",
+  "readonly",
+  "public",
+  "private",
+  "protected",
+  "var",
+  "extends",
+  "implements",
+  "interface",
+  "trait",
+  "enum",
+  "instanceof",
+  "insteadof",
+  "namespace",
+  "require",
+  "include",
+  "require_once",
+  "include_once",
+  "and",
+  "or",
+  "xor",
+  "yield"
+]);
 function extractSpecs(content, rel) {
   const p = packOf(rel);
   if (!p)
     return [];
   const seen = new Set;
   const out = [];
+  const add = (form, spec) => {
+    const key = `${form}
+${spec}`;
+    if (seen.has(key))
+      return;
+    seen.add(key);
+    out.push({ spec, form });
+  };
+  const commented = (sp, m) => !sp.inComment && m.index !== undefined && COMMENTED.test(content.slice(Math.max(0, content.lastIndexOf(`
+`, m.index)), m.index + 1));
   for (const sp of p.patterns) {
     for (const m of content.matchAll(sp.re)) {
-      if (!sp.inComment && m.index !== undefined && COMMENTED.test(content.slice(Math.max(0, content.lastIndexOf(`
-`, m.index)), m.index + 1)))
+      if (commented(sp, m))
         continue;
       for (const spec of sp.expand ? sp.expand(m) : [m[1]]) {
-        if (!spec)
+        if (spec)
+          add(sp.form, spec);
+      }
+    }
+  }
+  if (p.refPatterns.length > 0) {
+    const ns = p.nsDecl ? content.match(p.nsDecl)?.[1] ?? null : null;
+    for (const sp of p.refPatterns) {
+      for (const m of content.matchAll(sp.re)) {
+        if (commented(sp, m))
           continue;
-        const key = `${sp.form}
-${spec}`;
-        if (seen.has(key))
-          continue;
-        seen.add(key);
-        out.push({ spec, form: sp.form });
+        for (const raw of sp.expand ? sp.expand(m) : [m[1]]) {
+          const name = (raw ?? "").trim();
+          if (!name)
+            continue;
+          const rooted = name.startsWith("\\");
+          const body = rooted ? name.replace(/^\\+/, "") : name;
+          if (!body || REF_STOP.has(body.toLowerCase()))
+            continue;
+          const spec = !rooted && !sp.bare && ns !== null && !body.includes("\\") ? `${ns}\\${body}` : body;
+          add("name", spec);
+        }
       }
     }
   }
@@ -2366,6 +2511,7 @@ function buildImportIndex(files) {
     byDirName: new Map,
     dirFiles: new Map,
     byNs: new Map,
+    byType: new Map,
     rootDirs: new Set,
     total: files.length,
     memo: new Map,
@@ -2383,10 +2529,14 @@ function buildImportIndex(files) {
       index.rootDirs.add(dir.split("/")[0]);
     }
     const p = packOf(f.rel);
-    if (p?.nsDecl && f.content) {
-      const m = f.content.match(p.nsDecl);
-      if (m)
-        push(index.byNs, nsKey(m[1]), f.rel);
+    if (p && f.content) {
+      const ns = p.nsDecl ? f.content.match(p.nsDecl)?.[1] ?? null : null;
+      if (ns !== null)
+        push(index.byNs, nsKey(ns), f.rel);
+      if (p.typeDecl) {
+        for (const m of f.content.matchAll(p.typeDecl))
+          push(index.byType, m[1], { path: f.rel, ns });
+      }
     }
   }
   for (const d of dirs)
@@ -2622,6 +2772,21 @@ function resolveDecl(fromRel, spec, p, index) {
   const direct = nearest(fromRel, matchTail(segs.join("/"), p, index));
   return direct ? [direct] : [];
 }
+function resolveName(fromRel, spec, p, index) {
+  const segs = spec.split(p.sep).filter(Boolean);
+  if (segs.length === 0)
+    return [];
+  const name = segs[segs.length - 1];
+  if (name.length < 2)
+    return [];
+  const all = index.byType.get(name) ?? [];
+  if (all.length === 0 || all.length > MAX_SAME_NAME)
+    return [];
+  const ns = segs.length > 1 && p.nsDecl !== null ? nsKey(segs.slice(0, -1).join(".")) : null;
+  const candidates = all.filter((t2) => ns !== null ? t2.ns !== null && nsKey(t2.ns) === ns : p.nsDecl === null || t2.ns === null).map((t2) => t2.path);
+  const hit = nearest(fromRel, candidates);
+  return hit ? [hit] : [];
+}
 function resolveSpec(fromRel, spec, index) {
   const p = packOf(fromRel);
   if (!p)
@@ -2632,7 +2797,7 @@ ${spec.spec}`;
   const memo = index.memo.get(key);
   if (memo)
     return memo.filter((f) => f !== fromRel);
-  const hit = spec.form === "path" ? resolvePath(fromRel, spec.spec, p, index) : spec.form === "symbol" ? resolveSymbol(fromRel, spec.spec, p, index) : resolveDecl(fromRel, spec.spec, p, index);
+  const hit = spec.form === "path" ? resolvePath(fromRel, spec.spec, p, index) : spec.form === "symbol" ? resolveSymbol(fromRel, spec.spec, p, index) : spec.form === "name" ? resolveName(fromRel, spec.spec, p, index) : resolveDecl(fromRel, spec.spec, p, index);
   index.memo.set(key, hit);
   return hit.filter((f) => f !== fromRel);
 }
@@ -3012,7 +3177,7 @@ function renderEntityBlock(g) {
 // src/passport/profile.ts
 init_signals();
 init_i18n();
-import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
+import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
 import { join as join7 } from "node:path";
 var evidenceEn = (ru) => ru === "заявлено в доках" ? "declared in the docs" : ru.startsWith("тестовых файлов: ") ? `test files: ${ru.slice("тестовых файлов: ".length)}` : ru;
 var evidenceListEn = (ru, sep) => ru.split(sep).map(evidenceEn).join(sep);
@@ -3036,13 +3201,13 @@ function readConceptText(root, relPaths) {
   const parts = [];
   for (const name of ["README.md", "readme.md", "README.rst", "CONCEPT.md"]) {
     try {
-      parts.push(readFileSync4(join7(root, name), "utf8").slice(0, README_LIMIT));
+      parts.push(readFileSync5(join7(root, name), "utf8").slice(0, README_LIMIT));
     } catch {}
   }
   const docFiles = relPaths.filter((p) => /^(docs|\.docs|doc)\//i.test(p) && p.endsWith(".md")).slice(0, 12);
   for (const rel of docFiles) {
     try {
-      parts.push(readFileSync4(join7(root, rel), "utf8").slice(0, 8000));
+      parts.push(readFileSync5(join7(root, rel), "utf8").slice(0, 8000));
     } catch {}
   }
   return parts.join(`
@@ -3052,7 +3217,7 @@ function readPackageSignals(root) {
   const { all } = readManifestDeps(root);
   let scripts = "";
   try {
-    const pkg = JSON.parse(readFileSync4(join7(root, "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync5(join7(root, "package.json"), "utf8"));
     scripts = Object.values(pkg.scripts ?? {}).join(" ");
   } catch {}
   return { deps: all, scripts };
@@ -3125,7 +3290,7 @@ init_constitution_derive();
 
 // src/passport/cascade.ts
 init_signals();
-import { readFileSync as readFileSync5 } from "node:fs";
+import { readFileSync as readFileSync6 } from "node:fs";
 import { join as join8 } from "node:path";
 var ZONE_AXES = [
   { axis: "корректность", signal: "testing" },
@@ -3153,7 +3318,7 @@ function localDocs(root, zone, zonePaths) {
   const parts = [];
   for (const rel of docs) {
     try {
-      parts.push(readFileSync5(join8(root, rel), "utf8").slice(0, LOCAL_DOC_LIMIT));
+      parts.push(readFileSync6(join8(root, rel), "utf8").slice(0, LOCAL_DOC_LIMIT));
     } catch {}
   }
   return parts.join(`
@@ -3257,7 +3422,7 @@ function readZoneProfiles(db) {
 }
 
 // src/env/config-graph.ts
-import { readFileSync as readFileSync6 } from "node:fs";
+import { readFileSync as readFileSync7 } from "node:fs";
 import { extname as extname3 } from "node:path";
 var CONFIG_EXT = new Set([".json", ".yml", ".yaml", ".toml", ".ini", ".conf", ".env", ".cfg", ".properties"]);
 var CONFIG_NAME = /(^|\/)(\.env[\w.-]*|[\w.-]*\.?config\.[tj]s|nginx[\w.-]*\.conf|docker-compose[\w.-]*\.ya?ml|Dockerfile|\.htaccess|[\w-]*\.tf|Caddyfile|\.npmrc|Procfile)$/i;
@@ -3410,7 +3575,7 @@ function historicalLinks(cochange, minPairs = 2) {
   }
   return out;
 }
-function readConfigEntries(root, relPaths, read = (p) => readFileSync6(p, "utf8")) {
+function readConfigEntries(root, relPaths, read = (p) => readFileSync7(p, "utf8")) {
   const out = [];
   for (const rel of relPaths) {
     if (!isConfigFile(rel))
@@ -4030,7 +4195,7 @@ function unknownFact(u) {
 }
 
 // src/core/learned.ts
-import { existsSync as existsSync5, readFileSync as readFileSync7, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync5, readFileSync as readFileSync8, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join10 } from "node:path";
 var FILE2 = "learned-materials.json";
 var MIN_PROJECTS = 2;
@@ -4058,7 +4223,7 @@ function readLearnedMaterials(root) {
     const p = join10(root, FILE2);
     if (!existsSync5(p))
       return [];
-    const raw = JSON.parse(readFileSync7(p, "utf8"));
+    const raw = JSON.parse(readFileSync8(p, "utf8"));
     if (!Array.isArray(raw))
       return [];
     return raw.map(sanitize).filter((x) => x !== null);
@@ -4073,7 +4238,7 @@ function mergeLearnedMaterials(root, observations, projectKey, nowIso = new Date
     const seenPath = join10(root, "learned-seen.json");
     let seen = {};
     try {
-      seen = existsSync5(seenPath) ? JSON.parse(readFileSync7(seenPath, "utf8")) : {};
+      seen = existsSync5(seenPath) ? JSON.parse(readFileSync8(seenPath, "utf8")) : {};
     } catch {
       seen = {};
     }
@@ -4126,7 +4291,7 @@ function hintsForMaterials(root, exts) {
 
 // src/miner/noncode.ts
 import { inflateRawSync } from "node:zlib";
-import { readFileSync as readFileSync8 } from "node:fs";
+import { readFileSync as readFileSync9 } from "node:fs";
 function mineCsv(content) {
   const lines = content.split(/\r?\n/).filter((l) => l.length > 0);
   const header = lines[0] ?? "";
@@ -4198,15 +4363,15 @@ function isNonCodeMinable(ext) {
 function extractContent(path, ext) {
   try {
     if (OFFICE.has(ext)) {
-      const o = mineOffice(readFileSync8(path), ext);
+      const o = mineOffice(readFileSync9(path), ext);
       return o.text ? `[${o.format}, ${o.units} ед.] ${o.text}` : null;
     }
     if (CSVX.has(ext)) {
-      const c = mineCsv(readFileSync8(path, "utf8"));
+      const c = mineCsv(readFileSync9(path, "utf8"));
       return `[таблица ${c.rows} строк, колонки: ${c.columns.join(", ")}]`;
     }
     if (TEXT.has(ext)) {
-      const content = readFileSync8(path, "utf8");
+      const content = readFileSync9(path, "utf8");
       const t2 = mineText(content);
       return `[${t2.words} слов, заголовки: ${t2.headings.slice(0, 8).join(" · ")}]
 ${content.slice(0, 3000)}`;
@@ -4300,9 +4465,9 @@ function buildFrame(conceptText) {
 }
 function readFrame(dataDir) {
   try {
-    const { readFileSync: readFileSync9 } = __require("node:fs");
+    const { readFileSync: readFileSync10 } = __require("node:fs");
     const { join: join11 } = __require("node:path");
-    return readFileSync9(join11(dataDir, "frame.md"), "utf8").trim();
+    return readFileSync10(join11(dataDir, "frame.md"), "utf8").trim();
   } catch {
     return "";
   }
@@ -4554,12 +4719,12 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-3fe2aee3120a";
+    return "bundle-fac07c336885";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
     try {
-      parts.push(readFileSync9(join11(import.meta.dirname, r), "utf8"));
+      parts.push(readFileSync10(join11(import.meta.dirname, r), "utf8"));
     } catch {}
   }
   return parts.length > 0 ? `auto-${sha1(parts.join(" "))}` : "fallback-v4-2026-07-30";
@@ -4586,7 +4751,7 @@ function buildPassport(projectRoot, dataDir) {
     } else {
       let content = "";
       try {
-        content = readFileSync9(f.path, "utf8");
+        content = readFileSync10(f.path, "utf8");
       } catch {}
       hash = sha1(content);
       cachePut.run(rel, f.mtimeMs, f.size, hash);
@@ -4600,7 +4765,7 @@ function buildPassport(projectRoot, dataDir) {
       ctx.input(`file:${rel}`);
       let content = "";
       try {
-        content = readFileSync9(f.path, "utf8");
+        content = readFileSync10(f.path, "utf8");
       } catch {}
       return analyzeFile(f.path, f.ext, content);
     });
@@ -4615,7 +4780,7 @@ function buildPassport(projectRoot, dataDir) {
       ctx.input(`file:${rel}`);
       let content = "";
       try {
-        content = readFileSync9(f.path, "utf8");
+        content = readFileSync10(f.path, "utf8");
       } catch {}
       return { rel: rel.replaceAll("\\", "/"), content };
     });
@@ -4640,7 +4805,7 @@ function buildPassport(projectRoot, dataDir) {
   for (const f of entityFiles) {
     let content = null;
     try {
-      content = readFileSync9(f.path, "utf8");
+      content = readFileSync10(f.path, "utf8");
     } catch {}
     if (content === null || content.length > 1e6)
       continue;
@@ -4741,7 +4906,7 @@ ${learnedBlock}` : ""}` : learnedBlock
       const codeSample = [];
       for (const f of files.slice(0, 400)) {
         try {
-          codeSample.push({ rel: relative(projectRoot, f.path).replaceAll("\\", "/"), content: readFileSync9(f.path, "utf8") });
+          codeSample.push({ rel: relative(projectRoot, f.path).replaceAll("\\", "/"), content: readFileSync10(f.path, "utf8") });
         } catch {}
       }
       const pairs = cochange.pairs.map((p) => {
@@ -4984,12 +5149,12 @@ class SessionLog {
 }
 
 // src/core/constitution.ts
-import { readFileSync as readFileSync10, writeFileSync as writeFileSync4 } from "node:fs";
+import { readFileSync as readFileSync11, writeFileSync as writeFileSync4 } from "node:fs";
 import { join as join12 } from "node:path";
 var FILE3 = "constitution.json";
 function readConstitution(dataDir) {
   try {
-    const j = JSON.parse(readFileSync10(join12(dataDir, FILE3), "utf8"));
+    const j = JSON.parse(readFileSync11(join12(dataDir, FILE3), "utf8"));
     if (!Array.isArray(j.pairs))
       return null;
     const pairs = j.pairs.filter((p) => typeof p?.goal === "string" && typeof p?.constraint === "string" && p.goal.trim().length > 0);
@@ -5230,7 +5395,7 @@ function renderUtility(rows) {
 }
 
 // src/hooks/session-start-core.ts
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync12, appendFileSync } from "node:fs";
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync13, appendFileSync } from "node:fs";
 import { basename as basename2, join as join15 } from "node:path";
 
 // src/hooks/git-state.ts
@@ -5355,7 +5520,7 @@ function reconstructEntry(db, thread, dirty, nowMs) {
 }
 
 // src/hooks/diagnose.ts
-import { readFileSync as readFileSync11, readdirSync as readdirSync2 } from "node:fs";
+import { readFileSync as readFileSync12, readdirSync as readdirSync2 } from "node:fs";
 import { join as join14 } from "node:path";
 var EXPECTED = ["userpromptsubmit", "stop"];
 var SILENT_SESSIONS = 3;
@@ -5378,7 +5543,7 @@ function readBeats(dataDir) {
   try {
     return readdirSync2(dataDir).filter((f) => f.startsWith("heartbeat-") && f.endsWith(".json")).map((f) => {
       try {
-        const j = JSON.parse(readFileSync11(join14(dataDir, f), "utf8"));
+        const j = JSON.parse(readFileSync12(join14(dataDir, f), "utf8"));
         return j.channel && j.at ? { channel: j.channel, at: j.at } : null;
       } catch {
         return null;
@@ -5412,7 +5577,7 @@ function detectCorrections(db, cwd, currentSid) {
   const consume = db.query("DELETE FROM model_state WHERE session_id=? AND file=?");
   for (const r of rows) {
     try {
-      const nowContent = snapshotContent(readFileSync12(join15(cwd, r.file), "utf8"));
+      const nowContent = snapshotContent(readFileSync13(join15(cwd, r.file), "utf8"));
       if (sha1(nowContent) !== r.hash) {
         insert.run(r.file, r.content, r.session_id, new Date().toISOString());
         found++;
@@ -5500,7 +5665,7 @@ ${renderConstitution(constitution)}
 ` : "";
     let summary = "";
     try {
-      summary = readFileSync12(r.summaryPath, "utf8");
+      summary = readFileSync13(r.summaryPath, "utf8");
     } catch {}
     if (!summary.includes("## "))
       summary = "";
@@ -5529,7 +5694,7 @@ ${entryBlock}
 ` : "";
     let frameSection = "";
     try {
-      const frame = readFileSync12(join15(dataDir, "frame.md"), "utf8").trim();
+      const frame = readFileSync13(join15(dataDir, "frame.md"), "utf8").trim();
       if (frame)
         frameSection = `
 ${frame}

@@ -12,7 +12,8 @@
 import { documentsBlock, jsonOnly } from './prompt'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { openDb } from '../core/db'
+import { openDb, type Database } from '../core/db'
+import { sha1 } from '../core/salsa'
 import { FactStore } from '../core/store'
 import type { Fact } from '../miner/facts'
 import type { LlmCaller } from './llm'
@@ -124,21 +125,67 @@ export interface VerbalizeResult {
   rules: VerbalizedRule[]
   journal: { born: number; updated: number; superseded: number }
   merges: Merge[]
+  /** Проход пропущен ранним срезом: материал не менялся с прошлого раза (это не отказ моделей). */
+  cutoff: boolean
+}
+
+/**
+ * Отпечаток материала прохода: законы в промпт + due-формулировки + содержимое
+ * образца. Ключ раннего среза (early cutoff из сборочных систем): если вход
+ * LLM байт-в-байт тот же, что в прошлый успешный проход, повторный вызов
+ * добавил бы только сэмплинговый шум — детерминированная часть ответа уже в
+ * журнале.
+ */
+function materialFingerprint(laws: string[], due: string[], samples: Array<{ file: string; content: string }>): string {
+  return sha1(JSON.stringify({ laws, due, samples: samples.map((s) => [s.file, sha1(s.content)]) }))
+}
+
+function readStoredFingerprint(db: Database): string | null {
+  try {
+    const row = db.query("SELECT value FROM learn_meta WHERE key='layer2_material'").get() as { value: string } | null
+    return row?.value ?? null
+  } catch {
+    return null // таблицы ещё нет — отпечатка нет
+  }
 }
 
 export function runVerbalize(projectRoot: string, dataDir: string, caller: LlmCaller): VerbalizeResult {
   const empty = { born: 0, updated: 0, superseded: 0 }
   const samples = buildSample(projectRoot, dataDir)
-  if (samples.length === 0) return { model: null, rules: [], journal: empty, merges: [] }
+  if (samples.length === 0) return { model: null, rules: [], journal: empty, merges: [], cutoff: false }
 
   const db = openDb(join(dataDir, 'passport.db'))
   try {
     const store = new FactStore(db)
     const laws = store.active().filter((f) => f.tier === 'закон').map((f) => f.statement)
     // FSRS: правила с истёкшим интервалом — на переподтверждение этим же проходом
-    const due = store.dueForReview().map((f) => f.statement)
+    const dueRows = store.dueForReview()
+    const due = dueRows.map((f) => f.statement)
+
+    // Ранний срез (Bazel/Buck2): вход не изменился → LLM не зовём. Честность
+    // среза: due-фактам освежается seen_at БЕЗ роста уверенности — вызов на
+    // идентичном входе подтвердил бы их из того же образца, так что пропуск
+    // ровно настолько же доказателен, насколько был бы сам вызов (и настолько
+    // же ограничен образцом). Уверенность не растёт — как у touchAll.
+    const fp = materialFingerprint(laws, due, samples)
+    if (fp === readStoredFingerprint(db)) {
+      const nowIso = new Date().toISOString()
+      const upd = db.query('UPDATE fact_journal SET seen_at=? WHERE id=?')
+      for (const f of dueRows) upd.run(nowIso, f.id)
+      return { model: null, rules: [], journal: empty, merges: [], cutoff: true }
+    }
+
     const res = caller(buildPrompt(laws, samples, due))
-    if (!res) return { model: null, rules: [], journal: empty, merges: [] }
+    if (!res) return { model: null, rules: [], journal: empty, merges: [], cutoff: false }
+
+    // Отпечаток — только после успешного прохода: неудача не должна
+    // засчитывать материал как «уже осмысленный»
+    try {
+      db.run('CREATE TABLE IF NOT EXISTS learn_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+      db.query("INSERT INTO learn_meta(key,value) VALUES('layer2_material',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(fp)
+    } catch {
+      /* отпечаток — оптимизация; без него проход просто повторится */
+    }
 
     // Сырой ответ — на диск: отфильтрованный ноль должен быть вскрываемым, не тайной
     try {
@@ -156,7 +203,7 @@ export function runVerbalize(projectRoot: string, dataDir: string, caller: LlmCa
     const facts = rules.map((r) => ruleToFact(r, samples.length))
     const journal = store.assertAll(facts, `llm:layer2:${res.model}`)
     const merges = dedupeLlmFacts(db) // садовник: слить почти-дубли сразу после урожая
-    return { model: res.model, rules, journal, merges }
+    return { model: res.model, rules, journal, merges, cutoff: false }
   } finally {
     db.close()
   }

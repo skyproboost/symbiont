@@ -8,7 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb } from '../src/core/db'
-import { noteSurfaced, noteUsed, utilityOf, shouldFeed, rankKinds, renderUtility } from '../src/gardener/utility'
+import { noteSurfaced, noteUsed, utilityOf, shouldFeed, rankKinds, renderUtility, UTILITY_HALF_LIFE_MS } from '../src/gardener/utility'
 import { ensureFeedLog, claimNode, markUsed } from '../src/hooks/node-brief'
 import { handlePostTool } from '../src/hooks/post-tool-core'
 import { buildPassport } from '../src/passport/build'
@@ -47,6 +47,46 @@ describe('оценка вида', () => {
     for (let i = 0; i < 8; i++) noteUsed(db, 'graph')
     expect(shouldFeed(db, 'graph')).toBe(true)
     expect(utilityOf(db, 'graph').score).toBeGreaterThan(0.15)
+    db.close()
+  })
+
+  it('mute — не приговор навсегда: улики затухают, и вид возвращается к молодости', () => {
+    // Поглощающее состояние — задокументированная болезнь рекомендательных
+    // систем: заглушённое никогда не показывается, значит, никогда не
+    // реабилитируется. Затухание счётчиков возвращает surfaced ниже
+    // MIN_SAMPLE — «мнения нет, подаём» — без единой удачной разведки.
+    const db = openDb(':memory:')
+    const t0 = Date.parse('2026-01-01T00:00:00Z')
+    for (let i = 0; i < 30; i++) noteSurfaced(db, 'zone', t0) // 30 подач, 0 пользы
+    expect(shouldFeed(db, 'zone', t0 + 1000)).toBe(false) // заглушён (первая попытка — не разведочная)
+    // Два месяца без подач: 30 × 0.5² = 7.5 < MIN_SAMPLE → снова подаём всегда
+    expect(shouldFeed(db, 'zone', t0 + 2 * UTILITY_HALF_LIFE_MS)).toBe(true)
+    expect(utilityOf(db, 'zone').surfaced).toBeLessThan(12)
+    db.close()
+  })
+
+  it('затухание не меняет долю пользы само по себе — только вес улик', () => {
+    const db = openDb(':memory:')
+    const t0 = Date.parse('2026-01-01T00:00:00Z')
+    for (let i = 0; i < 20; i++) noteSurfaced(db, 'graph', t0)
+    for (let i = 0; i < 10; i++) noteUsed(db, 'graph', t0)
+    const before = utilityOf(db, 'graph').score
+    shouldFeed(db, 'graph', t0 + UTILITY_HALF_LIFE_MS) // сложить затухание
+    const after = utilityOf(db, 'graph')
+    // Оба счётчика умножены на один множитель: сглаженная доля лишь слегка
+    // подтянулась к 0.5 (Лаплас на меньшей выборке), знак вердикта прежний
+    expect(after.surfaced).toBeCloseTo(10, 1)
+    expect(after.used).toBeCloseTo(5, 1)
+    expect(Math.abs(after.score - before)).toBeLessThan(0.05)
+    db.close()
+  })
+
+  it('в масштабе одной сессии счётчики остаются целыми (затухание не складывается)', () => {
+    const db = openDb(':memory:')
+    const t0 = Date.parse('2026-01-01T00:00:00Z')
+    noteSurfaced(db, 'lesson', t0)
+    noteSurfaced(db, 'lesson', t0 + 60_000) // минута спустя — младше часа
+    expect(utilityOf(db, 'lesson').surfaced).toBe(2)
     db.close()
   })
 

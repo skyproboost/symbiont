@@ -11,7 +11,7 @@
 import type { Database } from './db'
 import type { Fact } from '../miner/facts'
 import { t } from './i18n'
-import { initRating, confirmRating, effectiveDeviation, liveTier } from './ratings'
+import { initRating, confirmRating, isSurprise, effectiveDeviation, liveTier } from './ratings'
 import { initialStability, retrievability, confirmStability, isDue } from './schedule'
 
 export interface FactRow extends Fact {
@@ -157,12 +157,16 @@ export class FactStore {
         }
         const next = confirmRating(prev, f.prevalence)
         // FSRS: успешное повторение растит интервал; прирост больше,
-        // если подтверждение пришло ближе к порогу забвения
+        // если подтверждение пришло ближе к порогу забвения. Сюрприз
+        // (замер разошёлся с уверенностью — см. ratings.ts) повторением НЕ
+        // считается: интервал замирает, перепроверка не откладывается.
         const prevStability = current.stability ?? initialStability(current.source)
         const nextStability =
           prevStability === null
             ? null
-            : confirmStability(prevStability, retrievability(prevStability, current.seen_at, Date.parse(now)))
+            : isSurprise(prev, f.prevalence)
+              ? prevStability
+              : confirmStability(prevStability, retrievability(prevStability, current.seen_at, Date.parse(now)))
         this.db
           .query(
             'UPDATE fact_journal SET prevalence=?, positive=?, total=?, seen_at=?, rating=?, deviation=?, stability=?, confirmations=confirmations+1 WHERE id=?',

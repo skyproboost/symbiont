@@ -30,7 +30,9 @@ const r = runVerbalize(root, dataDir, (prompt) => {
 const sec = Math.round((performance.now() - t0) / 1000)
 for (const a of attempts) console.log(`  проба ${a.model}: ${a.ok ? '✓' : '✗'} · ${Math.round(a.ms / 1000)}с · ${a.note}`)
 
-if (!r.model) {
+if (r.cutoff) {
+  console.log('Материал не менялся с прошлого прохода (законы, due-правила и образец байт-в-байт те же) — модель не вызывалась, правила с истёкшим интервалом освежены. Это ранний срез, не ошибка.')
+} else if (!r.model) {
   console.log('Не удалось: нет паспорта/графа или все модели цепочки недоступны.')
 } else if (r.rules.length === 0) {
   console.log(`Модель ${r.model} за ${sec}с не вывела правил, прошедших строгий фильтр (≥3 подтверждения, валидный формат). Это честный ноль, не ошибка.`)

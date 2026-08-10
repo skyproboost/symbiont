@@ -1,7 +1,7 @@
 import {
   fileMetrics
-} from "./session-start-djk6q8qh.js";
-import"./session-start-70d7ckvt.js";
+} from "./session-start-penbn1w9.js";
+import"./session-start-rvra3cez.js";
 
 // src/bundle/smoke.ts
 var m = await fileMetrics(".js", `try { f() } catch (e) {}

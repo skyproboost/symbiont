@@ -2,7 +2,7 @@ import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./session-start-yq1xf3ee.js";
+} from "./session-start-sv68xggb.js";
 import {
   addMetrics,
   astSource,
@@ -10,13 +10,13 @@ import {
   collectMetrics,
   withRoot,
   zeroMetrics
-} from "./session-start-djk6q8qh.js";
+} from "./session-start-penbn1w9.js";
 import {
   buildGroundingPrompt,
   dueForGrounding,
   parseGrounding,
   storeGrounding
-} from "./session-start-tsrqywmw.js";
+} from "./session-start-eqtg8smr.js";
 import {
   PLAYBOOKS
 } from "./session-start-8ychq3hk.js";
@@ -26,12 +26,12 @@ import {
   recordLesson,
   runZSummaries,
   zoneOf
-} from "./session-start-g3kq6xfd.js";
+} from "./session-start-1p1g6x0j.js";
 import {
   buildRulesPrompt,
   parseRules,
   storeRules
-} from "./session-start-gva85vn5.js";
+} from "./session-start-kg15phns.js";
 import {
   collectOutline,
   ensureSymbols,
@@ -67,10 +67,10 @@ import {
   sha1,
   t,
   walkFiles
-} from "./session-start-daqc63bv.js";
+} from "./session-start-fhfq0nbs.js";
 import {
   __require
-} from "./session-start-70d7ckvt.js";
+} from "./session-start-rvra3cez.js";
 
 // src/gardener/works.ts
 import { readFileSync as readFileSync4, existsSync as existsSync2 } from "node:fs";
@@ -413,19 +413,43 @@ function ruleToFact(rule, sampleSize) {
     tier
   };
 }
+function materialFingerprint(laws, due, samples) {
+  return sha1(JSON.stringify({ laws, due, samples: samples.map((s) => [s.file, sha1(s.content)]) }));
+}
+function readStoredFingerprint(db) {
+  try {
+    const row = db.query("SELECT value FROM learn_meta WHERE key='layer2_material'").get();
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
 function runVerbalize(projectRoot, dataDir, caller) {
   const empty = { born: 0, updated: 0, superseded: 0 };
   const samples = buildSample(projectRoot, dataDir);
   if (samples.length === 0)
-    return { model: null, rules: [], journal: empty, merges: [] };
+    return { model: null, rules: [], journal: empty, merges: [], cutoff: false };
   const db = openDb(join(dataDir, "passport.db"));
   try {
     const store = new FactStore(db);
     const laws = store.active().filter((f) => f.tier === "закон").map((f) => f.statement);
-    const due = store.dueForReview().map((f) => f.statement);
+    const dueRows = store.dueForReview();
+    const due = dueRows.map((f) => f.statement);
+    const fp = materialFingerprint(laws, due, samples);
+    if (fp === readStoredFingerprint(db)) {
+      const nowIso = new Date().toISOString();
+      const upd = db.query("UPDATE fact_journal SET seen_at=? WHERE id=?");
+      for (const f of dueRows)
+        upd.run(nowIso, f.id);
+      return { model: null, rules: [], journal: empty, merges: [], cutoff: true };
+    }
     const res = caller(buildPrompt(laws, samples, due));
     if (!res)
-      return { model: null, rules: [], journal: empty, merges: [] };
+      return { model: null, rules: [], journal: empty, merges: [], cutoff: false };
+    try {
+      db.run("CREATE TABLE IF NOT EXISTS learn_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+      db.query("INSERT INTO learn_meta(key,value) VALUES('layer2_material',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(fp);
+    } catch {}
     try {
       const { writeFileSync } = __require("node:fs");
       writeFileSync(join(dataDir, "layer2-last.json"), JSON.stringify({ model: res.model, at: new Date().toISOString(), raw: res.text }, null, 1), "utf8");
@@ -434,7 +458,7 @@ function runVerbalize(projectRoot, dataDir, caller) {
     const facts = rules.map((r) => ruleToFact(r, samples.length));
     const journal = store.assertAll(facts, `llm:layer2:${res.model}`);
     const merges = dedupeLlmFacts(db);
-    return { model: res.model, rules, journal, merges };
+    return { model: res.model, rules, journal, merges, cutoff: false };
   } finally {
     db.close();
   }
@@ -700,6 +724,8 @@ var verbalizeWork = {
   run: (ctx) => {
     const tried = [];
     const v = runVerbalize(ctx.projectRoot, ctx.dataDir, deepCaller(ctx, "вербализация конвенций", tried));
+    if (v.cutoff)
+      return t("материал не менялся — проход пропущен, правила освежены", "material unchanged — pass skipped, rules refreshed");
     if (!v.model)
       throw new Error(explainNoAnswer(tried));
     if (v.journal.born === 0 && v.journal.updated === 0)

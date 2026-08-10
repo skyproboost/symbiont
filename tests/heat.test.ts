@@ -11,6 +11,9 @@ import {
   hotFiles,
   readHeatRows,
   HEAT_HALF_LIFE_MS,
+  HEAT_CAP,
+  READ_TOUCH_WEIGHT,
+  EDIT_TOUCH_WEIGHT,
   type HeatRow,
 } from '../src/graph/heat'
 import { slugOf } from '../src/hooks/session-start-core'
@@ -38,6 +41,25 @@ describe('bumpHeat — бамп поверх остывшего', () => {
     expect((db.query('SELECT heat FROM node_heat WHERE file=?').get('a.ts') as { heat: number }).heat).toBeCloseTo(1.0, 5)
     bumpHeat(db, 'a.ts', iso(T0 + HEAT_HALF_LIFE_MS))
     expect((db.query('SELECT heat FROM node_heat WHERE file=?').get('a.ts') as { heat: number }).heat).toBeCloseTo(1.5, 5)
+    db.close()
+  })
+  it('правка греет сильнее чтения (вес касания)', () => {
+    const db = openDb(':memory:')
+    bumpHeat(db, 'r.ts', iso(T0), READ_TOUCH_WEIGHT)
+    bumpHeat(db, 'e.ts', iso(T0), EDIT_TOUCH_WEIGHT)
+    const heat = (f: string): number => (db.query('SELECT heat FROM node_heat WHERE file=?').get(f) as { heat: number }).heat
+    expect(heat('e.ts')).toBeCloseTo(4 * heat('r.ts'), 5)
+    db.close()
+  })
+  it('кап насыщения: шлифовка одного файла не растит тепло бесконечно', () => {
+    // Без капа длинная сессия в одном файле держала бы узел «горячим»
+    // неделями, перевешивая всю остальную работу (болезнь, от которой Chrome
+    // ввёл дневной потолок начисления Site Engagement)
+    const db = openDb(':memory:')
+    for (let i = 0; i < 50; i++) bumpHeat(db, 'grind.ts', iso(T0 + i * 60_000), EDIT_TOUCH_WEIGHT)
+    const h = (db.query('SELECT heat FROM node_heat WHERE file=?').get('grind.ts') as { heat: number }).heat
+    expect(h).toBeLessThanOrEqual(HEAT_CAP)
+    expect(h).toBeCloseTo(HEAT_CAP, 5)
     db.close()
   })
   it('разные файлы независимы', () => {

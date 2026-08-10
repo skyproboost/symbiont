@@ -13,13 +13,26 @@
  * тронуто» (детерминированный прокси, не LLM-судья) и получает оценку. Плохо
  * работающий вид перестаёт занимать окно; хорошо работающий остаётся.
  *
- * Две защиты от вырождения, обе обязательны:
+ * Три защиты от вырождения, все обязательны:
  * 1) сглаживание Лапласа — вид не хоронится по двум неудачам (малая выборка
  *    иначе даёт 0% и приговор навсегда);
  * 2) детерминированное исследование — заглушённый вид периодически получает
  *    шанс. Без этого система замерзает в первой случайной оценке и никогда не
  *    узнает, что проект изменился (ε-greedy, только без случайности: счётчик
- *    подач воспроизводим и отлаживается глазами).
+ *    подач воспроизводим и отлаживается глазами);
+ * 3) затухание улик — счётчики экспоненциально стареют (полураспад месяц),
+ *    и это снимает две болезни разом. Поглощающее состояние: без затухания
+ *    вид, заглушённый по нерепрезентативной неделе, оставался бы мёртвым,
+ *    пока разведка не выиграет много раз ПОДРЯД против всей накопленной
+ *    истории. Инерция ветерана: у вида с сотнями подач свежая перемена
+ *    проекта тонула бы в древних счётчиках. С затуханием выборка сама
+ *    возвращается ниже MIN_SAMPLE («мнения нет — подаём»), а вес наблюдения
+ *    определяется его свежестью. Это дисконтированный бандит (семейство
+ *    discounted Thompson sampling), но БЕЗ случайности выбора: сэмплинг из
+ *    Beta-постериора отвергнут по той же причине, что и ε-greedy со
+ *    случайностью, — решение о подаче обязано воспроизводиться и
+ *    отлаживаться глазами. Затухание складывается в счётчики ПРИ ЗАПИСИ
+ *    (forward decay, как у тепла узлов): фоновых пересчётов нет.
  */
 import type { Database } from '../core/db'
 import { t } from '../core/i18n'
@@ -41,6 +54,20 @@ const MUTE_SCORE = 0.15
 const MIN_SAMPLE = 12
 /** Каждая N-я подача заглушённого вида — разведка боем. */
 const EXPLORE_EVERY = 10
+/**
+ * Полураспад улик окупаемости: месяц. Короче полураспада тепла (3 дня) на
+ * порядок нельзя — окупаемость меряется редкими событиями (подача → правка),
+ * и недельная память не набирала бы MIN_SAMPLE никогда; длиннее квартала —
+ * возвращается инерция ветерана. Месяц даёт вечный mute длиной ~1.5–2 месяца
+ * даже без единой удачной разведки: surfaced сам падает ниже MIN_SAMPLE.
+ */
+export const UTILITY_HALF_LIFE_MS = 30 * 24 * 3600_000
+/**
+ * Затухание складывается в счётчики не чаще раза в час: на масштабе одной
+ * сессии множитель неотличим от единицы, а целочисленные счётчики остаются
+ * целыми — их можно читать глазами и сверять с журналом подач.
+ */
+const FOLD_MIN_AGE_MS = 3600_000
 
 export function ensureUtilityTable(db: Database): void {
   db.run('CREATE TABLE IF NOT EXISTS feed_utility(kind TEXT PRIMARY KEY, surfaced INTEGER NOT NULL, used INTEGER NOT NULL)')
@@ -50,27 +77,61 @@ export function ensureUtilityTable(db: Database): void {
   // «каждая N-я» становится вечно истинным — вид не глушится вообще.
   const cols = (db.query('PRAGMA table_info(feed_utility)').all() as Array<{ name: string }>).map((c) => c.name)
   if (!cols.includes('attempts')) db.run('ALTER TABLE feed_utility ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0')
+  // decayed_at — отметка последнего сложения затухания (не последней подачи!):
+  // счётчики стареют от неё, и складывать можно идемпотентно в любом канале.
+  if (!cols.includes('decayed_at')) db.run('ALTER TABLE feed_utility ADD COLUMN decayed_at TEXT')
+}
+
+/**
+ * Сложить затухание в счётчики вида по возрасту отметки decayed_at.
+ * Оба счётчика умножаются на ОДИН множитель, поэтому чистое затухание не
+ * меняет долю пользы — оно возвращает вид к молодости (surfaced ↓ к
+ * MIN_SAMPLE) и снижает вес старых наблюдений против свежих. Вызывается из
+ * всех точек записи и из решения о подаче: заглушённый вид не пишется, но
+ * решение о нём принимается — старение обязано дойти и туда.
+ */
+function foldDecay(db: Database, kind: FeedKind, nowMs: number): void {
+  const row = db.query('SELECT surfaced, used, decayed_at FROM feed_utility WHERE kind=?').get(kind) as
+    | { surfaced: number; used: number; decayed_at: string | null }
+    | null
+  if (!row) return
+  if (row.decayed_at === null) {
+    // Строка из-до-миграции: возраст неизвестен — считаем свежей, не гадаем
+    db.query('UPDATE feed_utility SET decayed_at=? WHERE kind=?').run(new Date(nowMs).toISOString(), kind)
+    return
+  }
+  const age = nowMs - Date.parse(row.decayed_at)
+  if (!Number.isFinite(age) || age < FOLD_MIN_AGE_MS) return
+  const k = Math.pow(0.5, age / UTILITY_HALF_LIFE_MS)
+  db.query('UPDATE feed_utility SET surfaced=?, used=?, decayed_at=? WHERE kind=?').run(
+    row.surfaced * k,
+    row.used * k,
+    new Date(nowMs).toISOString(),
+    kind,
+  )
 }
 
 /** Зафиксировать факт подачи вида (вызывается, когда блок реально ушёл в контекст). */
-export function noteSurfaced(db: Database, kind: FeedKind): void {
+export function noteSurfaced(db: Database, kind: FeedKind, nowMs = Date.now()): void {
   try {
     ensureUtilityTable(db)
+    foldDecay(db, kind, nowMs)
     db.query(
-      'INSERT INTO feed_utility(kind, surfaced, used) VALUES(?,1,0) ON CONFLICT(kind) DO UPDATE SET surfaced=surfaced+1',
-    ).run(kind)
+      'INSERT INTO feed_utility(kind, surfaced, used, decayed_at) VALUES(?,1,0,?) ON CONFLICT(kind) DO UPDATE SET surfaced=surfaced+1',
+    ).run(kind, new Date(nowMs).toISOString())
   } catch {
     /* учёт полезности — обогащение, подача важнее своей статистики */
   }
 }
 
 /** Зафиксировать пользу: поданное этим видом знание было использовано. */
-export function noteUsed(db: Database, kind: FeedKind): void {
+export function noteUsed(db: Database, kind: FeedKind, nowMs = Date.now()): void {
   try {
     ensureUtilityTable(db)
+    foldDecay(db, kind, nowMs)
     db.query(
-      'INSERT INTO feed_utility(kind, surfaced, used) VALUES(?,1,1) ON CONFLICT(kind) DO UPDATE SET used=used+1',
-    ).run(kind)
+      'INSERT INTO feed_utility(kind, surfaced, used, decayed_at) VALUES(?,1,1,?) ON CONFLICT(kind) DO UPDATE SET used=used+1',
+    ).run(kind, new Date(nowMs).toISOString())
   } catch {
     /* см. выше */
   }
@@ -97,9 +158,19 @@ export function utilityOf(db: Database, kind: FeedKind): Utility {
 /**
  * Подавать ли вид сейчас. Молодой вид подаётся всегда (нет выборки — нет
  * приговора); окупающийся подаётся; заглушённый выходит на разведку каждую
- * EXPLORE_EVERY-ю подачу, чтобы система могла заметить перемену.
+ * EXPLORE_EVERY-ю подачу, чтобы система могла заметить перемену; и любой
+ * приговор стареет — затухание счётчиков само возвращает вид к «молодости»,
+ * если проект долго жил без его подач.
  */
-export function shouldFeed(db: Database, kind: FeedKind): boolean {
+export function shouldFeed(db: Database, kind: FeedKind, nowMs = Date.now()): boolean {
+  try {
+    ensureUtilityTable(db)
+    // Затухание обязано дойти и до заглушённого вида: его не подают (записей
+    // нет), но решение о нём принимается здесь — здесь счётчики и стареют.
+    foldDecay(db, kind, nowMs)
+  } catch {
+    /* старение — обогащение решения; свежесть счётчиков не критична */
+  }
   const u = utilityOf(db, kind)
   if (u.surfaced < MIN_SAMPLE) return true
   if (u.score >= MUTE_SCORE) return true
@@ -144,6 +215,7 @@ export function renderUtility(rows: Utility[]): string {
   const shown = rows
     .filter((r) => r.surfaced > 0)
     .slice(0, 6)
-    .map((r) => `${r.kind} ${Math.round(r.score * 100)}% (${r.used}/${r.surfaced})`)
+    // Счётчики после сложения затухания дробные — наружу целые (это оценка веса улик, не журнал событий)
+    .map((r) => `${r.kind} ${Math.round(r.score * 100)}% (${Math.round(r.used)}/${Math.round(r.surfaced)})`)
   return shown.length > 0 ? `${t('окупаемость подачи', 'feed payback')}: ${shown.join(' · ')}` : ''
 }

@@ -3,7 +3,7 @@ import {
   __export,
   __require,
   __toCommonJS
-} from "./session-start-70d7ckvt.js";
+} from "./session-start-rvra3cez.js";
 
 // src/core/i18n.ts
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -855,7 +855,16 @@ function initRating(source, prevalence, total) {
   }
   return { rating: prevalence, deviation: clamp(1 / Math.sqrt(Math.max(total, 1)), 0.03, 0.35) };
 }
+var SURPRISE_GAP = 0.1;
+function isSurprise(prev, newPrevalence) {
+  return Math.abs(newPrevalence - prev.rating) > SURPRISE_GAP;
+}
 function confirmRating(prev, newPrevalence) {
+  if (isSurprise(prev, newPrevalence)) {
+    const deviation = Math.min(prev.deviation + Math.abs(newPrevalence - prev.rating), 0.35);
+    const w2 = Math.min(deviation * 2, 0.5);
+    return { rating: prev.rating * (1 - w2) + newPrevalence * w2, deviation };
+  }
   const w = Math.min(prev.deviation * 2, 0.5);
   return {
     rating: prev.rating * (1 - w) + newPrevalence * w,
@@ -995,7 +1004,7 @@ class FactStore {
         };
         const next = confirmRating(prev, f.prevalence);
         const prevStability = current2.stability ?? initialStability(current2.source);
-        const nextStability = prevStability === null ? null : confirmStability(prevStability, retrievability(prevStability, current2.seen_at, Date.parse(now)));
+        const nextStability = prevStability === null ? null : isSurprise(prev, f.prevalence) ? prevStability : confirmStability(prevStability, retrievability(prevStability, current2.seen_at, Date.parse(now)));
         this.db.query("UPDATE fact_journal SET prevalence=?, positive=?, total=?, seen_at=?, rating=?, deviation=?, stability=?, confirmations=confirmations+1 WHERE id=?").run(f.prevalence, f.positive, f.total, now, next.rating, next.deviation, nextStability, current2.id);
         updated++;
         continue;
@@ -4719,7 +4728,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-fac07c336885";
+    return "bundle-2f8f4b88632e";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5330,22 +5339,42 @@ init_i18n();
 var MUTE_SCORE = 0.15;
 var MIN_SAMPLE = 12;
 var EXPLORE_EVERY = 10;
+var UTILITY_HALF_LIFE_MS = 30 * 24 * 3600000;
+var FOLD_MIN_AGE_MS = 3600000;
 function ensureUtilityTable(db) {
   db.run("CREATE TABLE IF NOT EXISTS feed_utility(kind TEXT PRIMARY KEY, surfaced INTEGER NOT NULL, used INTEGER NOT NULL)");
   const cols = db.query("PRAGMA table_info(feed_utility)").all().map((c) => c.name);
   if (!cols.includes("attempts"))
     db.run("ALTER TABLE feed_utility ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0");
+  if (!cols.includes("decayed_at"))
+    db.run("ALTER TABLE feed_utility ADD COLUMN decayed_at TEXT");
 }
-function noteSurfaced(db, kind) {
+function foldDecay(db, kind, nowMs) {
+  const row = db.query("SELECT surfaced, used, decayed_at FROM feed_utility WHERE kind=?").get(kind);
+  if (!row)
+    return;
+  if (row.decayed_at === null) {
+    db.query("UPDATE feed_utility SET decayed_at=? WHERE kind=?").run(new Date(nowMs).toISOString(), kind);
+    return;
+  }
+  const age = nowMs - Date.parse(row.decayed_at);
+  if (!Number.isFinite(age) || age < FOLD_MIN_AGE_MS)
+    return;
+  const k = Math.pow(0.5, age / UTILITY_HALF_LIFE_MS);
+  db.query("UPDATE feed_utility SET surfaced=?, used=?, decayed_at=? WHERE kind=?").run(row.surfaced * k, row.used * k, new Date(nowMs).toISOString(), kind);
+}
+function noteSurfaced(db, kind, nowMs = Date.now()) {
   try {
     ensureUtilityTable(db);
-    db.query("INSERT INTO feed_utility(kind, surfaced, used) VALUES(?,1,0) ON CONFLICT(kind) DO UPDATE SET surfaced=surfaced+1").run(kind);
+    foldDecay(db, kind, nowMs);
+    db.query("INSERT INTO feed_utility(kind, surfaced, used, decayed_at) VALUES(?,1,0,?) ON CONFLICT(kind) DO UPDATE SET surfaced=surfaced+1").run(kind, new Date(nowMs).toISOString());
   } catch {}
 }
-function noteUsed(db, kind) {
+function noteUsed(db, kind, nowMs = Date.now()) {
   try {
     ensureUtilityTable(db);
-    db.query("INSERT INTO feed_utility(kind, surfaced, used) VALUES(?,1,1) ON CONFLICT(kind) DO UPDATE SET used=used+1").run(kind);
+    foldDecay(db, kind, nowMs);
+    db.query("INSERT INTO feed_utility(kind, surfaced, used, decayed_at) VALUES(?,1,1,?) ON CONFLICT(kind) DO UPDATE SET used=used+1").run(kind, new Date(nowMs).toISOString());
   } catch {}
 }
 function utilityOf(db, kind) {
@@ -5359,7 +5388,11 @@ function utilityOf(db, kind) {
     return { kind, surfaced: 0, used: 0, score: 0.5 };
   }
 }
-function shouldFeed(db, kind) {
+function shouldFeed(db, kind, nowMs = Date.now()) {
+  try {
+    ensureUtilityTable(db);
+    foldDecay(db, kind, nowMs);
+  } catch {}
   const u = utilityOf(db, kind);
   if (u.surfaced < MIN_SAMPLE)
     return true;
@@ -5390,7 +5423,7 @@ function mutedKinds(db) {
 function renderUtility(rows) {
   if (rows.length === 0)
     return "";
-  const shown = rows.filter((r) => r.surfaced > 0).slice(0, 6).map((r) => `${r.kind} ${Math.round(r.score * 100)}% (${r.used}/${r.surfaced})`);
+  const shown = rows.filter((r) => r.surfaced > 0).slice(0, 6).map((r) => `${r.kind} ${Math.round(r.score * 100)}% (${Math.round(r.used)}/${Math.round(r.surfaced)})`);
   return shown.length > 0 ? `${t("окупаемость подачи", "feed payback")}: ${shown.join(" · ")}` : "";
 }
 
@@ -5444,6 +5477,9 @@ function renderGitBlock(g, reconciledDirty) {
 
 // src/graph/heat.ts
 var HEAT_HALF_LIFE_MS = 3 * 24 * 60 * 60 * 1000;
+var READ_TOUCH_WEIGHT = 1;
+var EDIT_TOUCH_WEIGHT = 4;
+var HEAT_CAP = 10;
 function decayHeat(heat, ageMs, halfLifeMs = HEAT_HALF_LIFE_MS) {
   if (!Number.isFinite(ageMs) || ageMs <= 0)
     return heat;
@@ -5452,11 +5488,11 @@ function decayHeat(heat, ageMs, halfLifeMs = HEAT_HALF_LIFE_MS) {
 function ensureHeatTable(db) {
   db.run("CREATE TABLE IF NOT EXISTS node_heat(file TEXT PRIMARY KEY, heat REAL NOT NULL, updated_at TEXT NOT NULL)");
 }
-function bumpHeat(db, file, nowIso) {
+function bumpHeat(db, file, nowIso, weight = READ_TOUCH_WEIGHT) {
   ensureHeatTable(db);
   const row = db.query("SELECT heat, updated_at FROM node_heat WHERE file=?").get(file);
   const decayed = row ? decayHeat(row.heat, Date.parse(nowIso) - Date.parse(row.updated_at)) : 0;
-  db.query("INSERT INTO node_heat(file, heat, updated_at) VALUES(?,?,?) ON CONFLICT(file) DO UPDATE SET heat=excluded.heat, updated_at=excluded.updated_at").run(file, decayed + 1, nowIso);
+  db.query("INSERT INTO node_heat(file, heat, updated_at) VALUES(?,?,?) ON CONFLICT(file) DO UPDATE SET heat=excluded.heat, updated_at=excluded.updated_at").run(file, Math.min(decayed + weight, HEAT_CAP), nowIso);
 }
 function effectiveHeat(rows, nowMs, halfLifeMs = HEAT_HALF_LIFE_MS) {
   const out = new Map;
@@ -5717,4 +5753,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };
+export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };

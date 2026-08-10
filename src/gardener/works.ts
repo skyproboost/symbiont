@@ -189,6 +189,8 @@ const verbalizeWork: Work = {
   run: (ctx) => {
     const tried: LlmAttempt[] = []
     const v = runVerbalize(ctx.projectRoot, ctx.dataDir, deepCaller(ctx, 'вербализация конвенций', tried))
+    // Ранний срез — не отказ моделей: материал не менялся, due освежены без вызова
+    if (v.cutoff) return t('материал не менялся — проход пропущен, правила освежены', 'material unchanged — pass skipped, rules refreshed')
     if (!v.model) throw new Error(explainNoAnswer(tried))
     if (v.journal.born === 0 && v.journal.updated === 0) return null
     return t(`правил +${v.journal.born}, подтверждено ${v.journal.updated}`, `rules +${v.journal.born}, confirmed ${v.journal.updated}`)

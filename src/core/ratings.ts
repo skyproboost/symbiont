@@ -27,7 +27,33 @@ export function initRating(source: string, prevalence: number, total: number): R
   return { rating: prevalence, deviation: clamp(1 / Math.sqrt(Math.max(total, 1)), 0.03, 0.35) }
 }
 
+/**
+ * Порог сюрприза: расхождение свежего замера с накопленным рейтингом больше
+ * этого — не «подтверждение похуже», а сигнал, что мир изменился. Величина
+ * выбрана выше шума перемеров живого проекта (правки двигают долю на сотые)
+ * и ниже смены вердикта (та идёт вытеснением, не сюда).
+ */
+export const SURPRISE_GAP = 0.1
+
+/** Сюрприз ли свежий замер относительно накопленной уверенности (единственное место определения). */
+export function isSurprise(prev: Rating, newPrevalence: number): boolean {
+  return Math.abs(newPrevalence - prev.rating) > SURPRISE_GAP
+}
+
 export function confirmRating(prev: Rating, newPrevalence: number): Rating {
+  if (isSurprise(prev, newPrevalence)) {
+    // Деоптимизация (паттерн V8: сломанное предположение снимает оптимизацию
+    // МГНОВЕННО, а не при следующей профилировке). Без этой ветви закон с
+    // малым отклонением реагировал бы на смену мира весом w≈0.1 за замер —
+    // месяцы принуждения гейтом правила, которое проект уже отменил.
+    // Отклонение раздувается на величину сюрприза (ярус падает сейчас),
+    // рейтинг тянется к свежему уже с весом раздутой неуверенности.
+    // Отвергнуто: немедленный сброс рейтинга к замеру — одиночный аномальный
+    // перемер (полурефакторинг, срез по подкаталогу) стирал бы годы улик.
+    const deviation = Math.min(prev.deviation + Math.abs(newPrevalence - prev.rating), 0.35)
+    const w = Math.min(deviation * 2, 0.5)
+    return { rating: prev.rating * (1 - w) + newPrevalence * w, deviation }
+  }
   const w = Math.min(prev.deviation * 2, 0.5) // чем неувереннее — тем сильнее тянет к свежему
   return {
     rating: prev.rating * (1 - w) + newPrevalence * w,

@@ -24,6 +24,7 @@ import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
 import { ensureFeedLog, markUsed, outlineKey } from './node-brief'
 import { touchFeed } from './touch-feed'
+import { EDIT_TOUCH_WEIGHT, READ_TOUCH_WEIGHT } from '../graph/heat'
 import { fileDomains } from '../passport/stack'
 import { zoneAncestors } from '../passport/cascade'
 import { zoneOf } from '../gardener/lessons'
@@ -164,8 +165,9 @@ export function handlePostTool(input: PostToolInput, dataRoot: string): PostTool
         }
       }
 
-      // 2) Дар по касанию — тот же код, что и у канала до чтения (touch-feed.ts)
-      lines.push(...touchFeed(db, sid, rel, 'graph'))
+      // 2) Дар по касанию — тот же код, что и у канала до чтения (touch-feed.ts).
+      // Правка греет узел сильнее чтения: чтение — разведка, правка — решение
+      lines.push(...touchFeed(db, sid, rel, 'graph', WRITE_TOOLS.has(tool) ? EDIT_TOUCH_WEIGHT : READ_TOUCH_WEIGHT))
 
       if (lines.length === 0) return {}
       return {

@@ -85,7 +85,36 @@ describe('runVerbalize с фейковым LLM', () => {
     expect(row.tier).toBe('привычка')
   })
 
+  it('ранний срез: материал не менялся — модель не вызывается', () => {
+    // Вход прошлого успешного прохода байт-в-байт тот же → повторный вызов
+    // дал бы только сэмплинговый шум; срез экономит единственную дорогую
+    // стадию петли
+    let called = 0
+    const fake = () => {
+      called++
+      return { model: 'fake', text: '[]' }
+    }
+    const r = runVerbalize(proj, dataDir, fake)
+    expect(r.cutoff).toBe(true)
+    expect(r.model).toBeNull()
+    expect(called).toBe(0)
+  })
+
+  it('материал изменился — срез снят, модель вызвана', () => {
+    writeFileSync(join(proj, 'lib', 'core.js'), 'var changed = 2;\n'.repeat(8))
+    let called = 0
+    const fake = () => {
+      called++
+      return { model: 'fake', text: '[]' }
+    }
+    const r = runVerbalize(proj, dataDir, fake)
+    expect(r.cutoff).toBe(false)
+    expect(called).toBe(1)
+  })
+
   it('LLM вернул мусор — ноль фактов, журнал не тронут', () => {
+    // Материал меняется (иначе сработал бы ранний срез и вызов не состоялся)
+    writeFileSync(join(proj, 'lib', 'err.js'), 'var E = { fail: 2 };\nmodule.exports = E;\n'.repeat(6))
     const before = (() => {
       const db = openDb(join(dataDir, 'passport.db'))
       const n = (db.query('SELECT COUNT(*) n FROM fact_journal').get() as { n: number }).n

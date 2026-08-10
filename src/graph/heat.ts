@@ -16,6 +16,26 @@ import type { Database } from '../core/db'
 /** Полураспад тепла: за это время тепло падает вдвое. 3 суток — остывает между сессиями, переживает паузы в часах. */
 export const HEAT_HALF_LIFE_MS = 3 * 24 * 60 * 60 * 1000
 
+/**
+ * Веса касаний: правка греет сильнее чтения. Канон frecency (Firefox): визит
+ * «набрал руками» весит на порядок больше «прошёл по ссылке» — намерение
+ * различимо по типу действия. Здесь то же: чтение — разведка (файл мог быть
+ * открыт и отброшен), правка — решение. Один вес на оба (как было) заставлял
+ * пролистанное соседствовать в сиде PPR с реально переделанным.
+ */
+export const READ_TOUCH_WEIGHT = 1
+export const EDIT_TOUCH_WEIGHT = 4
+
+/**
+ * Кап тепла (Chrome Site Engagement: дневной потолок начисления). Без капа
+ * одна долгая сессия в одном файле накапливает десятки единиц и держит узел
+ * «горячим» неделями, перевешивая всю остальную работу; горизонт господства
+ * растёт логарифмически с числом касаний и не ограничен. С капом 10 даже
+ * бесконечная шлифовка остывает до порога hotFiles (0.5) за ~13 суток —
+ * тепло остаётся памятью о РАБОЧЕМ НАБОРЕ, а не рейтингом усидчивости.
+ */
+export const HEAT_CAP = 10
+
 /** Forward decay: тепло в момент now по отметке ts. Возраст назад/битьё → как есть/0. */
 export function decayHeat(heat: number, ageMs: number, halfLifeMs = HEAT_HALF_LIFE_MS): number {
   if (!Number.isFinite(ageMs) || ageMs <= 0) return heat
@@ -32,14 +52,14 @@ export function ensureHeatTable(db: Database): void {
   db.run('CREATE TABLE IF NOT EXISTS node_heat(file TEXT PRIMARY KEY, heat REAL NOT NULL, updated_at TEXT NOT NULL)')
 }
 
-/** Бамп тепла при касании узла: остудить прежнее по возрасту + 1.0. Идемпотентно по (file). */
-export function bumpHeat(db: Database, file: string, nowIso: string): void {
+/** Бамп тепла при касании узла: остудить прежнее по возрасту + вес касания, не выше капа. Идемпотентно по (file). */
+export function bumpHeat(db: Database, file: string, nowIso: string, weight = READ_TOUCH_WEIGHT): void {
   ensureHeatTable(db)
   const row = db.query('SELECT heat, updated_at FROM node_heat WHERE file=?').get(file) as { heat: number; updated_at: string } | null
   const decayed = row ? decayHeat(row.heat, Date.parse(nowIso) - Date.parse(row.updated_at)) : 0
   db.query(
     'INSERT INTO node_heat(file, heat, updated_at) VALUES(?,?,?) ON CONFLICT(file) DO UPDATE SET heat=excluded.heat, updated_at=excluded.updated_at',
-  ).run(file, decayed + 1.0, nowIso)
+  ).run(file, Math.min(decayed + weight, HEAT_CAP), nowIso)
 }
 
 /** Текущее (остывшее) тепло всех узлов на момент nowMs — карта file→heat. */

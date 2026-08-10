@@ -6,17 +6,16 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-mbakjbsp.js";
+} from "./session-start-mxkjpptq.js";
 import {
   beat,
   initLang,
   init_i18n,
   slugOf
-} from "./session-start-daqc63bv.js";
+} from "./session-start-fhfq0nbs.js";
 import {
-  __require,
-  __toESM
-} from "./session-start-70d7ckvt.js";
+  __require
+} from "./session-start-rvra3cez.js";
 
 // src/hooks/pre-compact.ts
 import { join as join2 } from "node:path";
@@ -43,6 +42,6 @@ var out = handlePreCompact(input, res.root);
 if (out.hookSpecificOutput)
   console.log(JSON.stringify(out));
 try {
-  const { spawnAutoLearnDetached } = await import("./detach-yztnnjde.js");
+  const { spawnAutoLearnDetached } = await import("./detach-8z07t40a.js");
   spawnAutoLearnDetached(input.cwd ?? process.cwd(), res.root);
 } catch {}

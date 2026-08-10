@@ -10,7 +10,7 @@
  */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { openDb } from '../core/db'
+import { openDb, type Database } from '../core/db'
 import { observePrompt, initLang, t, statement } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
 import { slugOf } from './session-start-core'
@@ -50,6 +50,56 @@ const base = (file: string): string => {
   return b
 }
 const baseNoExt = (file: string): string => base(file).replace(/\.[a-z]+$/, '')
+
+/** Канон aider: упомянутый идентификатор — сид ×10 (прямо названный файл — ×50). */
+const SYMBOL_SEED_WEIGHT = 10
+/**
+ * Имя, определённое более чем в стольких файлах, — слишком частое, задачу не
+ * выдаёт (та же семантика «единственность или ничего», что у резолва
+ * импортов). Двойка, а не единица: легитимная пара «реализация + тест»
+ * определяет одно имя в двух файлах, и оба уместны в срезе.
+ */
+const SYMBOL_FILES_MAX = 2
+/** Потолок сидов от символов: промпт-простыня не должна раздувать сид до бессмысленности. */
+const SYMBOL_SEEDS_MAX = 4
+/** Потолок токенов в запросе к индексу: длина промпта не должна превращаться в длину SQL. */
+const SYMBOL_TOKENS_MAX = 40
+
+/**
+ * Файлы, определяющие упомянутые в промпте символы (индекс слоя 1).
+ * Владелец часто называет не файл, а функцию или класс («поправь bumpHeat»);
+ * basename-матчинг в этом случае слеп, а оглавления слоя 1 уже знают, где
+ * символ определён. Частые имена отфильтрованы порогом SYMBOL_FILES_MAX:
+ * `get`/`run` определены везде и свидетельствуют ни о чём.
+ */
+function symbolSeedFiles(db: Database, tokens: string[], exclude: Set<string>): string[] {
+  try {
+    const has = (db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='symbols'").get() as { n: number }).n > 0
+    if (!has || tokens.length === 0) return []
+    const capped = tokens.slice(0, SYMBOL_TOKENS_MAX)
+    const rows = db
+      .query(`SELECT DISTINCT lower(name) AS lname, file FROM symbols WHERE lower(name) IN (${capped.map(() => '?').join(',')})`)
+      .all(...capped) as Array<{ lname: string; file: string }>
+    const byName = new Map<string, string[]>()
+    for (const r of rows) {
+      const list = byName.get(r.lname) ?? []
+      list.push(r.file)
+      byName.set(r.lname, list)
+    }
+    const out: string[] = []
+    for (const files of byName.values()) {
+      if (files.length > SYMBOL_FILES_MAX) continue // частое имя — не сигнал
+      for (const f of files) {
+        if (exclude.has(f) || out.includes(f)) continue
+        out.push(f)
+        if (out.length >= SYMBOL_SEEDS_MAX) return out
+      }
+    }
+    return out
+  } catch {
+    return [] // индекс символов — обогащение сида, не условие подачи
+  }
+}
 
 export function handleUserPrompt(input: UserPromptInput, dataRoot: string): PromptHookOutput {
   try {
@@ -97,20 +147,34 @@ export function handleUserPrompt(input: UserPromptInput, dataRoot: string): Prom
         .sort((a, b) => b.in_deg - a.in_deg)
         .slice(0, MAX_NODES)
 
-      const fresh = matched.filter((n) => claimNode(db, sid, n.file))
+      // Файл упомянутого СИМВОЛА — тоже уверенный матч: имя редкое (порог
+      // SYMBOL_FILES_MAX), связь прямая. Владелец назвал не файл, а функцию —
+      // подача обязана понять его так же, как если бы он назвал файл.
+      const seedFiles = new Set(matched.map((n) => n.file))
+      const symFiles = symbolSeedFiles(db, tokens, seedFiles)
+      const symNodes = symFiles
+        .map((f) => nodes.find((n) => n.file === f))
+        .filter((n): n is { file: string; in_deg: number; out_deg: number } => n !== undefined)
+
+      const fresh = [...matched, ...symNodes].filter((n) => claimNode(db, sid, n.file))
 
       const lines = fresh.map((n) => `- ${nodeBrief(db, n)}`)
 
-      // Персонализированный PageRank от сида задачи (упомянутые файлы ×50):
+      // Персонализированный PageRank от сида задачи (упомянутые файлы ×50,
+      // файлы упомянутых символов ×10 — канон aider «mentioned identifiers»):
       // «связанные по задаче» соседи за пределами прямо названного — граф-
-      // окружение задачи, а не глобальные хабы. Только если есть упоминания.
+      // окружение задачи, а не глобальные хабы. Только если промпт хоть
+      // что-то назвал — файлом или символом.
       let relatedBlock = ''
-      if (matched.length > 0) {
+      if (matched.length > 0 || symFiles.length > 0) {
         const edges = db.query('SELECT from_file, to_file FROM graph_edges').all() as Array<{ from_file: string; to_file: string }>
         if (edges.length > 0) {
           const edgeList: Edge[] = edges.map((e) => ({ from: e.from_file, to: e.to_file }))
-          const seedFiles = new Set(matched.map((n) => n.file))
           const seeds: SeedWeight[] = matched.map((n) => ({ file: n.file, weight: 50 }))
+          for (const sf of symFiles) {
+            seedFiles.add(sf)
+            seeds.push({ file: sf, weight: SYMBOL_SEED_WEIGHT })
+          }
           // Тепло — второй тир сида (×10 недавно тронутым, канон aider): подача
           // учитывает контекст недавней работы, не только упомянутое в промпте.
           const heat = effectiveHeat(readHeatRows(db), Date.now())
@@ -145,8 +209,11 @@ export function handleUserPrompt(input: UserPromptInput, dataRoot: string): Prom
       // Компаундинг уроков: касание зоны → уроки прошлых поправок владельца по
       // этой зоне («здесь уже исправляли X»). Дедуп на сессию по зоне.
       let lessonBlock = ''
-      if (matched.length > 0 && shouldFeed(db, 'lesson')) {
-        const zones = [...new Set(matched.map((n) => zoneOf(n.file)))]
+      // Якорь зоны — и названный файл, и файл упомянутого символа: урок зоны
+      // одинаково уместен, как бы владелец ни назвал место работы
+      const lessonAnchors = [...matched.map((n) => n.file), ...symFiles]
+      if (lessonAnchors.length > 0 && shouldFeed(db, 'lesson')) {
+        const zones = [...new Set(lessonAnchors.map((f) => zoneOf(f)))]
         const freshZones = zones.filter((z) => claimNode(db, sid, `#lesson:${z}`, 'lesson'))
         if (freshZones.length > 0) {
           const lessons = lessonsForZones(db, freshZones, 2)
@@ -175,8 +242,8 @@ export function handleUserPrompt(input: UserPromptInput, dataRoot: string): Prom
       const graphBlock =
         lines.length > 0
           ? `Symbiont · ${t(
-              'срез графа по упомянутым файлам (полный радиус: passport_impact)',
-              'graph slice for the files you mentioned (full radius: passport_impact)',
+              'срез графа по упомянутому в промпте — файлам и символам (полный радиус: passport_impact)',
+              'graph slice for the files and symbols you mentioned (full radius: passport_impact)',
             )}:\n${lines.join('\n')}${depthNote}`
           : ''
       return {

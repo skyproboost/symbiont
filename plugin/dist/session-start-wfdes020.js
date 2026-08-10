@@ -1,7 +1,7 @@
 import {
   readGrounding,
   renderCorrection
-} from "./session-start-tsrqywmw.js";
+} from "./session-start-eqtg8smr.js";
 import {
   playbooksFor,
   renderPlaybookBrief
@@ -12,15 +12,17 @@ import {
   markUsed,
   nodeBrief,
   outlineKey
-} from "./session-start-48reyt5v.js";
+} from "./session-start-32w37wr9.js";
 import {
   zoneOf
-} from "./session-start-g3kq6xfd.js";
+} from "./session-start-1p1g6x0j.js";
 import {
   checkAgainstLaws
-} from "./session-start-7z7c0h4x.js";
+} from "./session-start-pptpkwhc.js";
 import {
+  EDIT_TOUCH_WEIGHT,
   FactStore,
+  READ_TOUCH_WEIGHT,
   beat,
   bumpHeat,
   contentVerifierActive,
@@ -39,7 +41,7 @@ import {
   statement,
   t,
   zoneAncestors
-} from "./session-start-daqc63bv.js";
+} from "./session-start-fhfq0nbs.js";
 
 // src/hooks/post-tool-core.ts
 init_i18n();
@@ -47,12 +49,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 
 // src/hooks/touch-feed.ts
-function touchFeed(db, sid, rel, kind) {
+function touchFeed(db, sid, rel, kind, touchWeight = READ_TOUCH_WEIGHT) {
   const lines = [];
   const node = db.query("SELECT file, in_deg, out_deg FROM graph_nodes WHERE file = ?").get(rel);
   if (node) {
     try {
-      bumpHeat(db, node.file, new Date().toISOString());
+      bumpHeat(db, node.file, new Date().toISOString(), touchWeight);
     } catch {}
     ensureFeedLog(db);
     if (claimNode(db, sid, node.file, kind))
@@ -166,7 +168,7 @@ function handlePostTool(input, dataRoot) {
           }
         }
       }
-      lines.push(...touchFeed(db, sid, rel, "graph"));
+      lines.push(...touchFeed(db, sid, rel, "graph", WRITE_TOOLS.has(tool) ? EDIT_TOUCH_WEIGHT : READ_TOUCH_WEIGHT));
       if (lines.length === 0)
         return {};
       return {

@@ -2,11 +2,11 @@ import {
   claimNode,
   ensureFeedLog,
   nodeBrief
-} from "./session-start-48reyt5v.js";
+} from "./session-start-32w37wr9.js";
 import {
   lessonsForZones,
   zoneOf
-} from "./session-start-g3kq6xfd.js";
+} from "./session-start-1p1g6x0j.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -15,7 +15,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-mbakjbsp.js";
+} from "./session-start-mxkjpptq.js";
 import {
   FactStore,
   beat,
@@ -32,8 +32,8 @@ import {
   statement,
   t,
   taskRelevantNeighbors
-} from "./session-start-daqc63bv.js";
-import"./session-start-70d7ckvt.js";
+} from "./session-start-fhfq0nbs.js";
+import"./session-start-rvra3cez.js";
 
 // src/hooks/user-prompt.ts
 import { join as join2 } from "node:path";
@@ -138,6 +138,40 @@ var base = (file) => {
   return b;
 };
 var baseNoExt = (file) => base(file).replace(/\.[a-z]+$/, "");
+var SYMBOL_SEED_WEIGHT = 10;
+var SYMBOL_FILES_MAX = 2;
+var SYMBOL_SEEDS_MAX = 4;
+var SYMBOL_TOKENS_MAX = 40;
+function symbolSeedFiles(db, tokens, exclude) {
+  try {
+    const has = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='symbols'").get().n > 0;
+    if (!has || tokens.length === 0)
+      return [];
+    const capped = tokens.slice(0, SYMBOL_TOKENS_MAX);
+    const rows = db.query(`SELECT DISTINCT lower(name) AS lname, file FROM symbols WHERE lower(name) IN (${capped.map(() => "?").join(",")})`).all(...capped);
+    const byName = new Map;
+    for (const r of rows) {
+      const list = byName.get(r.lname) ?? [];
+      list.push(r.file);
+      byName.set(r.lname, list);
+    }
+    const out = [];
+    for (const files of byName.values()) {
+      if (files.length > SYMBOL_FILES_MAX)
+        continue;
+      for (const f of files) {
+        if (exclude.has(f) || out.includes(f))
+          continue;
+        out.push(f);
+        if (out.length >= SYMBOL_SEEDS_MAX)
+          return out;
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
 function handleUserPrompt(input, dataRoot) {
   try {
     const prompt = input.prompt ?? "";
@@ -168,15 +202,21 @@ function handleUserPrompt(input, dataRoot) {
       const tokens = promptTokens(prompt);
       const tokenSet = new Set(tokens);
       const matched = nodes.filter((n) => tokenSet.has(base(n.file)) || tokenSet.has(baseNoExt(n.file))).sort((a, b) => b.in_deg - a.in_deg).slice(0, MAX_NODES);
-      const fresh = matched.filter((n) => claimNode(db, sid, n.file));
+      const seedFiles = new Set(matched.map((n) => n.file));
+      const symFiles = symbolSeedFiles(db, tokens, seedFiles);
+      const symNodes = symFiles.map((f) => nodes.find((n) => n.file === f)).filter((n) => n !== undefined);
+      const fresh = [...matched, ...symNodes].filter((n) => claimNode(db, sid, n.file));
       const lines = fresh.map((n) => `- ${nodeBrief(db, n)}`);
       let relatedBlock = "";
-      if (matched.length > 0) {
+      if (matched.length > 0 || symFiles.length > 0) {
         const edges = db.query("SELECT from_file, to_file FROM graph_edges").all();
         if (edges.length > 0) {
           const edgeList = edges.map((e) => ({ from: e.from_file, to: e.to_file }));
-          const seedFiles = new Set(matched.map((n) => n.file));
           const seeds = matched.map((n) => ({ file: n.file, weight: 50 }));
+          for (const sf of symFiles) {
+            seedFiles.add(sf);
+            seeds.push({ file: sf, weight: SYMBOL_SEED_WEIGHT });
+          }
           const heat = effectiveHeat(readHeatRows(db), Date.now());
           for (const hf of hotFiles(heat, 0.5, 5)) {
             if (!seedFiles.has(hf)) {
@@ -202,8 +242,9 @@ function handleUserPrompt(input, dataRoot) {
         }
       }
       let lessonBlock = "";
-      if (matched.length > 0 && shouldFeed(db, "lesson")) {
-        const zones = [...new Set(matched.map((n) => zoneOf(n.file)))];
+      const lessonAnchors = [...matched.map((n) => n.file), ...symFiles];
+      if (lessonAnchors.length > 0 && shouldFeed(db, "lesson")) {
+        const zones = [...new Set(lessonAnchors.map((f) => zoneOf(f)))];
         const freshZones = zones.filter((z) => claimNode(db, sid, `#lesson:${z}`, "lesson"));
         if (freshZones.length > 0) {
           const lessons = lessonsForZones(db, freshZones, 2);
@@ -219,7 +260,7 @@ function handleUserPrompt(input, dataRoot) {
       const depthNote = deep.length > 0 ? t(`
 Узлы глубокого влияния (${deep.map((n) => `${n.file}: вход ${n.in_deg}`).join("; ")}) — правки таких узлов многофайловые по последствиям.`, `
 Deep-influence nodes (${deep.map((n) => `${n.file}: in ${n.in_deg}`).join("; ")}) — changes to these have multi-file consequences.`) : "";
-      const graphBlock = lines.length > 0 ? `Symbiont · ${t("срез графа по упомянутым файлам (полный радиус: passport_impact)", "graph slice for the files you mentioned (full radius: passport_impact)")}:
+      const graphBlock = lines.length > 0 ? `Symbiont · ${t("срез графа по упомянутому в промпте — файлам и символам (полный радиус: passport_impact)", "graph slice for the files and symbols you mentioned (full radius: passport_impact)")}:
 ${lines.join(`
 `)}${depthNote}` : "";
       return {

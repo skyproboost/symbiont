@@ -18,7 +18,7 @@
 import type { Database } from '../core/db'
 import { FactStore } from '../core/store'
 import { ensureFeedLog, claimNode, nodeBrief, type GraphNode } from './node-brief'
-import { bumpHeat } from '../graph/heat'
+import { bumpHeat, READ_TOUCH_WEIGHT } from '../graph/heat'
 import { fileDomains } from '../passport/stack'
 import { readZoneProfiles, effectiveProfile, renderEffective, rootAxesFromFacts } from '../passport/cascade'
 import { shouldFeed } from '../gardener/utility'
@@ -30,15 +30,16 @@ import { readGrounding, renderCorrection } from '../domains/grounding'
  * доменный плейбук. Пусто — сказать нечего (всё уже подавалось этой сессии,
  * или узла нет в графе). Дедуп общий для всех каналов подачи через jit_log.
  */
-export function touchFeed(db: Database, sid: string, rel: string, kind: string): string[] {
+export function touchFeed(db: Database, sid: string, rel: string, kind: string, touchWeight = READ_TOUCH_WEIGHT): string[] {
   const lines: string[] = []
 
   // 1) Срез узла графа — если файл в графе и ещё не подавался этой сессии
   const node = db.query('SELECT file, in_deg, out_deg FROM graph_nodes WHERE file = ?').get(rel) as GraphNode | null
   if (node) {
-    // Тепло: касание узла излучает релевантность (влияет на подачу и hotspot)
+    // Тепло: касание узла излучает релевантность (влияет на подачу и hotspot).
+    // Вес передаёт канал: он один знает, чтение это или правка (см. heat.ts)
     try {
-      bumpHeat(db, node.file, new Date().toISOString())
+      bumpHeat(db, node.file, new Date().toISOString(), touchWeight)
     } catch {
       /* тепло — обогащение, не критично */
     }

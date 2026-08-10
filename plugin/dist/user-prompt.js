@@ -2,11 +2,11 @@ import {
   claimNode,
   ensureFeedLog,
   nodeBrief
-} from "./session-start-32w37wr9.js";
+} from "./session-start-brek4qna.js";
 import {
   lessonsForZones,
   zoneOf
-} from "./session-start-1p1g6x0j.js";
+} from "./session-start-5ghb5kgm.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -15,7 +15,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-mxkjpptq.js";
+} from "./session-start-dhyq0anx.js";
 import {
   FactStore,
   beat,
@@ -32,7 +32,7 @@ import {
   statement,
   t,
   taskRelevantNeighbors
-} from "./session-start-fhfq0nbs.js";
+} from "./session-start-q2jjr130.js";
 import"./session-start-rvra3cez.js";
 
 // src/hooks/user-prompt.ts
@@ -126,7 +126,99 @@ function renderTable(roles, maxRoles = 4) {
 `);
 }
 
+// src/graph/communities.ts
+var MAX_ROUNDS = 8;
+function communityLabels(nodes, edges) {
+  const sorted = [...nodes].sort();
+  const dirOf = (f) => f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : ".";
+  const label = new Map(sorted.map((n) => [n, dirOf(n)]));
+  const adj = new Map;
+  const link = (a, b) => {
+    const list = adj.get(a);
+    if (list)
+      list.push(b);
+    else
+      adj.set(a, [b]);
+  };
+  for (const e of edges) {
+    if (e.from === e.to)
+      continue;
+    if (!label.has(e.from) || !label.has(e.to))
+      continue;
+    link(e.from, e.to);
+    link(e.to, e.from);
+  }
+  for (let round = 0;round < MAX_ROUNDS; round++) {
+    let changed = false;
+    for (const node of sorted) {
+      const neighbors = adj.get(node) ?? [];
+      if (neighbors.length === 0)
+        continue;
+      const counts = new Map;
+      for (const nb of neighbors) {
+        const l = label.get(nb);
+        counts.set(l, (counts.get(l) ?? 0) + 1);
+      }
+      const current = label.get(node);
+      let best = current;
+      let bestN = counts.get(current) ?? 0;
+      for (const [l, n] of counts) {
+        if (n > bestN || n === bestN && l !== current && best !== current && l < best) {
+          best = l;
+          bestN = n;
+        }
+      }
+      if (best !== current) {
+        label.set(node, best);
+        changed = true;
+      }
+    }
+    if (!changed)
+      break;
+  }
+  return label;
+}
+function communityName(files) {
+  const counts = new Map;
+  for (const f of files) {
+    const dir = f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : ".";
+    counts.set(dir, (counts.get(dir) ?? 0) + 1);
+  }
+  let best = ".";
+  let bestN = 0;
+  for (const [dir, n] of counts) {
+    if (n > bestN || n === bestN && dir < best) {
+      best = dir;
+      bestN = n;
+    }
+  }
+  return best;
+}
+function delegationView(zoneFiles, labels, sizeOf) {
+  const byLabel = new Map;
+  let chars = 0;
+  for (const f of zoneFiles) {
+    const l = labels.get(f);
+    if (l === undefined)
+      continue;
+    const list = byLabel.get(l) ?? [];
+    list.push(f);
+    byLabel.set(l, list);
+    try {
+      chars += sizeOf(f);
+    } catch {}
+  }
+  const covered = [...byLabel.values()].filter((files) => files.length >= 2);
+  covered.sort((a, b) => b.length - a.length || (communityName(a) < communityName(b) ? -1 : 1));
+  return {
+    communities: covered.length,
+    names: covered.map((files) => communityName(files)),
+    approxTokens: Math.round(chars / 4)
+  };
+}
+
 // src/hooks/user-prompt-core.ts
+import { statSync } from "node:fs";
 var MAX_NODES = 3;
 var MIN_TOKEN_LEN = 4;
 function promptTokens(prompt) {
@@ -142,6 +234,8 @@ var SYMBOL_SEED_WEIGHT = 10;
 var SYMBOL_FILES_MAX = 2;
 var SYMBOL_SEEDS_MAX = 4;
 var SYMBOL_TOKENS_MAX = 40;
+var DELEGATE_MIN_COMMUNITIES = 3;
+var DELEGATE_MIN_TOKENS = 25000;
 function symbolSeedFiles(db, tokens, exclude) {
   try {
     const has = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='symbols'").get().n > 0;
@@ -208,6 +302,7 @@ function handleUserPrompt(input, dataRoot) {
       const fresh = [...matched, ...symNodes].filter((n) => claimNode(db, sid, n.file));
       const lines = fresh.map((n) => `- ${nodeBrief(db, n)}`);
       let relatedBlock = "";
+      let delegateBlock = "";
       if (matched.length > 0 || symFiles.length > 0) {
         const edges = db.query("SELECT from_file, to_file FROM graph_edges").all();
         if (edges.length > 0) {
@@ -238,6 +333,16 @@ function handleUserPrompt(input, dataRoot) {
             if (related.length > 0) {
               relatedBlock = `Symbiont · ${t("связано с задачей (по связям проекта, а не по совпадению слов)", "related to the task (by the project's links, not by word overlap)")}: ${related.join(", ")}`;
             }
+            try {
+              if (shouldFeed(db, "delegate")) {
+                const zone = [...new Set([...seedFiles, ...neighborhood])];
+                const view = delegationView(zone, communityLabels(allNodes, edgeList), (f) => statSync(join(cwd, f)).size);
+                if (view.communities >= DELEGATE_MIN_COMMUNITIES && view.approxTokens >= DELEGATE_MIN_TOKENS && claimNode(db, sid, "#delegate", "delegate")) {
+                  const named = view.names.slice(0, 4).join(", ");
+                  delegateBlock = `Symbiont · ${t(`охват задачи по графу: ${view.communities} подсистем (${named}), чтение окружения целиком ≈${Math.round(view.approxTokens / 1000)}k токенов — разведку по подсистемам дешевле делегировать сабагентам и свести выводы, чем вносить всё в одно окно`, `task footprint by the graph: ${view.communities} subsystems (${named}), reading the full neighborhood ≈${Math.round(view.approxTokens / 1000)}k tokens — delegating per-subsystem exploration to subagents and merging conclusions is cheaper than pulling it all into one window`)}`;
+                }
+              }
+            } catch {}
           }
         }
       }
@@ -253,7 +358,7 @@ function handleUserPrompt(input, dataRoot) {
           }
         }
       }
-      if (fresh.length === 0 && !relatedBlock && !lessonBlock && !tableBlock)
+      if (fresh.length === 0 && !relatedBlock && !delegateBlock && !lessonBlock && !tableBlock)
         return {};
       const DEEP_THRESHOLD = 30;
       const deep = fresh.filter((n) => n.in_deg >= DEEP_THRESHOLD);
@@ -266,7 +371,7 @@ ${lines.join(`
       return {
         hookSpecificOutput: {
           hookEventName: "UserPromptSubmit",
-          additionalContext: [tableBlock, graphBlock, relatedBlock, lessonBlock].filter(Boolean).join(`
+          additionalContext: [tableBlock, graphBlock, relatedBlock, delegateBlock, lessonBlock].filter(Boolean).join(`
 
 `)
         }

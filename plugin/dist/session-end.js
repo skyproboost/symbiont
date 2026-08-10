@@ -6,7 +6,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-mxkjpptq.js";
+} from "./session-start-dhyq0anx.js";
 import {
   SessionLog,
   beat,
@@ -14,7 +14,7 @@ import {
   init_i18n,
   openDb,
   slugOf
-} from "./session-start-fhfq0nbs.js";
+} from "./session-start-q2jjr130.js";
 import"./session-start-rvra3cez.js";
 
 // src/hooks/session-end.ts

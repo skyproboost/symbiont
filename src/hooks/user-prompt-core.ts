@@ -19,6 +19,8 @@ import { ensureFeedLog, claimNode, nodeBrief } from './node-brief'
 import { FactStore } from '../core/store'
 import { rolesFromProfile, isHighStakes, renderTable } from '../passport/roles'
 import { taskRelevantNeighbors, reachableUndirected, type Edge, type SeedWeight } from '../graph/graph'
+import { communityLabels, delegationView } from '../graph/communities'
+import { statSync } from 'node:fs'
 import { readHeatRows, effectiveHeat, hotFiles } from '../graph/heat'
 import { lessonsForZones, zoneOf } from '../gardener/lessons'
 import { shouldFeed } from '../gardener/utility'
@@ -64,6 +66,18 @@ const SYMBOL_FILES_MAX = 2
 const SYMBOL_SEEDS_MAX = 4
 /** Потолок токенов в запросе к индексу: длина промпта не должна превращаться в длину SQL. */
 const SYMBOL_TOKENS_MAX = 40
+
+/**
+ * Пороги делегационной подсказки. Совет «раздай разведку сабагентам» окупается
+ * только на широкой задаче: опубликованная экономика мультиагентности —
+ * ×15 токенов, и главный документированный провал — спавн там, где хватило бы
+ * одного окна. Поэтому подсказка молчит, пока задача не размазана минимум по
+ * трём подсистемам И её чтение не тянет на заметную долю контекстного окна
+ * (25k токенов ≈ восьмая часть окна — с этого объёма изоляция разведки в
+ * чужих окнах начинает беречь качество рассуждений, а не только токены).
+ */
+const DELEGATE_MIN_COMMUNITIES = 3
+const DELEGATE_MIN_TOKENS = 25_000
 
 /**
  * Файлы, определяющие упомянутые в промпте символы (индекс слоя 1).
@@ -166,6 +180,7 @@ export function handleUserPrompt(input: UserPromptInput, dataRoot: string): Prom
       // окружение задачи, а не глобальные хабы. Только если промпт хоть
       // что-то назвал — файлом или символом.
       let relatedBlock = ''
+      let delegateBlock = ''
       if (matched.length > 0 || symFiles.length > 0) {
         const edges = db.query('SELECT from_file, to_file FROM graph_edges').all() as Array<{ from_file: string; to_file: string }>
         if (edges.length > 0) {
@@ -202,6 +217,30 @@ export function handleUserPrompt(input: UserPromptInput, dataRoot: string): Prom
                 "related to the task (by the project's links, not by word overlap)",
               )}: ${related.join(', ')}`
             }
+
+            // Делегационная подсказка: Symbiont — единственный, кто ЗАРАНЕЕ
+            // измеряет охват задачи (PPR-окружение уже посчитано). Широкая
+            // задача (≥3 подсистем, чтение — заметная доля окна) — факт,
+            // который меняет способ работы: разведку по подсистемам дешевле
+            // раздать сабагентам и свести выводы, чем читать всё одним окном.
+            // На узких задачах подсказка молчит: преждевременный спавн —
+            // главный документированный провал мультиагентности. Совет —
+            // факт с числами, не императив: решает модель.
+            try {
+              if (shouldFeed(db, 'delegate')) {
+                const zone = [...new Set([...seedFiles, ...neighborhood])]
+                const view = delegationView(zone, communityLabels(allNodes, edgeList), (f) => statSync(join(cwd, f)).size)
+                if (view.communities >= DELEGATE_MIN_COMMUNITIES && view.approxTokens >= DELEGATE_MIN_TOKENS && claimNode(db, sid, '#delegate', 'delegate')) {
+                  const named = view.names.slice(0, 4).join(', ')
+                  delegateBlock = `Symbiont · ${t(
+                    `охват задачи по графу: ${view.communities} подсистем (${named}), чтение окружения целиком ≈${Math.round(view.approxTokens / 1000)}k токенов — разведку по подсистемам дешевле делегировать сабагентам и свести выводы, чем вносить всё в одно окно`,
+                    `task footprint by the graph: ${view.communities} subsystems (${named}), reading the full neighborhood ≈${Math.round(view.approxTokens / 1000)}k tokens — delegating per-subsystem exploration to subagents and merging conclusions is cheaper than pulling it all into one window`,
+                  )}`
+                }
+              }
+            } catch {
+              /* охват — обогащение; без него срез и связи всё равно поданы */
+            }
           }
         }
       }
@@ -226,7 +265,7 @@ export function handleUserPrompt(input: UserPromptInput, dataRoot: string): Prom
         }
       }
 
-      if (fresh.length === 0 && !relatedBlock && !lessonBlock && !tableBlock) return {}
+      if (fresh.length === 0 && !relatedBlock && !delegateBlock && !lessonBlock && !tableBlock) return {}
 
       // Факт о глубине — не императив: модель сама решит уйти в планирование
       const DEEP_THRESHOLD = 30
@@ -249,7 +288,7 @@ export function handleUserPrompt(input: UserPromptInput, dataRoot: string): Prom
       return {
         hookSpecificOutput: {
           hookEventName: 'UserPromptSubmit',
-          additionalContext: [tableBlock, graphBlock, relatedBlock, lessonBlock].filter(Boolean).join('\n\n'),
+          additionalContext: [tableBlock, graphBlock, relatedBlock, delegateBlock, lessonBlock].filter(Boolean).join('\n\n'),
         },
       }
     } finally {

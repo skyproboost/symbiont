@@ -112,6 +112,7 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
     const runtimeLine = renderRuntimeWarning(inspectRuntime())
     let utilLine = ''
     let entryBlock = ''
+    let survivalLine = ''
     // git-состояние — до журнала: dirty-файлы нужны реконструкции входа
     const g = gitState(cwd)
     try {
@@ -194,6 +195,40 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
           }
         }
       }
+      // Записка выжившего после компакции — crash-only: реконструкция на
+      // старте, не запись на выходе (PreCompact инжектить и не может).
+      // Суммаризатор компакции пересказывает диалог по своему разумению и,
+      // по опубликованным исследованиям, роняет ограничения и середину
+      // работы; журнал сессии знает ФАКТЫ — что ИМЕННО этой сессией правлено
+      // (session_edits, подтверждённое авторство) и что ловил гейт. Факты
+      // подаются дословно, сверка намерения с ними — задача модели.
+      if (input.source === 'compact') {
+        try {
+          const edits = db
+            .query('SELECT file FROM session_edits WHERE session_id=? ORDER BY edited_at')
+            .all(sid) as Array<{ file: string }>
+          if (edits.length > 0) {
+            const files = edits.map((e) => e.file)
+            const shown = files.slice(0, 8).join(', ') + (files.length > 8 ? `, … (+${files.length - 8})` : '')
+            survivalLine = t(
+              `- правлено ЭТОЙ сессией до сжатия (порядок работы, из журнала — не из пересказа): ${shown}`,
+              `- edited by THIS session before compaction (work order, from the journal — not from a summary): ${shown}`,
+            )
+          }
+          const caught = db
+            .query('SELECT law, COUNT(*) n FROM gate_log WHERE session_id=? GROUP BY law ORDER BY n DESC LIMIT 2')
+            .all(sid) as Array<{ law: string; n: number }>
+          if (caught.length > 0) {
+            const shown = caught.map((c) => `«${statement(c.law)}» ×${c.n}`).join(', ')
+            survivalLine += `${survivalLine ? '\n' : ''}${t(
+              `- гейт этой сессии ловил: ${shown} — если правилось, не потеряй фикс при продолжении`,
+              `- this session's gate caught: ${shown} — if it was being fixed, do not lose the fix when continuing`,
+            )}`
+          }
+        } catch {
+          /* журналов сессии нет — записки нет, сводка и так восстановлена */
+        }
+      }
       // Протокол самостарта: реконструкция состояния работы + её граф-окружение
       entryBlock = reconstructEntry(db, threadFiles, g?.dirtyTop ?? [], Date.now())
       db.close()
@@ -236,7 +271,7 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
               '- the session was forked — the passport was delivered to the fork (subagents do not inherit the parent context)',
             )
           : ''
-    for (const line of [runtimeLine, compactNote, threadLine, bgLine, utilLine, gateLine, diagLine]) {
+    for (const line of [runtimeLine, compactNote, survivalLine, threadLine, bgLine, utilLine, gateLine, diagLine]) {
       if (line) stateBlock += `${stateBlock ? '\n' : `\n${t('## Состояние', '## State')}\n\n`}${line}`
     }
     if (stateBlock) stateBlock += '\n'

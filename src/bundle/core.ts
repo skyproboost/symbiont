@@ -28,6 +28,7 @@ export const ENTRY_SOURCES: string[] = [
   'src/hooks/post-tool.ts',
   'src/hooks/stop.ts',
   'src/hooks/pre-compact.ts',
+  'src/hooks/subagent-start.ts',
   'src/hooks/session-end.ts',
   'src/mcp/server.ts',
   // auto-learn — детач-исполнитель садовника (единственная фоновая точка входа);

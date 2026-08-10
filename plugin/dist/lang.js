@@ -2,7 +2,7 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-mxkjpptq.js";
+} from "./session-start-dhyq0anx.js";
 import {
   chooseLang,
   initLang,
@@ -13,7 +13,7 @@ import {
   slugOf,
   sourceLabel,
   t
-} from "./session-start-fhfq0nbs.js";
+} from "./session-start-q2jjr130.js";
 import"./session-start-rvra3cez.js";
 
 // src/cli/lang.ts

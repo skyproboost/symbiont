@@ -148,20 +148,28 @@ const sid = 'canary-1'
   check('PreCompact', existsSync(join(dataDir, 'heartbeat-precompact.json')), raw || 'пульс перед сжатием оставлен')
 }
 
-// 7) SessionEnd: прощание закрывает сессию
+// 7) SubagentStart: срез паспорта свежему сабагенту (законы/карта)
+{
+  const { out, raw } = hook('subagent-start.ts', { cwd: proj, session_id: sid, agent_type: 'Explore' })
+  const ctx = String((out?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext ?? '')
+  // Ассерт языконезависим: заголовок среза меняется с языком владельца, карта — нет
+  check('SubagentStart', !!out && ctx.includes('core.js'), out ? `срез подан: ${ctx.slice(0, 90)}` : raw)
+}
+
+// 8) SessionEnd: прощание закрывает сессию
 {
   const { out, raw } = hook('session-end.ts', { cwd: proj, session_id: sid, reason: 'exit' })
   check('SessionEnd', out !== null, out !== null ? 'финализатор отработал' : raw)
 }
 
-// 8) Heartbeat всех каналов на месте
+// 9) Heartbeat всех каналов на месте
 {
-  const channels = ['sessionstart', 'userpromptsubmit', 'pretooluse', 'posttooluse', 'stop', 'precompact', 'sessionend']
+  const channels = ['sessionstart', 'userpromptsubmit', 'pretooluse', 'posttooluse', 'stop', 'precompact', 'subagentstart', 'sessionend']
   const missing = channels.filter((c) => !existsSync(join(dataDir, `heartbeat-${c}.json`)))
   check('Heartbeat', missing.length === 0, missing.length === 0 ? `все ${channels.length} каналов пульсируют` : `молчат: ${missing.join(', ')}`)
 }
 
-// 9) MCP-сервер: initialize + tools/list по stdio
+// 10) MCP-сервер: initialize + tools/list по stdio
 {
   const msgs =
     JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) +

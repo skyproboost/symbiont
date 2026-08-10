@@ -4728,7 +4728,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-2f8f4b88632e";
+    return "bundle-90c0c0aecaa7";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5645,6 +5645,7 @@ function handleSessionStart(input, dataRoot) {
     const runtimeLine = renderRuntimeWarning(inspectRuntime());
     let utilLine = "";
     let entryBlock = "";
+    let survivalLine = "";
     const g = gitState(cwd);
     try {
       const db = openDb(join15(dataDir, "passport.db"));
@@ -5692,6 +5693,22 @@ function handleSessionStart(input, dataRoot) {
           }
         }
       }
+      if (input.source === "compact") {
+        try {
+          const edits = db.query("SELECT file FROM session_edits WHERE session_id=? ORDER BY edited_at").all(sid);
+          if (edits.length > 0) {
+            const files = edits.map((e) => e.file);
+            const shown = files.slice(0, 8).join(", ") + (files.length > 8 ? `, … (+${files.length - 8})` : "");
+            survivalLine = t(`- правлено ЭТОЙ сессией до сжатия (порядок работы, из журнала — не из пересказа): ${shown}`, `- edited by THIS session before compaction (work order, from the journal — not from a summary): ${shown}`);
+          }
+          const caught = db.query("SELECT law, COUNT(*) n FROM gate_log WHERE session_id=? GROUP BY law ORDER BY n DESC LIMIT 2").all(sid);
+          if (caught.length > 0) {
+            const shown = caught.map((c) => `«${statement(c.law)}» ×${c.n}`).join(", ");
+            survivalLine += `${survivalLine ? `
+` : ""}${t(`- гейт этой сессии ловил: ${shown} — если правилось, не потеряй фикс при продолжении`, `- this session's gate caught: ${shown} — if it was being fixed, do not lose the fix when continuing`)}`;
+          }
+        } catch {}
+      }
       entryBlock = reconstructEntry(db, threadFiles, g?.dirtyTop ?? [], Date.now());
       db.close();
     } catch {}
@@ -5714,7 +5731,7 @@ ${renderConstitution(constitution)}
     let stateBlock = g ? `
 ${renderGitBlock(g, reconciled)}` : "";
     const compactNote = input.source === "compact" ? t("- контекст был сжат — паспорт восстановлен (то, что компакция могла выронить)", "- the context was compacted — the passport has been restored (what compaction could have dropped)") : input.source === "fork" ? t("- сессия форкнута — паспорт подан форку (сабагенты не наследуют контекст родителя)", "- the session was forked — the passport was delivered to the fork (subagents do not inherit the parent context)") : "";
-    for (const line of [runtimeLine, compactNote, threadLine, bgLine, utilLine, gateLine, diagLine]) {
+    for (const line of [runtimeLine, compactNote, survivalLine, threadLine, bgLine, utilLine, gateLine, diagLine]) {
       if (line)
         stateBlock += `${stateBlock ? `
 ` : `

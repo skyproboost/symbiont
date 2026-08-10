@@ -3430,6 +3430,53 @@ function readZoneProfiles(db) {
   }
 }
 
+// src/gardener/rename.ts
+function migrateRenames(db, current2) {
+  try {
+    if (current2.size === 0)
+      return 0;
+    const has = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='node_summary'").get().n > 0;
+    if (!has)
+      return 0;
+    const rows = db.query("SELECT file, content_hash FROM node_summary").all();
+    if (rows.length === 0)
+      return 0;
+    const summarized = new Set(rows.map((r) => r.file));
+    const byHash = new Map;
+    for (const [f, h] of current2) {
+      const list = byHash.get(h) ?? [];
+      list.push(f);
+      byHash.set(h, list);
+    }
+    let migrated = 0;
+    for (const r of rows) {
+      if (current2.has(r.file))
+        continue;
+      const candidates = byHash.get(r.content_hash) ?? [];
+      if (candidates.length !== 1)
+        continue;
+      const to = candidates[0];
+      if (summarized.has(to))
+        continue;
+      db.query("UPDATE node_summary SET file=? WHERE file=?").run(to, r.file);
+      summarized.add(to);
+      for (const table of ["node_heat", "node_visits"]) {
+        try {
+          const exists = db.query(`SELECT 1 x FROM ${table} WHERE file=?`).get(to);
+          if (exists)
+            db.query(`DELETE FROM ${table} WHERE file=?`).run(r.file);
+          else
+            db.query(`UPDATE ${table} SET file=? WHERE file=?`).run(to, r.file);
+        } catch {}
+      }
+      migrated++;
+    }
+    return migrated;
+  } catch {
+    return 0;
+  }
+}
+
 // src/env/config-graph.ts
 import { readFileSync as readFileSync7 } from "node:fs";
 import { extname as extname3 } from "node:path";
@@ -4728,7 +4775,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-dd8b76be8283";
+    return "bundle-b1be2e16f7b6";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -4751,6 +4798,7 @@ function buildPassport(projectRoot, dataDir) {
   const files = codeFiles(walked);
   const relPaths = files.map((f) => relative(projectRoot, f.path)).sort();
   engine.setInput("fileset", sha1(JSON.stringify(relPaths)));
+  const currentHashes = new Map;
   for (const f of files) {
     const rel = relative(projectRoot, f.path);
     const cached = cacheGet.get(rel);
@@ -4766,7 +4814,9 @@ function buildPassport(projectRoot, dataDir) {
       cachePut.run(rel, f.mtimeMs, f.size, hash);
     }
     engine.setInput(`file:${rel}`, hash);
+    currentHashes.set(rel.replaceAll("\\", "/"), hash);
   }
+  migrateRenames(engine.db, currentHashes);
   engine.register("facts", (ctx) => {
     ctx.input("fileset");
     const observations = files.map((f) => {

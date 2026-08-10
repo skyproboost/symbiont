@@ -21,6 +21,7 @@ import { probeProfile, profileFacts, readConceptText } from './profile'
 import { parseCommitLog, deriveSignals, deriveConstitutionFacts } from './constitution-derive'
 import { computeZoneProfiles, storeZoneProfiles } from './cascade'
 import { healProjections } from '../gardener/truth'
+import { migrateRenames } from '../gardener/rename'
 import { collectConfigLinks, storeConfigEdges, configPathsOf } from '../env/links'
 import { readConfigEntries } from '../env/config-graph'
 import { artifactProfile, renderArtifacts, renderQualityStance } from './artifacts'
@@ -190,6 +191,10 @@ export function buildPassport(projectRoot: string, dataDir: string): BuildResult
   const relPaths = files.map((f) => relative(projectRoot, f.path)).sort()
 
   engine.setInput('fileset', sha1(JSON.stringify(relPaths)))
+  // Актуальные хэши текущего диска — для миграции переименований ниже:
+  // file_cache истиной быть не может (не чистит удалённые, на Windows держит
+  // обратные слэши), а здесь набор и хэши уже посчитаны бесплатно.
+  const currentHashes = new Map<string, string>()
   for (const f of files) {
     const rel = relative(projectRoot, f.path)
     const cached = cacheGet.get(rel) as { mtime_ms: number; size: number; hash: string } | null
@@ -207,7 +212,11 @@ export function buildPassport(projectRoot: string, dataDir: string): BuildResult
       cachePut.run(rel, f.mtimeMs, f.size, hash)
     }
     engine.setInput(`file:${rel}`, hash)
+    currentHashes.set(rel.replaceAll('\\', '/'), hash)
   }
+  // Переименование: оплаченное знание узла (роль/тепло/визиты) следует за
+  // файлом по точному хэш-матчу, а не сиротеет (см. gardener/rename.ts)
+  migrateRenames(engine.db, currentHashes)
 
   engine.register('facts', (ctx) => {
     ctx.input('fileset')

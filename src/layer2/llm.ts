@@ -46,6 +46,8 @@ export type LlmCaller = (prompt: string) => LlmResult | null
 export interface LlmOpts {
   /** намерение задачи: deep — качество вперёд; routine — цена вперёд */
   intent?: Intent
+  /** усилие размышления (флаг CLI --effort); без явного значения выводится из интента */
+  effort?: 'low' | 'medium' | 'high'
   /** корень данных проекта для кэша доступности (без него — сид-порядок, без записи) */
   dataDir?: string
   /** явный оверрайд списка моделей (алиасы или полные ID) — минует адаптацию */
@@ -102,6 +104,10 @@ export function callClaudeDetailed(prompt: string, opts: LlmOpts = {}): LlmOutco
   // модель напишет (правила, роли, разборы), ложится в паспорт и однажды будет
   // прочитано владельцем — значит и рождаться должно на его языке
   const framedPrompt = `${frame ? `${frame}\n\n---\n\n` : ''}${prompt}\n\n${t('Отвечай по-русски.', 'Answer in English.')}`
+  // Усилие размышления по интенту (исследования бюджетов размышления: рутине
+  // высокая ступень не добавляет качества, только цену и латентность): рутинный
+  // харвест — low, глубокие проходы (вербализация, аудит) — high.
+  const effort = opts.effort ?? (opts.intent === 'deep' ? 'high' : 'low')
   for (const model of resolveModels(opts)) {
     const t0 = performance.now()
     try {
@@ -109,11 +115,28 @@ export function callClaudeDetailed(prompt: string, opts: LlmOpts = {}): LlmOutco
       // пустой --tools "" (внутренние вызовы плагина — чистые text-in/text-out,
       // без ухода модели в исследование файлов → без error_max_turns).
       // Промпт — через stdin (многострочный argv на Windows рвётся по \n).
-      const r = spawnSync(
-        'claude',
-        ['-p', '--model', model, '--output-format', 'json', '--max-turns', '1', '--tools', ''],
-        { input: framedPrompt, encoding: 'utf8', timeout: 180_000, windowsHide: true, maxBuffer: 16 * 1024 * 1024, env: internalEnv() },
-      )
+      const spawnOnce = (withEffort: boolean) =>
+        spawnSync(
+          'claude',
+          [
+            '-p',
+            '--model',
+            model,
+            '--output-format',
+            'json',
+            '--max-turns',
+            '1',
+            '--tools',
+            '',
+            ...(withEffort ? ['--effort', effort] : []),
+          ],
+          { input: framedPrompt, encoding: 'utf8', timeout: 180_000, windowsHide: true, maxBuffer: 16 * 1024 * 1024, env: internalEnv() },
+        )
+      let r = spawnOnce(true)
+      // Старый CLI без --effort валит вызов «unknown option»: одна повторная
+      // проба без флага — иначе обновление плагина убило бы всю фоновую петлю
+      // на не обновлённой машине (fail-open дороже экономии усилия)
+      if (r.status !== 0 && /unknown option|unrecognized/i.test(String(r.stderr ?? ''))) r = spawnOnce(false)
       // Тело парсим ДАЖE при ненулевом коде: ошибки модели живут в JSON stdout
       // (is_error/api_error_status/subtype), а не в stderr — иначе fail-silent.
       let parsed: Record<string, unknown> = {}

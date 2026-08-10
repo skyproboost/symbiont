@@ -3208,7 +3208,7 @@ var DETECTORS = [
 var README_LIMIT = 40000;
 function readConceptText(root, relPaths) {
   const parts = [];
-  for (const name of ["README.md", "readme.md", "README.rst", "CONCEPT.md"]) {
+  for (const name of ["README.md", "readme.md", "README.rst", "CONCEPT.md", "AGENTS.md", "CLAUDE.md"]) {
     try {
       parts.push(readFileSync5(join7(root, name), "utf8").slice(0, README_LIMIT));
     } catch {}
@@ -4775,7 +4775,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-b1be2e16f7b6";
+    return "bundle-88f7d20f0393";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {

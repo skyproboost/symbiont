@@ -1,22 +1,22 @@
 import {
   WORKS
-} from "./session-start-r624d18v.js";
+} from "./session-start-7n4j2j3s.js";
 import"./session-start-penbn1w9.js";
-import"./session-start-dmtnzhe8.js";
-import"./session-start-hwrezsxm.js";
+import"./session-start-m9e2sfvh.js";
+import"./session-start-qq1wjewx.js";
 import"./session-start-n4jed5qc.js";
-import"./session-start-vec8vxxx.js";
+import"./session-start-ys8jgfm9.js";
 import"./session-start-8ychq3hk.js";
 import {
   markVisited
-} from "./session-start-ssxwj69m.js";
-import"./session-start-qsg4753m.js";
+} from "./session-start-rdsv7g75.js";
+import"./session-start-7khjx57h.js";
 import"./session-start-5s7r4262.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-03xp094k.js";
+} from "./session-start-p44w5sd7.js";
 import {
   buildPassport,
   initLang,
@@ -26,7 +26,7 @@ import {
   runtimeBlocker,
   slugOf,
   t
-} from "./session-start-zxs5x1we.js";
+} from "./session-start-e05q8p5h.js";
 import"./session-start-rvra3cez.js";
 
 // src/cli/init.ts
@@ -61,6 +61,11 @@ if (!existsSync(join(dataDir, "passport.db"))) {
 }
 var db = openDb(join(dataDir, "passport.db"));
 try {
+  if (full) {
+    try {
+      db.run("DELETE FROM learn_meta WHERE key='layer2_material'");
+    } catch {}
+  }
   try {
     const top = db.query("SELECT file FROM graph_nodes ORDER BY rank DESC LIMIT ?").all(PRESEED_NODES);
     const now = new Date().toISOString();

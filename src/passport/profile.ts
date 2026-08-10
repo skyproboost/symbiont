@@ -75,7 +75,10 @@ const README_LIMIT = 40_000
 /** Текст концепции: README + первые файлы docs/.docs (бюджетно). */
 export function readConceptText(root: string, relPaths: string[]): string {
   const parts: string[] = []
-  for (const name of ['README.md', 'readme.md', 'README.rst', 'CONCEPT.md']) {
+  // AGENTS.md/CLAUDE.md — стандарт 2026 для ЗАЯВЛЕННЫХ владельцем конвенций
+  // (Linux Foundation / Claude Code): владелец декларирует правила именно там,
+  // и профиль обязан читать их наравне с README — как заявленное, не измеренное
+  for (const name of ['README.md', 'readme.md', 'README.rst', 'CONCEPT.md', 'AGENTS.md', 'CLAUDE.md']) {
     try {
       parts.push(readFileSync(join(root, name), 'utf8').slice(0, README_LIMIT))
     } catch {

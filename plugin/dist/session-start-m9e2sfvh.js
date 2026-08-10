@@ -7,7 +7,7 @@ import {
   readAvailability,
   recordOutcome,
   resolveVector
-} from "./session-start-hwrezsxm.js";
+} from "./session-start-qq1wjewx.js";
 import {
   internalEnv
 } from "./session-start-5s7r4262.js";
@@ -15,7 +15,7 @@ import {
   init_i18n,
   readFrame,
   t
-} from "./session-start-zxs5x1we.js";
+} from "./session-start-e05q8p5h.js";
 
 // src/layer2/llm.ts
 import { spawnSync } from "node:child_process";
@@ -102,10 +102,25 @@ function callClaudeDetailed(prompt, opts = {}) {
 ` : ""}${prompt}
 
 ${t("Отвечай по-русски.", "Answer in English.")}`;
+  const effort = opts.effort ?? (opts.intent === "deep" ? "high" : "low");
   for (const model of resolveModels(opts)) {
     const t0 = performance.now();
     try {
-      const r = spawnSync("claude", ["-p", "--model", model, "--output-format", "json", "--max-turns", "1", "--tools", ""], { input: framedPrompt, encoding: "utf8", timeout: 180000, windowsHide: true, maxBuffer: 16 * 1024 * 1024, env: internalEnv() });
+      const spawnOnce = (withEffort) => spawnSync("claude", [
+        "-p",
+        "--model",
+        model,
+        "--output-format",
+        "json",
+        "--max-turns",
+        "1",
+        "--tools",
+        "",
+        ...withEffort ? ["--effort", effort] : []
+      ], { input: framedPrompt, encoding: "utf8", timeout: 180000, windowsHide: true, maxBuffer: 16 * 1024 * 1024, env: internalEnv() });
+      let r = spawnOnce(true);
+      if (r.status !== 0 && /unknown option|unrecognized/i.test(String(r.stderr ?? "")))
+        r = spawnOnce(false);
       let parsed = {};
       if (typeof r.stdout === "string" && r.stdout.trim()) {
         try {

@@ -33,7 +33,15 @@ const check = (channel: string, ok: boolean, note: string) => results.push({ cha
 const proj = mkdtempSync(join(tmpdir(), 'symbiont-canary-'))
 const dataRoot = mkdtempSync(join(tmpdir(), 'symbiont-canary-data-'))
 const LEGACY = 'function f(_oX) {\n\tvar sName = _oX.n;\n\tvar aList = [];\n\tfor (var i = 0; i < 3; i++) { aList.push(i); }\n\treturn aList;\n}\n'
-for (let i = 0; i < 12; i++) writeFileSync(join(proj, `m${i}.js`), LEGACY.repeat(12))
+// Модули зависят от core.js — и это не украшение мира, а условие проверки.
+// Без единого импорта у всех узлов графа РАВНЫЙ PageRank (1/N), и «ключевые
+// модули» (ORDER BY rank DESC LIMIT 6) выбираются порядком сканирования
+// таблицы, то есть порядком обхода каталога: на NTFS он алфавитный и core.js
+// попадал в шестёрку, на ext4/APFS — хэшевый, и тот же код краснел в CI.
+// Альтернатива «ослабить ассерт до любого файла мира» отвергнута: она проверяла
+// бы факт наличия секции, а не то, что карта называет ГЛАВНЫЙ модуль.
+const DEP = "var core = require('./core.js')\n"
+for (let i = 0; i < 12; i++) writeFileSync(join(proj, `m${i}.js`), DEP + LEGACY.repeat(12))
 writeFileSync(join(proj, 'core.js'), LEGACY.repeat(12))
 writeFileSync(join(proj, 'README.md'), 'Сервис: производительность важна.')
 spawnSync('git', ['init', '-b', 'main'], { cwd: proj, encoding: 'utf8' })

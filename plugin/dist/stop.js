@@ -4,10 +4,10 @@ import {
 import {
   applyRules,
   readRules
-} from "./session-start-b0011a6n.js";
+} from "./session-start-18tv3932.js";
 import {
   checkAgainstLaws
-} from "./session-start-ktr0tyzc.js";
+} from "./session-start-d6zk7zs5.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -16,7 +16,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-jt5shx0g.js";
+} from "./session-start-8vcksfq2.js";
 import {
   ENTITY_EXT,
   FactStore,
@@ -38,8 +38,8 @@ import {
   snapshotContent,
   statement,
   t
-} from "./session-start-1940hha9.js";
-import"./session-start-rvra3cez.js";
+} from "./session-start-ddjzc6c9.js";
+import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts
 import { join as join3 } from "node:path";
@@ -699,7 +699,9 @@ function handleStop(input, dataRoot) {
       const ownFiles = attributable ? sessionFiles.filter((f) => own.has(f)) : sessionFiles;
       const unattributed = sessionFiles.filter((f) => !ownFiles.includes(f));
       const freshUnattributed = parallel > 0 ? unattributed.filter((f) => Number(dedup.run(sid, "#параллель", f).changes) > 0) : [];
-      const parallelLine = freshUnattributed.length > 0 ? `- параллельных сессий: ${parallel} · ${freshUnattributed.length} изменённых файлов не отнесены к этой сессии — авторство не подтверждено (${freshUnattributed.slice(0, 3).join(", ")}${freshUnattributed.length > 3 ? ", …" : ""})` : "";
+      const named = `${freshUnattributed.slice(0, 3).join(", ")}${freshUnattributed.length > 3 ? ", …" : ""}`;
+      const parallelLine = freshUnattributed.length > 0 ? t(`- параллельных сессий: ${parallel} · ${freshUnattributed.length} изменённых файлов не отнесены к этой сессии и не проверяются здесь — это работа соседа (${named})`, `- parallel sessions: ${parallel} · ${freshUnattributed.length} changed files are not attributed to this session and are not checked here — they are a neighbour's work (${named})`) : "";
+      const gatedFiles = parallel > 0 ? ownFiles : sessionFiles;
       if (ownFiles.length > 0) {
         db.run("CREATE TABLE IF NOT EXISTS model_state(session_id TEXT NOT NULL, file TEXT NOT NULL, hash TEXT NOT NULL, content TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(session_id, file))");
         const upsertState = db.query("INSERT INTO model_state(session_id,file,hash,content,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(session_id,file) DO UPDATE SET hash=excluded.hash, content=excluded.content, updated_at=excluded.updated_at");
@@ -721,7 +723,7 @@ function handleStop(input, dataRoot) {
         db.query("INSERT INTO session_threads(session_id, files, commits, updated_at) VALUES(?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET files=excluded.files, commits=excluded.commits, updated_at=excluded.updated_at").run(sid, JSON.stringify(union), JSON.stringify(commits), new Date().toISOString());
       }
       const all = [];
-      for (const rel of sessionFiles) {
+      for (const rel of gatedFiles) {
         const content = contents.get(rel) ?? "";
         const ext = extname(rel).toLowerCase();
         for (const v of checkAgainstLaws(content, ext, laws)) {
@@ -755,7 +757,7 @@ function handleStop(input, dataRoot) {
       } catch {}
       const budgetLines = [];
       try {
-        const withDiffs = sessionFiles.map((rel) => ({
+        const withDiffs = gatedFiles.map((rel) => ({
           rel,
           content: contents.get(rel) ?? "",
           diff: fileDiff(cwd, rel, contents.get(rel) ?? "")

@@ -2,13 +2,13 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-7vxtw5jw.js";
+} from "./session-start-8dgq7me2.js";
 import {
   contentHashOf,
   countLessons,
   summaryFor,
   summaryStats
-} from "./session-start-cm20p20w.js";
+} from "./session-start-z5t05k1x.js";
 import {
   readGateMode
 } from "./session-start-g0g6tesq.js";
@@ -16,7 +16,7 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-jt5shx0g.js";
+} from "./session-start-8vcksfq2.js";
 import {
   REPORTED_WORKS,
   auditTruth,
@@ -42,10 +42,10 @@ import {
   statement,
   t,
   tier
-} from "./session-start-1940hha9.js";
+} from "./session-start-ddjzc6c9.js";
 import {
   __require
-} from "./session-start-rvra3cez.js";
+} from "./session-start-70d7ckvt.js";
 
 // src/cli/symbiont.ts
 import { join as join2, basename } from "node:path";

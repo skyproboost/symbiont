@@ -53,7 +53,7 @@ describe('авторство правок: чужая сессия не прип
     writeFileSync(join(proj, 'alien.js'), 'var alien = 3\n')
     const out = handleStop({ cwd: proj, session_id: 'a2' }, dataRoot)
     const text = out.hookSpecificOutput?.additionalContext ?? ''
-    expect(text).toContain('авторство не подтверждено')
+    expect(text).toContain('работа соседа')
     expect(stateOf('a2')).toEqual([]) // ни одного чужого файла как «модель написала»
   })
 
@@ -65,7 +65,7 @@ describe('авторство правок: чужая сессия не прип
   it('о том же неразобранном файле говорится ОДИН раз (иначе Stop зацикливается)', () => {
     const said = (): boolean =>
       (handleStop({ cwd: proj, session_id: 'a2' }, dataRoot).hookSpecificOutput?.additionalContext ?? '')
-        .includes('авторство не подтверждено')
+        .includes('работа соседа')
 
     expect(said()).toBe(false) // про alien.js уже сказано в тесте выше — повтора нет
 

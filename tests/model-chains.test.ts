@@ -272,7 +272,12 @@ describe('resolveModels (llm.ts): оверрайд → интент+кэш → �
   })
   it('с dataDir — учитывает выученную доступность', () => {
     const dir = mkdtempSync(join(tmpdir(), 'symbiont-models-rm-'))
-    recordOutcome(dir, 'fable', { ok: false, resolvedId: null, apiErrorStatus: 404, now: iso(0), note: '' })
+    // Время — РЕАЛЬНОЕ, а не пиннутое NOW: resolveModels зовёт Date.now() (llm.ts
+    // — объявленная граница часов), и запись, помеченная фиксированной датой,
+    // выпадала бы из окна свежести FRESH_DAYS по мере ухода календаря. Такой тест
+    // зеленеет в день написания и краснеет через две недели без единой правки кода
+    // — что и случилось. Пиннутое время допустимо только там, где nowMs передаётся.
+    recordOutcome(dir, 'fable', { ok: false, resolvedId: null, apiErrorStatus: 404, now: new Date().toISOString(), note: '' })
     const vec = resolveModels({ intent: 'deep', dataDir: dir })
     expect(vec.at(-1)).toBe('fable') // выучено «нет доступа» → в хвост
     rmrf(dir)

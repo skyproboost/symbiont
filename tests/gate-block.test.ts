@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { openDb } from '../src/core/db'
+import { SessionLog } from '../src/core/sessions'
+import { recordEdit } from '../src/hooks/post-tool-core'
 import { handleStop } from '../src/hooks/stop-core'
 import { handleSessionStart, slugOf } from '../src/hooks/session-start-core'
 import { readGateMode } from '../src/gates/config'
@@ -84,9 +86,14 @@ describe('гейт в режиме блокировки', () => {
   })
 
   it('другая сессия — гейт снова боевой', () => {
+    // Авторство проставляется явно: b-1 осталась незакрытой в журнале, значит
+    // для b-2 она живой сосед — а при соседе судятся только свои правки
+    const db = openDb(join(dataDir, 'passport.db'))
+    recordEdit(db, 'b-2', 'fresh.js')
+    db.close()
     const out = handleStop({ cwd: proj, session_id: 'b-2' }, dataRoot)
     expect(out.decision).toBe('block')
-    expect(out.reason).toContain('1/8')
+    expect(out.reason).toContain('1/8') // предохранитель считается посессионно
   })
 
   it('/sym-status показывает режим блокировки', () => {
@@ -104,6 +111,48 @@ describe('гейт в режиме блокировки', () => {
     const ctx = out.hookSpecificOutput?.additionalContext ?? ''
     expect(ctx).toContain('гейт чаще всего ловит')
     expect(ctx).toContain('только var')
+  })
+
+  it('cleanup', () => {
+    rmrf(proj)
+    rmrf(dataRoot)
+    expect(true).toBe(true)
+  })
+})
+
+/**
+ * Живой сосед в том же репозитории: git status отдаёт ОБЩЕЕ дерево, и грязный
+ * файл перестаёт означать «наш файл». Претензия к чужой незавершённой работе
+ * зовёт модель править чужое, а в режиме блокировки не даёт закрыть ход из-за
+ * кода, которого эта сессия не писала.
+ */
+describe('параллельные сессии: гейт судит только свои правки', () => {
+  const { proj, dataRoot, dataDir } = makeWorld()
+  writeFileSync(join(dataDir, 'gate.json'), '{"mode":"block"}')
+  // Сосед без пути к транскрипту считается живым (обратная совместимость)
+  const db = openDb(join(dataDir, 'passport.db'))
+  new SessionLog(db).open('neighbour', 'startup', new Date().toISOString())
+  db.close()
+
+  it('чужой файл не судится и не блокирует ход, но назван как соседский', () => {
+    writeFileSync(join(proj, 'neighbour.js'), 'const items = 1\nlet total = 0\n')
+    const out = handleStop({ cwd: proj, session_id: 'b-1' }, dataRoot)
+    expect(out.decision).toBeUndefined()
+    const ctx = out.hookSpecificOutput?.additionalContext ?? ''
+    expect(ctx).not.toContain('только var')
+    expect(ctx).toContain('работа соседа')
+    expect(ctx).toContain('neighbour.js')
+  })
+
+  it('своя правка при живом соседе судится как обычно', () => {
+    writeFileSync(join(proj, 'mine.js'), 'const mine = 1\nlet other = 2\n')
+    const db2 = openDb(join(dataDir, 'passport.db'))
+    recordEdit(db2, 'b-1', 'mine.js') // подтверждённое авторство: правка через инструмент
+    db2.close()
+    const out = handleStop({ cwd: proj, session_id: 'b-1' }, dataRoot)
+    expect(out.decision).toBe('block')
+    expect(out.reason).toContain('mine.js')
+    expect(out.reason).not.toContain('neighbour.js')
   })
 
   it('cleanup', () => {

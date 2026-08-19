@@ -3,7 +3,7 @@ import {
   __export,
   __require,
   __toCommonJS
-} from "./session-start-rvra3cez.js";
+} from "./session-start-70d7ckvt.js";
 
 // src/core/i18n.ts
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -4773,7 +4773,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-ff25c2a61709";
+    return "bundle-b541327954e4";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {

@@ -2,7 +2,7 @@ import {
   digestForFile,
   readGrounding,
   renderCorrection
-} from "./session-start-3vtd2w0e.js";
+} from "./session-start-a2zcrqzf.js";
 import {
   playbooksFor,
   renderPlaybookBrief
@@ -13,13 +13,13 @@ import {
   markUsed,
   nodeBrief,
   outlineKey
-} from "./session-start-24cc7x79.js";
+} from "./session-start-ttvdv0m4.js";
 import {
   zoneOf
-} from "./session-start-cm20p20w.js";
+} from "./session-start-z5t05k1x.js";
 import {
   checkAgainstLaws
-} from "./session-start-ktr0tyzc.js";
+} from "./session-start-d6zk7zs5.js";
 import {
   EDIT_TOUCH_WEIGHT,
   FactStore,
@@ -42,7 +42,7 @@ import {
   statement,
   t,
   zoneAncestors
-} from "./session-start-1940hha9.js";
+} from "./session-start-ddjzc6c9.js";
 
 // src/hooks/post-tool-core.ts
 init_i18n();

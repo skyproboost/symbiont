@@ -183,12 +183,25 @@ try {
   if (!existsSync(ciPath)) {
     check('CI повторяет релиз-гейт', false, 'нет .github/workflows/ci.yml')
   } else {
+    // Судим ДЕЙСТВУЮЩИЙ workflow, а не файл целиком: закомментированный шаг —
+    // это отсутствующий шаг, а подстрочный поиск по всему тексту находил его в
+    // комментарии и давал зелень на проверку, которой в CI уже не было. Ровно
+    // так и случилось со снятым расписанием: блок ушёл в комментарий, а линт
+    // продолжал утверждать «ежедневная канарейка на месте».
     const ci = readFileSync(ciPath, 'utf8')
+      .split('\n')
+      .filter((l) => !/^\s*#/.test(l))
+      .join('\n')
     // Канарейка под node — не дубликат: артефакт поставляется под node, и
     // «зелено под bun» о поставляемом пути не говорит ничего.
     const required = ['bun test', 'scripts/bundle.ts', 'scripts/canary.ts --dist', 'scripts/canary.ts --dist --node', 'scripts/selflint.ts']
     const missing = required.filter((r) => !ci.includes(r))
-    const scheduled = ci.includes('schedule:') && ci.includes('cron:')
+    // Проверка платформы должна быть ЗАПУСКАЕМА без правки кода. Ежедневное
+    // расписание снято владельцем осознанно (цена ложных писем «всё упало» на
+    // неизменившемся коммите выше пользы), поэтому требуем не календарь, а
+    // ручной повод: workflow_dispatch. Требовать здесь cron значило бы держать
+    // линт красным ради решения, которое принято и записано.
+    const triggerable = ci.includes('workflow_dispatch')
     // Порядок значит не меньше наличия. Канарейка ПОСЛЕ bundle.ts судит сборку
     // здешнего bun, а человеку по маркетплейсу уезжают байты из git — и пока
     // канарейки стояли только после сборки, поставляемая форма не исполнялась в
@@ -197,16 +210,16 @@ try {
     const firstCanary = ci.indexOf('scripts/canary.ts --dist')
     const firstBundle = ci.indexOf('scripts/bundle.ts')
     const deliveredRun = firstCanary >= 0 && firstBundle >= 0 && firstCanary < firstBundle
-    const ok = missing.length === 0 && scheduled && deliveredRun
+    const ok = missing.length === 0 && triggerable && deliveredRun
     check(
       'CI повторяет релиз-гейт',
       ok,
       ok
-        ? 'все проверки, ежедневная канарейка и прогон поставляемой формы на месте'
+        ? 'все проверки, ручной повод и прогон поставляемой формы на месте'
         : missing.length
           ? `в CI нет: ${missing.join(', ')}`
-          : !scheduled
-            ? 'нет расписания — молчаливая поломка платформы не обнаружится'
+          : !triggerable
+            ? 'нет ручного повода — проверку платформы нечем запустить'
             : 'канарейка бежит только после пересборки — поставляемый артефакт в CI не исполняется',
     )
   }

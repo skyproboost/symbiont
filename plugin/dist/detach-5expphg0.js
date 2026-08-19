@@ -1,8 +1,8 @@
 import {
   silentSpawnOptions,
   slugOf
-} from "./session-start-1940hha9.js";
-import"./session-start-rvra3cez.js";
+} from "./session-start-ddjzc6c9.js";
+import"./session-start-70d7ckvt.js";
 
 // src/hooks/detach.ts
 import { existsSync } from "node:fs";

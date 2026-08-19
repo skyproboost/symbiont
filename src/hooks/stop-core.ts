@@ -205,10 +205,12 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       // неприкосновенный журнал.
       //
       // Граница проведена по смыслу проверки, а не по одному правилу для всего:
-      // гейт формы судит ФОРМУ ДЕРЕВА — она от авторства не зависит, и ослаблять
-      // его из-за соседа нельзя (иначе вторая сессия отключала бы блокировку).
-      // А model_state и страж фокуса — утверждения «кто что сделал»: без
-      // подтверждённого авторства они не просто шумят, а лгут.
+      // гейт формы судит ФОРМУ ДЕРЕВА, а model_state и страж фокуса — это
+      // утверждения «кто что сделал»: без подтверждённого авторства они не
+      // просто шумят, а лгут.
+      //
+      // Но и форму дерева судить целиком можно только когда мы в репозитории
+      // ОДНИ (см. gatedFiles ниже): претензия к файлу соседа не имеет адресата.
       const parallel = otherOpenSessions(db, sid)
       const own = ownEditedFiles(db, sid)
       const sessionFiles: string[] = []
@@ -248,10 +250,36 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       // навсегда — при появлении соседа о нём бы уже не сказали.
       const freshUnattributed =
         parallel > 0 ? unattributed.filter((f) => Number(dedup.run(sid, '#параллель', f).changes) > 0) : []
+      const named = `${freshUnattributed.slice(0, 3).join(', ')}${freshUnattributed.length > 3 ? ', …' : ''}`
+      // Строка подаётся на языке владельца, как и всё остальное в этом канале:
+      // русская константа посреди английской выдачи — не умолчание, а ошибка
+      // (инвариант «язык подачи переводится на последней миле»).
       const parallelLine =
         freshUnattributed.length > 0
-          ? `- параллельных сессий: ${parallel} · ${freshUnattributed.length} изменённых файлов не отнесены к этой сессии — авторство не подтверждено (${freshUnattributed.slice(0, 3).join(', ')}${freshUnattributed.length > 3 ? ', …' : ''})`
+          ? t(
+              `- параллельных сессий: ${parallel} · ${freshUnattributed.length} изменённых файлов не отнесены к этой сессии и не проверяются здесь — это работа соседа (${named})`,
+              `- parallel sessions: ${parallel} · ${freshUnattributed.length} changed files are not attributed to this session and are not checked here — they are a neighbour's work (${named})`,
+            )
           : ''
+
+      // ПОДСУДНЫЕ файлы: чьи правки вообще имеет смысл судить на этом Stop.
+      //
+      // Пока мы в репозитории одни — всё рабочее дерево наше по умолчанию:
+      // правку руками в редакторе и правку через Bash (sed/heredoc) PostToolUse
+      // не видит, и требовать подтверждённого авторства значило бы молча
+      // потерять гейт на этих путях.
+      //
+      // Как только рядом живёт другая сессия, «грязный файл» перестаёт означать
+      // «наш файл». Претензия к чужому файлу не просто шумит: в dry-run она
+      // зовёт модель чинить чужую незавершённую работу, а в режиме блокировки
+      // не даёт закрыть ход из-за кода, которого эта сессия не писала и за
+      // который не отвечает. Покрытие при этом не теряется — каждая сессия
+      // судит свои правки сама, и файл соседа разберёт гейт соседа.
+      //
+      // Отвергнут вариант «судить всех, но не блокировать чужих»: он оставляет
+      // ровно тот текст, из-за которого модель уходит в чужие файлы, — а именно
+      // это и есть наблюдаемый вред, блокировка лишь делает его громче.
+      const gatedFiles = parallel > 0 ? ownFiles : sessionFiles
 
       // Состояние модели: содержимое файлов после последнего хода — базис для
       // детекции поправок владельца на следующем старте («модель написала → человек исправил»)
@@ -289,7 +317,7 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       // Все текущие нарушения (без дедупа — блокировка обязана видеть повторные):
       // законы формы (код) + верификаторы направления (контент) — единый поток.
       const all: Array<{ file: string; law: string; detail: string }> = []
-      for (const rel of sessionFiles) {
+      for (const rel of gatedFiles) {
         const content = contents.get(rel) ?? ''
         const ext = extname(rel).toLowerCase()
         for (const v of checkAgainstLaws(content, ext, laws)) {
@@ -338,7 +366,9 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       // Опорная точка — прошлое состояние этих же файлов, а не выдуманное число.
       const budgetLines: string[] = []
       try {
-        const withDiffs = sessionFiles.map((rel) => ({
+        // Бюджеты качества — тоже утверждение о СВОЕЙ работе («ты ухудшил X»),
+        // поэтому считаются по подсудным файлам, а не по всему дереву
+        const withDiffs = gatedFiles.map((rel) => ({
           rel,
           content: contents.get(rel) ?? '',
           diff: fileDiff(cwd, rel, contents.get(rel) ?? ''),

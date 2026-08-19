@@ -5,8 +5,8 @@ import {
 import {
   callClaudeDetailed,
   callClaudeWithTools
-} from "./session-start-zz08nty3.js";
-import"./session-start-7vxtw5jw.js";
+} from "./session-start-x5rba1zv.js";
+import"./session-start-8dgq7me2.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -16,7 +16,7 @@ import {
   renderRootNotice,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-jt5shx0g.js";
+} from "./session-start-8vcksfq2.js";
 import {
   activeAxes,
   artifactProfile,
@@ -34,10 +34,10 @@ import {
   slugOf,
   t,
   walkFiles
-} from "./session-start-1940hha9.js";
+} from "./session-start-ddjzc6c9.js";
 import {
   __require
-} from "./session-start-rvra3cez.js";
+} from "./session-start-70d7ckvt.js";
 
 // src/cli/elevate.ts
 import { join as join3 } from "node:path";

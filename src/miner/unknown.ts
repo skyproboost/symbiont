@@ -17,6 +17,7 @@
  * стареют, подтверждаются, умирают.
  */
 import { documentsBlock, jsonOnly } from '../layer2/prompt'
+import { isOpaqueMaterial } from './noncode'
 
 export interface MaterialShare {
   /** расширение как маркер вида материала (без точки — «(без расширения)») */
@@ -57,7 +58,7 @@ export function findUnknownMaterial(
     const ext = (raw || '').toLowerCase()
     if (covered.code.has(ext) || covered.entity.has(ext) || covered.office.has(ext)) continue
     // Служебное и бинарное не считается материалом: его не «понимают», им пользуются
-    if (/^\.(png|jpe?g|gif|webp|svg|ico|woff2?|ttf|eot|mp[34]|mov|zip|gz|lock|map|min\.js)$/.test(ext)) continue
+    if (isOpaqueMaterial(ext)) continue
     const key = ext || '(без расширения)'
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }

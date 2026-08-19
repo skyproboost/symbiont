@@ -128,6 +128,22 @@ export function isNonCodeMinable(ext: string): boolean {
   return OFFICE.has(ext) || CSVX.has(ext) || TEXT.has(ext)
 }
 
+/**
+ * Непрозрачный материал: файл, которым ПОЛЬЗУЮТСЯ, а не который читают.
+ * Картинки, шрифты, медиа, архивы, локи и карты сборки.
+ *
+ * Список один на плагин, потому что ошибка от его расхождения тихая: разбор
+ * непокрытого материала такой фильтр имел, а накопление знания о видах — нет,
+ * и в общий каталог легла строка «.png: характерный размер ~169 строк». Число
+ * получено честно — байты картинки поделили по 0x0A, — и именно поэтому оно
+ * выглядит как статистика, а не как ошибка. У бинарного файла нет строк.
+ */
+const OPAQUE = /^\.(png|jpe?g|gif|webp|bmp|tiff?|ico|svg|woff2?|ttf|otf|eot|mp[34]|m4a|wav|mov|avi|webm|pdf|zip|gz|tgz|rar|7z|exe|dll|so|dylib|bin|wasm|lock|map|min\.js)$/
+
+export function isOpaqueMaterial(ext: string): boolean {
+  return OPAQUE.test(ext.toLowerCase())
+}
+
 /** Единый вход: путь+ext → короткая текстовая выжимка для выборки elevate. */
 export function extractContent(path: string, ext: string): string | null {
   try {

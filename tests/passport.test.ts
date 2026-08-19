@@ -37,7 +37,9 @@ describe('renderSummary', () => {
       { area: 'итерации', statement: 'filter/map/reduce — используются свободно', positive: 50, total: 100, prevalence: 0.5, tier: 'нет консенсуса' },
     ]
     const md = renderSummary('demo', facts)
-    expect(md).toContain('переменные — только var — 100 из 100 (100%)')
+    // Пустой класс контрпримеров называется отсутствием, а не соблюдением:
+    // «100 из 100 (100%)» стояло бы в строке неотличимо от «87 из 100»
+    expect(md).toContain('переменные — только var — ни одного случая обратного на 100 наблюдений')
     expect(md).toContain('Законы стиля')
     expect(md).toContain('возможны легитимные исключения')
     expect(md).toContain('Смешанный стиль')

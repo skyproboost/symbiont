@@ -21,6 +21,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { isOpaqueMaterial } from '../miner/noncode'
 
 export interface MaterialKnowledge {
   /** вид материала — расширение и ничего больше */
@@ -50,6 +51,12 @@ function sanitize(entry: unknown): MaterialKnowledge | null {
   if (typeof entry !== 'object' || entry === null) return null
   const e = entry as Record<string, unknown>
   if (typeof e.ext !== 'string' || !isSafeExt(e.ext)) return null
+  // Непрозрачный материал не участвует в накоплении: у картинки и шрифта нет
+  // ни строк, ни парности, о которых стоило бы рассказывать другому проекту.
+  // Проверка стоит на записи И на чтении — как и приватная: каталог, куда
+  // такая строка уже попала, вычищается первым же обращением, а не ждёт,
+  // пока кто-то вспомнит про миграцию.
+  if (isOpaqueMaterial(e.ext)) return null
   const pairs = Array.isArray(e.pairsWith) ? e.pairsWith.filter((p): p is string => typeof p === 'string' && isSafeExt(p)) : []
   const lines = typeof e.typicalLines === 'number' && Number.isFinite(e.typicalLines) ? Math.max(0, Math.round(e.typicalLines)) : 0
   const seen = typeof e.seenIn === 'number' && Number.isFinite(e.seenIn) ? Math.max(1, Math.round(e.seenIn)) : 1

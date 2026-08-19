@@ -10,7 +10,7 @@ import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./session-start-x5rba1zv.js";
+} from "./session-start-zf3z675j.js";
 import {
   collectOutline,
   ensureSymbols,
@@ -25,7 +25,7 @@ import {
   pendingDigests,
   runCommunityDigests,
   storeGrounding
-} from "./session-start-a2zcrqzf.js";
+} from "./session-start-k4dwr41q.js";
 import {
   PLAYBOOKS
 } from "./session-start-8ychq3hk.js";
@@ -35,12 +35,12 @@ import {
   recordLesson,
   runZSummaries,
   zoneOf
-} from "./session-start-z5t05k1x.js";
+} from "./session-start-3yf8mzq3.js";
 import {
   buildRulesPrompt,
   parseRules,
   storeRules
-} from "./session-start-18tv3932.js";
+} from "./session-start-66pvbj0z.js";
 import {
   CODE_EXT,
   CSVX,
@@ -69,7 +69,7 @@ import {
   sha1,
   t,
   walkFiles
-} from "./session-start-ddjzc6c9.js";
+} from "./session-start-j3rj72xj.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -320,6 +320,8 @@ import { join } from "node:path";
 
 // src/gardener/dedupe.ts
 var THRESHOLD = 12;
+var MAX_GROUP = 8;
+var MIN_FACTS_TO_ASK = 6;
 function dedupeLlmFacts(db) {
   const rows = db.query("SELECT id, statement, area, seen_at FROM fact_journal WHERE superseded_by IS NULL AND source LIKE 'llm:%' ORDER BY seen_at DESC, id DESC").all();
   if (rows.length < 2)
@@ -339,6 +341,72 @@ function dedupeLlmFacts(db) {
         gone.add(rows[j].id);
         merges.push({ kept: rows[i].statement, removed: rows[j].statement });
       }
+    }
+  }
+  return merges;
+}
+function buildDedupePrompt(items) {
+  return [
+    "Ниже — правила, выведенные для ОДНОГО проекта в разное время и разными проходами.",
+    "Часть из них — один и тот же вердикт, пересказанный другими словами или на другом языке.",
+    "",
+    ...items.map((it, i) => `${i + 1}. ${it.statement}`),
+    "",
+    "Верни группы номеров, которые утверждают ОДНО И ТО ЖЕ правило: следуя одному из них,",
+    "автор автоматически соблюдает и остальные, и никакой отдельной информации в них нет.",
+    "Правила об одном предмете, но с разными требованиями, — это РАЗНЫЕ правила, не группа",
+    "(«комментарий у проглоченной ошибки» и «catch пишется без биндинга» оба про catch, но требуют разного).",
+    "Сомневаешься — не объединяй: потерянное правило дороже лишней строки.",
+    "Правила, у которых нет пары, в ответ не включай.",
+    "",
+    jsonOnly("[[1, 5], [2, 7, 9]]")
+  ].join(`
+`);
+}
+function parseGroups(text, count) {
+  try {
+    const start = text.indexOf("[");
+    const end = text.lastIndexOf("]");
+    if (start === -1 || end <= start)
+      return [];
+    const arr = JSON.parse(text.slice(start, end + 1));
+    if (!Array.isArray(arr))
+      return [];
+    const out = [];
+    for (const g of arr) {
+      if (!Array.isArray(g))
+        continue;
+      const idx = [...new Set(g.filter((n) => Number.isInteger(n) && n >= 1 && n <= count))];
+      if (idx.length >= 2 && idx.length <= MAX_GROUP)
+        out.push(idx);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+function dedupeLlmFactsSemantic(db, caller) {
+  const rows = db.query("SELECT id, statement, area, seen_at FROM fact_journal WHERE superseded_by IS NULL AND source LIKE 'llm:%' ORDER BY seen_at DESC, id DESC").all();
+  if (rows.length < MIN_FACTS_TO_ASK)
+    return [];
+  const res = caller(buildDedupePrompt(rows));
+  if (!res)
+    return [];
+  const merges = [];
+  const gone = new Set;
+  const supersede = db.query("UPDATE fact_journal SET superseded_by=? WHERE id=?");
+  for (const group of parseGroups(res.text, rows.length)) {
+    const idx = group.sort((a, b) => a - b);
+    const keep = rows[idx[0] - 1];
+    if (gone.has(keep.id))
+      continue;
+    for (const n of idx.slice(1)) {
+      const drop = rows[n - 1];
+      if (drop.id === keep.id || gone.has(drop.id))
+        continue;
+      supersede.run(keep.id, drop.id);
+      gone.add(drop.id);
+      merges.push({ kept: keep.statement, removed: drop.statement });
     }
   }
   return merges;
@@ -367,12 +435,17 @@ function buildSample(projectRoot, dataDir) {
     db.close();
   }
 }
-function buildPrompt(laws, samples, dueStatements = []) {
+function buildPrompt(laws, samples, dueStatements = [], knownStatements = []) {
   return [
     "Ты анализируешь кодовую базу проекта, чтобы вывести неписаные конвенции — те, что не видны простой статистике.",
     "",
     "Уже известные законы проекта. Выводи только то, чего в этом списке нет, и что из него не следует:",
     ...laws.map((l) => `- ${l}`),
+    ...knownStatements.length > 0 ? [
+      "",
+      "Уже записанные привычки этого проекта. Не выводи их заново — ни другими словами, ни на другом языке; повтор той же мысли ничего не добавляет:",
+      ...knownStatements.map((s) => `- ${s}`)
+    ] : [],
     ...dueStatements.length > 0 ? [
       "",
       "Правила, выведенные ранее, — им пора переподтверждение. Включи в ответ те, что образец подтверждает: той же формулировкой, со свежими evidence. Остальные просто опусти:",
@@ -434,9 +507,12 @@ function runVerbalize(projectRoot, dataDir, caller) {
   const db = openDb(join(dataDir, "passport.db"));
   try {
     const store = new FactStore(db);
-    const laws = store.active().filter((f) => f.tier === "закон").map((f) => f.statement);
+    const active = store.active();
+    const laws = active.filter((f) => f.tier === "закон").map((f) => f.statement);
     const dueRows = store.dueForReview();
     const due = dueRows.map((f) => f.statement);
+    const dueSet = new Set(due);
+    const known = active.filter((f) => typeof f.source === "string" && f.source.startsWith("llm:") && !dueSet.has(f.statement)).map((f) => f.statement);
     const fp = materialFingerprint(laws, due, samples);
     if (fp === readStoredFingerprint(db)) {
       const nowIso = new Date().toISOString();
@@ -445,7 +521,7 @@ function runVerbalize(projectRoot, dataDir, caller) {
         upd.run(nowIso, f.id);
       return { model: null, rules: [], journal: empty, merges: [], cutoff: true };
     }
-    const res = caller(buildPrompt(laws, samples, due));
+    const res = caller(buildPrompt(laws, samples, due, known));
     if (!res)
       return { model: null, rules: [], journal: empty, merges: [], cutoff: false };
     try {
@@ -459,7 +535,7 @@ function runVerbalize(projectRoot, dataDir, caller) {
     const rules = parseRules2(res.text);
     const facts = rules.map((r) => ruleToFact(r, samples.length));
     const journal = store.assertAll(facts, `llm:layer2:${res.model}`);
-    const merges = dedupeLlmFacts(db);
+    const merges = [...dedupeLlmFacts(db), ...dedupeLlmFactsSemantic(db, caller)];
     return { model: res.model, rules, journal, merges, cutoff: false };
   } finally {
     db.close();

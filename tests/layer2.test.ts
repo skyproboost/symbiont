@@ -135,3 +135,56 @@ describe('runVerbalize с фейковым LLM', () => {
     expect(true).toBe(true)
   })
 })
+
+/**
+ * Дубли в паспорте родились не из плохого дедупа, а из слепоты прохода: он
+ * видел статистические законы («не повторяй их») и не видел СВОИХ прошлых
+ * правил — и выводил их заново другими словами, а то и на другом языке.
+ * Идентичность факта — область плюс предмет, и модель переименовывала оба.
+ */
+describe('проход слоя 2 знает, что уже записал', () => {
+  it('записанные привычки уходят в промпт с запретом повтора', () => {
+    const p = buildPrompt(['отступы — 2 пробела'], [{ file: 'a.ts', content: 'const a = 1' }], [], ['экспорт — только именованный'])
+    expect(p).toContain('Уже записанные привычки')
+    expect(p).toContain('ни на другом языке')
+    expect(p).toContain('экспорт — только именованный')
+  })
+
+  it('без записанных привычек лишней секции нет', () => {
+    const p = buildPrompt(['отступы — 2 пробела'], [{ file: 'a.ts', content: 'const a = 1' }])
+    expect(p).not.toContain('Уже записанные привычки')
+  })
+
+  it('проход отдаёт модели свой прошлый урожай — проверка проводки, а не только сборки строки', () => {
+    const proj2 = mkdtempSync(join(tmpdir(), 'symbiont-l2-known-'))
+    mkdirSync(join(proj2, 'lib'), { recursive: true })
+    writeFileSync(join(proj2, 'lib', 'core.js'), "var e = require('./err');\nvar x = 1;\n".repeat(6))
+    writeFileSync(join(proj2, 'lib', 'err.js'), 'var E = { fail: 1 };\nmodule.exports = E;\n'.repeat(6))
+    const dataRoot2 = mkdtempSync(join(tmpdir(), 'symbiont-l2-known-data-'))
+    handleSessionStart({ cwd: proj2, source: 'startup', session_id: 'l2k' }, dataRoot2)
+    const dataDir2 = join(dataRoot2, slugOf(proj2))
+
+    const harvest = JSON.stringify([
+      { area: 'модули', statement: 'экспорт — только именованный', evidence: ['lib/core.js', 'lib/err.js', 'app.js'], confidence: 0.85 },
+    ])
+    runVerbalize(proj2, dataDir2, () => ({ model: 'fake', text: harvest }))
+
+    // Материал меняем, иначе второй проход срежется ранним cutoff
+    writeFileSync(join(proj2, 'lib', 'core.js'), 'var y = 2;\n'.repeat(9))
+    const prompts: string[] = []
+    runVerbalize(proj2, dataDir2, (prompt) => {
+      prompts.push(prompt)
+      return { model: 'fake', text: '[]' }
+    })
+    expect(prompts[0]).toContain('Уже записанные привычки')
+    expect(prompts[0]).toContain('экспорт — только именованный')
+    rmrf(proj2)
+    rmrf(dataRoot2)
+  })
+
+  it('правило на переподтверждении в запрет не попадает — его просят повторить дословно', () => {
+    const p = buildPrompt([], [{ file: 'a.ts', content: 'const a = 1' }], ['ошибки — возвращаются значением'], [])
+    expect(p).toContain('пора переподтверждение')
+    expect(p.split('Уже записанные привычки')).toHaveLength(1)
+  })
+})

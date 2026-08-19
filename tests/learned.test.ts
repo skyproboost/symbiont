@@ -98,3 +98,41 @@ describe('подсказки', () => {
     rmrf(w)
   })
 })
+
+/**
+ * У бинарного файла нет строк. Число «~169 строк» для .png получено честно —
+ * байты картинки поделили по 0x0A — и потому выглядит статистикой, а не
+ * ошибкой: подсказка про размер картинки уезжала в каждый проект владельца.
+ */
+describe('непрозрачный материал не накапливается', () => {
+  it('картинки, шрифты и архивы не попадают в каталог видов', () => {
+    const w = world()
+    mergeLearnedMaterials(
+      w,
+      [
+        { ext: '.png', pairsWith: ['.svg'], medianLines: 169 },
+        { ext: '.woff2', pairsWith: [], medianLines: 4 },
+        { ext: '.zip', pairsWith: [], medianLines: 31 },
+        { ext: '.vue', pairsWith: ['.ts'], medianLines: 183 },
+      ],
+      'проект-1',
+    )
+    const kinds = readLearnedMaterials(w).map((k) => k.ext)
+    expect(kinds).toEqual(['.vue'])
+  })
+
+  it('уже накопленное чистится чтением, а не ждёт миграции', () => {
+    const w = world()
+    // Каталог, записанный прошлой версией: строка про .png в нём уже лежит
+    writeFileSync(
+      join(w, 'learned-materials.json'),
+      JSON.stringify([
+        { ext: '.png', pairsWith: [], typicalLines: 169, seenIn: 3, updatedAt: '2026-01-01T00:00:00.000Z' },
+        { ext: '.md', pairsWith: [], typicalLines: 59, seenIn: 3, updatedAt: '2026-01-01T00:00:00.000Z' },
+      ]),
+      'utf8',
+    )
+    expect(hintsForMaterials(w, ['.png', '.md']).join(' ')).not.toContain('.png')
+    expect(hintsForMaterials(w, ['.png', '.md']).join(' ')).toContain('.md')
+  })
+})

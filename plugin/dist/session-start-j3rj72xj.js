@@ -919,6 +919,9 @@ function factBasis(fact) {
   if (typeof fact.source === "string" && fact.source.startsWith("llm:")) {
     return t(`выведено по ${fact.total} образцам (уверенность ${pct}%, не измерено)`, `inferred from ${fact.total} samples (confidence ${pct}%, not measured)`);
   }
+  if (fact.positive === fact.total && fact.total > 0) {
+    return t(`ни одного случая обратного на ${fact.total} наблюдений`, `no counterexample in ${fact.total} observations`);
+  }
   return `${fact.positive} ${t("из", "of")} ${fact.total} (${pct}%)`;
 }
 function keyOf(fact) {
@@ -1533,6 +1536,18 @@ function pushDominant(facts, area2, rec, label) {
     tier: tierOf(prevalence, d.total)
   });
 }
+var MIN_LANG_SHARE = 0.05;
+var MIN_LANG_FILES = 30;
+function languagePresent(agg, exts) {
+  let files = 0;
+  for (const ext of exts)
+    files += agg.extHist[ext] ?? 0;
+  if (files === 0)
+    return false;
+  if (files >= MIN_LANG_FILES)
+    return true;
+  return agg.codeFiles > 0 && files / agg.codeFiles >= MIN_LANG_SHARE;
+}
 var L = {
   L0: pair("отступы — 2 пробела", "indentation — 2 spaces"),
   L1: pair("отступы — 4 пробела", "indentation — 4 spaces"),
@@ -1709,6 +1724,8 @@ function deriveFacts(agg) {
       continue;
     const total = c.a + c.b;
     if (total < axis.min)
+      continue;
+    if (!languagePresent(agg, axis.exts))
       continue;
     const positive = Math.max(c.a, c.b);
     const prevalence = positive / total;
@@ -4363,156 +4380,9 @@ function revisionsBlock(items) {
 `);
 }
 
-// src/miner/unknown.ts
-var MIN_FILES = 5;
-var MIN_SHARE = 0.04;
-function findUnknownMaterial(extensions, covered) {
-  const total = extensions.length;
-  if (total === 0)
-    return { kinds: [], totalShare: 0 };
-  const counts = new Map;
-  for (const raw of extensions) {
-    const ext = (raw || "").toLowerCase();
-    if (covered.code.has(ext) || covered.entity.has(ext) || covered.office.has(ext))
-      continue;
-    if (/^\.(png|jpe?g|gif|webp|svg|ico|woff2?|ttf|eot|mp[34]|mov|zip|gz|lock|map|min\.js)$/.test(ext))
-      continue;
-    const key = ext || "(без расширения)";
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  const kinds = [...counts.entries()].map((e) => ({ ext: e[0], files: e[1], share: e[1] / total })).filter((k) => k.files >= MIN_FILES && k.share >= MIN_SHARE).sort((a, b) => b.files - a.files).slice(0, 5);
-  const totalShare = kinds.reduce((s, k) => s + k.share, 0);
-  return { kinds, totalShare };
-}
-function buildUnknownPrompt(kind, samples) {
-  return [
-    `В проекте есть ${samples.length} файлов вида «${kind}», и они составляют заметную часть работы.`,
-    "",
-    "Задача: определить, КАК В ЭТОМ ПРОЕКТЕ принято работать с такими файлами. Нужны наблюдения по образцам, а не общие сведения о формате.",
-    "",
-    "Что интересует: устойчивая структура (обязательные части, порядок), соглашения об именовании, единицы измерения и форматы значений, что здесь считается полным и законченным файлом, что повторяется из файла в файл.",
-    "",
-    "Образцы:",
-    documentsBlock(samples),
-    "",
-    jsonOnly('[{"area": "область наблюдения", "statement": "предмет — вердикт", "evidence": ["файл1", "файл2"], "confidence": 0.8}]'),
-    "",
-    "Правила: только то, что подтверждается минимум двумя образцами; формулировка фактом («имена файлов — дата в начале»), а не советом; если устойчивых правил не видно — верни пустой массив, это честный ответ."
-  ].join(`
-`);
-}
-function unknownFact(u) {
-  if (u.kinds.length === 0)
-    return null;
-  const list = u.kinds.map((k) => `${k.ext} (${k.files})`).join(", ");
-  return {
-    area: "состав проекта",
-    statement: `материал без готового анализатора — ${list}: правила по нему выводятся из образцов, а не из знания формата`,
-    positive: u.kinds.reduce((s, k) => s + k.files, 0),
-    total: u.kinds.reduce((s, k) => s + k.files, 0),
-    prevalence: 1,
-    tier: "привычка"
-  };
-}
-
-// src/core/learned.ts
-import { existsSync as existsSync5, readFileSync as readFileSync8, writeFileSync as writeFileSync2 } from "node:fs";
-import { join as join10 } from "node:path";
-var FILE2 = "learned-materials.json";
-var MIN_PROJECTS = 2;
-var MAX_ENTRIES = 200;
-var isSafeExt = (s) => /^\.[a-z0-9][a-z0-9._-]{0,20}$/i.test(s) || s === "(без расширения)";
-function sanitize(entry) {
-  if (typeof entry !== "object" || entry === null)
-    return null;
-  const e = entry;
-  if (typeof e.ext !== "string" || !isSafeExt(e.ext))
-    return null;
-  const pairs = Array.isArray(e.pairsWith) ? e.pairsWith.filter((p) => typeof p === "string" && isSafeExt(p)) : [];
-  const lines = typeof e.typicalLines === "number" && Number.isFinite(e.typicalLines) ? Math.max(0, Math.round(e.typicalLines)) : 0;
-  const seen = typeof e.seenIn === "number" && Number.isFinite(e.seenIn) ? Math.max(1, Math.round(e.seenIn)) : 1;
-  return {
-    ext: e.ext,
-    pairsWith: [...new Set(pairs)].slice(0, 6),
-    typicalLines: lines,
-    seenIn: Math.min(seen, 999),
-    updatedAt: typeof e.updatedAt === "string" ? e.updatedAt.slice(0, 30) : new Date().toISOString()
-  };
-}
-function readLearnedMaterials(root) {
-  try {
-    const p = join10(root, FILE2);
-    if (!existsSync5(p))
-      return [];
-    const raw = JSON.parse(readFileSync8(p, "utf8"));
-    if (!Array.isArray(raw))
-      return [];
-    return raw.map(sanitize).filter((x) => x !== null);
-  } catch {
-    return [];
-  }
-}
-function mergeLearnedMaterials(root, observations, projectKey, nowIso = new Date().toISOString()) {
-  try {
-    const existing = readLearnedMaterials(root);
-    const byExt = new Map(existing.map((e) => [e.ext, e]));
-    const seenPath = join10(root, "learned-seen.json");
-    let seen = {};
-    try {
-      seen = existsSync5(seenPath) ? JSON.parse(readFileSync8(seenPath, "utf8")) : {};
-    } catch {
-      seen = {};
-    }
-    let changed = 0;
-    for (const o of observations) {
-      const safe = sanitize({ ext: o.ext, pairsWith: o.pairsWith, typicalLines: o.medianLines, seenIn: 1, updatedAt: nowIso });
-      if (!safe)
-        continue;
-      const prev = byExt.get(safe.ext);
-      const projects = new Set(seen[safe.ext] ?? []);
-      const isNewProject = !projects.has(projectKey);
-      projects.add(projectKey);
-      seen[safe.ext] = [...projects].slice(-50);
-      if (!prev) {
-        byExt.set(safe.ext, safe);
-      } else {
-        prev.pairsWith = [...new Set([...prev.pairsWith, ...safe.pairsWith])].slice(0, 6);
-        prev.typicalLines = safe.typicalLines > 0 ? Math.round((prev.typicalLines + safe.typicalLines) / 2) : prev.typicalLines;
-        if (isNewProject)
-          prev.seenIn = Math.min(prev.seenIn + 1, 999);
-        prev.updatedAt = nowIso;
-      }
-      changed++;
-    }
-    const out = [...byExt.values()].sort((a, b) => b.seenIn - a.seenIn).slice(0, MAX_ENTRIES);
-    writeFileSync2(join10(root, FILE2), JSON.stringify(out, null, 1), "utf8");
-    writeFileSync2(seenPath, JSON.stringify(seen, null, 1), "utf8");
-    return changed;
-  } catch {
-    return 0;
-  }
-}
-function hintsForMaterials(root, exts) {
-  const known = readLearnedMaterials(root);
-  const wanted = new Set(exts);
-  const out = [];
-  for (const k of known) {
-    if (!wanted.has(k.ext) || k.seenIn < MIN_PROJECTS)
-      continue;
-    const parts = [];
-    if (k.pairsWith.length > 0)
-      parts.push(`обычно ходит парой с ${k.pairsWith.join(", ")}`);
-    if (k.typicalLines > 0)
-      parts.push(`характерный размер ~${k.typicalLines} строк`);
-    if (parts.length > 0)
-      out.push(`${k.ext}: ${parts.join(", ")} (по опыту ${k.seenIn} проектов)`);
-  }
-  return out.slice(0, 5);
-}
-
 // src/miner/noncode.ts
 import { inflateRawSync } from "node:zlib";
-import { readFileSync as readFileSync9 } from "node:fs";
+import { readFileSync as readFileSync8 } from "node:fs";
 function mineCsv(content) {
   const lines = content.split(/\r?\n/).filter((l) => l.length > 0);
   const header = lines[0] ?? "";
@@ -4581,18 +4451,22 @@ var TEXT = new Set([".txt", ".md", ".mdx", ".rst", ".adoc"]);
 function isNonCodeMinable(ext) {
   return OFFICE.has(ext) || CSVX.has(ext) || TEXT.has(ext);
 }
+var OPAQUE = /^\.(png|jpe?g|gif|webp|bmp|tiff?|ico|svg|woff2?|ttf|otf|eot|mp[34]|m4a|wav|mov|avi|webm|pdf|zip|gz|tgz|rar|7z|exe|dll|so|dylib|bin|wasm|lock|map|min\.js)$/;
+function isOpaqueMaterial(ext) {
+  return OPAQUE.test(ext.toLowerCase());
+}
 function extractContent(path, ext) {
   try {
     if (OFFICE.has(ext)) {
-      const o = mineOffice(readFileSync9(path), ext);
+      const o = mineOffice(readFileSync8(path), ext);
       return o.text ? `[${o.format}, ${o.units} ед.] ${o.text}` : null;
     }
     if (CSVX.has(ext)) {
-      const c = mineCsv(readFileSync9(path, "utf8"));
+      const c = mineCsv(readFileSync8(path, "utf8"));
       return `[таблица ${c.rows} строк, колонки: ${c.columns.join(", ")}]`;
     }
     if (TEXT.has(ext)) {
-      const content = readFileSync9(path, "utf8");
+      const content = readFileSync8(path, "utf8");
       const t2 = mineText(content);
       return `[${t2.words} слов, заголовки: ${t2.headings.slice(0, 8).join(" · ")}]
 ${content.slice(0, 3000)}`;
@@ -4601,6 +4475,155 @@ ${content.slice(0, 3000)}`;
   } catch {
     return null;
   }
+}
+
+// src/miner/unknown.ts
+var MIN_FILES = 5;
+var MIN_SHARE = 0.04;
+function findUnknownMaterial(extensions, covered) {
+  const total = extensions.length;
+  if (total === 0)
+    return { kinds: [], totalShare: 0 };
+  const counts = new Map;
+  for (const raw of extensions) {
+    const ext = (raw || "").toLowerCase();
+    if (covered.code.has(ext) || covered.entity.has(ext) || covered.office.has(ext))
+      continue;
+    if (isOpaqueMaterial(ext))
+      continue;
+    const key = ext || "(без расширения)";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const kinds = [...counts.entries()].map((e) => ({ ext: e[0], files: e[1], share: e[1] / total })).filter((k) => k.files >= MIN_FILES && k.share >= MIN_SHARE).sort((a, b) => b.files - a.files).slice(0, 5);
+  const totalShare = kinds.reduce((s, k) => s + k.share, 0);
+  return { kinds, totalShare };
+}
+function buildUnknownPrompt(kind, samples) {
+  return [
+    `В проекте есть ${samples.length} файлов вида «${kind}», и они составляют заметную часть работы.`,
+    "",
+    "Задача: определить, КАК В ЭТОМ ПРОЕКТЕ принято работать с такими файлами. Нужны наблюдения по образцам, а не общие сведения о формате.",
+    "",
+    "Что интересует: устойчивая структура (обязательные части, порядок), соглашения об именовании, единицы измерения и форматы значений, что здесь считается полным и законченным файлом, что повторяется из файла в файл.",
+    "",
+    "Образцы:",
+    documentsBlock(samples),
+    "",
+    jsonOnly('[{"area": "область наблюдения", "statement": "предмет — вердикт", "evidence": ["файл1", "файл2"], "confidence": 0.8}]'),
+    "",
+    "Правила: только то, что подтверждается минимум двумя образцами; формулировка фактом («имена файлов — дата в начале»), а не советом; если устойчивых правил не видно — верни пустой массив, это честный ответ."
+  ].join(`
+`);
+}
+function unknownFact(u) {
+  if (u.kinds.length === 0)
+    return null;
+  const list = u.kinds.map((k) => `${k.ext} (${k.files})`).join(", ");
+  return {
+    area: "состав проекта",
+    statement: `материал без готового анализатора — ${list}: правила по нему выводятся из образцов, а не из знания формата`,
+    positive: u.kinds.reduce((s, k) => s + k.files, 0),
+    total: u.kinds.reduce((s, k) => s + k.files, 0),
+    prevalence: 1,
+    tier: "привычка"
+  };
+}
+
+// src/core/learned.ts
+import { existsSync as existsSync5, readFileSync as readFileSync9, writeFileSync as writeFileSync2 } from "node:fs";
+import { join as join10 } from "node:path";
+var FILE2 = "learned-materials.json";
+var MIN_PROJECTS = 2;
+var MAX_ENTRIES = 200;
+var isSafeExt = (s) => /^\.[a-z0-9][a-z0-9._-]{0,20}$/i.test(s) || s === "(без расширения)";
+function sanitize(entry) {
+  if (typeof entry !== "object" || entry === null)
+    return null;
+  const e = entry;
+  if (typeof e.ext !== "string" || !isSafeExt(e.ext))
+    return null;
+  if (isOpaqueMaterial(e.ext))
+    return null;
+  const pairs = Array.isArray(e.pairsWith) ? e.pairsWith.filter((p) => typeof p === "string" && isSafeExt(p)) : [];
+  const lines = typeof e.typicalLines === "number" && Number.isFinite(e.typicalLines) ? Math.max(0, Math.round(e.typicalLines)) : 0;
+  const seen = typeof e.seenIn === "number" && Number.isFinite(e.seenIn) ? Math.max(1, Math.round(e.seenIn)) : 1;
+  return {
+    ext: e.ext,
+    pairsWith: [...new Set(pairs)].slice(0, 6),
+    typicalLines: lines,
+    seenIn: Math.min(seen, 999),
+    updatedAt: typeof e.updatedAt === "string" ? e.updatedAt.slice(0, 30) : new Date().toISOString()
+  };
+}
+function readLearnedMaterials(root) {
+  try {
+    const p = join10(root, FILE2);
+    if (!existsSync5(p))
+      return [];
+    const raw = JSON.parse(readFileSync9(p, "utf8"));
+    if (!Array.isArray(raw))
+      return [];
+    return raw.map(sanitize).filter((x) => x !== null);
+  } catch {
+    return [];
+  }
+}
+function mergeLearnedMaterials(root, observations, projectKey, nowIso = new Date().toISOString()) {
+  try {
+    const existing = readLearnedMaterials(root);
+    const byExt = new Map(existing.map((e) => [e.ext, e]));
+    const seenPath = join10(root, "learned-seen.json");
+    let seen = {};
+    try {
+      seen = existsSync5(seenPath) ? JSON.parse(readFileSync9(seenPath, "utf8")) : {};
+    } catch {
+      seen = {};
+    }
+    let changed = 0;
+    for (const o of observations) {
+      const safe = sanitize({ ext: o.ext, pairsWith: o.pairsWith, typicalLines: o.medianLines, seenIn: 1, updatedAt: nowIso });
+      if (!safe)
+        continue;
+      const prev = byExt.get(safe.ext);
+      const projects = new Set(seen[safe.ext] ?? []);
+      const isNewProject = !projects.has(projectKey);
+      projects.add(projectKey);
+      seen[safe.ext] = [...projects].slice(-50);
+      if (!prev) {
+        byExt.set(safe.ext, safe);
+      } else {
+        prev.pairsWith = [...new Set([...prev.pairsWith, ...safe.pairsWith])].slice(0, 6);
+        prev.typicalLines = safe.typicalLines > 0 ? Math.round((prev.typicalLines + safe.typicalLines) / 2) : prev.typicalLines;
+        if (isNewProject)
+          prev.seenIn = Math.min(prev.seenIn + 1, 999);
+        prev.updatedAt = nowIso;
+      }
+      changed++;
+    }
+    const out = [...byExt.values()].sort((a, b) => b.seenIn - a.seenIn).slice(0, MAX_ENTRIES);
+    writeFileSync2(join10(root, FILE2), JSON.stringify(out, null, 1), "utf8");
+    writeFileSync2(seenPath, JSON.stringify(seen, null, 1), "utf8");
+    return changed;
+  } catch {
+    return 0;
+  }
+}
+function hintsForMaterials(root, exts) {
+  const known = readLearnedMaterials(root);
+  const wanted = new Set(exts);
+  const out = [];
+  for (const k of known) {
+    if (!wanted.has(k.ext) || k.seenIn < MIN_PROJECTS)
+      continue;
+    const parts = [];
+    if (k.pairsWith.length > 0)
+      parts.push(`обычно ходит парой с ${k.pairsWith.join(", ")}`);
+    if (k.typicalLines > 0)
+      parts.push(`характерный размер ~${k.typicalLines} строк`);
+    if (parts.length > 0)
+      out.push(`${k.ext}: ${parts.join(", ")} (по опыту ${k.seenIn} проектов)`);
+  }
+  return out.slice(0, 5);
 }
 
 // src/domains/frame.ts
@@ -4773,7 +4796,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-b541327954e4";
+    return "bundle-63f42c9fa010";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5865,4 +5888,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };
+export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };

@@ -95,3 +95,45 @@ describe('оси языковых пакетов', () => {
     }
   })
 })
+
+/**
+ * Присутствие языка. Наблюдения ось набирает с ФАЙЛОВ, и плотный чужой файл
+ * легко перевешивает по числу наблюдений весь остальной проект: шесть
+ * PHP-файлов в Python-репозитории выдали «массивы — короткий синтаксис []»
+ * законом всего репозитория — рядом с отступами, намайненными со всей базы,
+ * и неотличимо от них.
+ */
+describe('конвенции языка требуют присутствия языка в проекте', () => {
+  const PHP = '<?php\n$a = [1, 2];\n$b = [3, 4];\n$c = [5, 6];\n$d = [7, 8];\n$e = [9, 0];\n'
+  const PY = 'def f(x: int) -> str:\n    return ""\n'
+
+  const world = (pyFiles: number, phpFiles: number): ReturnType<typeof aggregate> => {
+    const obs: ReturnType<typeof analyzeFile>[] = []
+    const exts: string[] = []
+    for (let i = 0; i < pyFiles; i++) {
+      obs.push(analyzeFile(`m${i}.py`, '.py', PY))
+      exts.push('.py')
+    }
+    for (let i = 0; i < phpFiles; i++) {
+      obs.push(analyzeFile(`p${i}.php`, '.php', PHP.repeat(3)))
+      exts.push('.php')
+    }
+    return aggregate(obs, exts)
+  }
+
+  it('язык-гость молчит: наблюдений хватает, файлов — нет', () => {
+    const agg = world(180, 6) // 1.6% файлов, как в разобранном паспорте
+    expect(agg.axes['php-array']!.a).toBeGreaterThanOrEqual(20) // наблюдения есть
+    expect(deriveFacts(agg).find((f) => f.area === 'массивы')).toBeUndefined()
+  })
+
+  it('язык проекта говорит: доли хватает', () => {
+    const agg = world(50, 6) // 10.7% файлов
+    expect(deriveFacts(agg).find((f) => f.area === 'массивы')?.statement).toBe('массивы — короткий синтаксис []')
+  })
+
+  it('малая доля в большом проекте — но сотня файлов: язык говорит', () => {
+    const agg = world(3000, 40) // 1.3% файлов, зато сорок штук
+    expect(deriveFacts(agg).find((f) => f.area === 'массивы')?.statement).toBe('массивы — короткий синтаксис []')
+  })
+})

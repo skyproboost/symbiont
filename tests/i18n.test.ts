@@ -181,6 +181,9 @@ describe('английская подача — полная, а не напол
       expect(consts.length).toBeGreaterThan(0)
       for (const f of consts) expect(cyr.test(statement(f.statement))).toBe(false)
       expect(factBasis({ positive: 5, total: 7, prevalence: 0.71 })).toBe('5 of 7 (71%)')
+      // Основание-отсутствие переводится там же, где и остальные: собственная
+      // копия формулировки в другом модуле заговорила бы по-русски
+      expect(factBasis({ positive: 9, total: 9, prevalence: 1 })).toBe('no counterexample in 9 observations')
     } finally {
       setLang('ru')
     }

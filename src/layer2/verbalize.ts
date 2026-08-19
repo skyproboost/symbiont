@@ -17,7 +17,7 @@ import { sha1 } from '../core/salsa'
 import { FactStore } from '../core/store'
 import type { Fact } from '../miner/facts'
 import type { LlmCaller } from './llm'
-import { dedupeLlmFacts, type Merge } from '../gardener/dedupe'
+import { dedupeLlmFacts, dedupeLlmFactsSemantic, type Merge } from '../gardener/dedupe'
 
 const SAMPLE_FILES = 6
 const SAMPLE_CHARS_PER_FILE = 4000
@@ -55,12 +55,26 @@ export function buildPrompt(
   laws: string[],
   samples: Array<{ file: string; content: string }>,
   dueStatements: string[] = [],
+  knownStatements: string[] = [],
 ): string {
   return [
     'Ты анализируешь кодовую базу проекта, чтобы вывести неписаные конвенции — те, что не видны простой статистике.',
     '',
     'Уже известные законы проекта. Выводи только то, чего в этом списке нет, и что из него не следует:',
     ...laws.map((l) => `- ${l}`),
+    // Тот же приём, что и с законами выше, — и по той же причине. Пока проход
+    // видел только статистику, он каждый раз заново выводил СВОИ ЖЕ прошлые
+    // правила новыми словами: «exports — named only» и «экспорт — только
+    // именованный» уживались в паспорте как два разных факта, потому что
+    // идентичность факта — область плюс предмет, а модель переименовывала оба.
+    // Дешевле не порождать дубль, чем потом узнавать его в пересказе.
+    ...(knownStatements.length > 0
+      ? [
+          '',
+          'Уже записанные привычки этого проекта. Не выводи их заново — ни другими словами, ни на другом языке; повтор той же мысли ничего не добавляет:',
+          ...knownStatements.map((s) => `- ${s}`),
+        ]
+      : []),
     ...(dueStatements.length > 0
       ? [
           '',
@@ -135,6 +149,11 @@ export interface VerbalizeResult {
  * LLM байт-в-байт тот же, что в прошлый успешный проход, повторный вызов
  * добавил бы только сэмплинговый шум — детерминированная часть ответа уже в
  * журнале.
+ *
+ * Список уже записанных привычек в отпечаток НЕ входит, хотя и уходит в промпт:
+ * он — наш собственный урожай, а не материал проекта. Включённый, он отменял бы
+ * срез после каждого продуктивного прохода — проход менял бы свой же вход и сам
+ * себе назначал повтор на неизменившемся коде.
  */
 function materialFingerprint(laws: string[], due: string[], samples: Array<{ file: string; content: string }>): string {
   return sha1(JSON.stringify({ laws, due, samples: samples.map((s) => [s.file, sha1(s.content)]) }))
@@ -157,10 +176,17 @@ export function runVerbalize(projectRoot: string, dataDir: string, caller: LlmCa
   const db = openDb(join(dataDir, 'passport.db'))
   try {
     const store = new FactStore(db)
-    const laws = store.active().filter((f) => f.tier === 'закон').map((f) => f.statement)
+    const active = store.active()
+    const laws = active.filter((f) => f.tier === 'закон').map((f) => f.statement)
     // FSRS: правила с истёкшим интервалом — на переподтверждение этим же проходом
     const dueRows = store.dueForReview()
     const due = dueRows.map((f) => f.statement)
+    // Уже записанные LLM-привычки минус те, что сами ждут переподтверждения:
+    // due просят повторить ТОЙ ЖЕ формулировкой, и запрет на повтор их убил бы
+    const dueSet = new Set(due)
+    const known = active
+      .filter((f) => typeof f.source === 'string' && f.source.startsWith('llm:') && !dueSet.has(f.statement))
+      .map((f) => f.statement)
 
     // Ранний срез (Bazel/Buck2): вход не изменился → LLM не зовём. Честность
     // среза: due-фактам освежается seen_at БЕЗ роста уверенности — вызов на
@@ -175,7 +201,7 @@ export function runVerbalize(projectRoot: string, dataDir: string, caller: LlmCa
       return { model: null, rules: [], journal: empty, merges: [], cutoff: true }
     }
 
-    const res = caller(buildPrompt(laws, samples, due))
+    const res = caller(buildPrompt(laws, samples, due, known))
     if (!res) return { model: null, rules: [], journal: empty, merges: [], cutoff: false }
 
     // Отпечаток — только после успешного прохода: неудача не должна
@@ -202,7 +228,11 @@ export function runVerbalize(projectRoot: string, dataDir: string, caller: LlmCa
     const rules = parseRules(res.text)
     const facts = rules.map((r) => ruleToFact(r, samples.length))
     const journal = store.assertAll(facts, `llm:layer2:${res.model}`)
-    const merges = dedupeLlmFacts(db) // садовник: слить почти-дубли сразу после урожая
+    // Садовник: сначала дешёвый проход по почти-одинаковым строкам, следом
+    // смысловой — он один видит пересказ той же мысли на другом языке. Оба
+    // внутри уже оплаченного дорогого прохода: отдельного повода звать модель
+    // ради уборки нет, а вместе с урожаем уборка стоит один вызов.
+    const merges = [...dedupeLlmFacts(db), ...dedupeLlmFactsSemantic(db, caller)]
     return { model: res.model, rules, journal, merges, cutoff: false }
   } finally {
     db.close()

@@ -6,13 +6,13 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-8vcksfq2.js";
+} from "./session-start-c4qexxaq.js";
 import {
   beat,
   initLang,
   init_i18n,
   slugOf
-} from "./session-start-ddjzc6c9.js";
+} from "./session-start-j3rj72xj.js";
 import {
   __require,
   __toESM
@@ -43,6 +43,6 @@ var out = handlePreCompact(input, res.root);
 if (out.hookSpecificOutput)
   console.log(JSON.stringify(out));
 try {
-  const { spawnAutoLearnDetached } = await import("./detach-5expphg0.js");
+  const { spawnAutoLearnDetached } = await import("./detach-23051ybb.js");
   spawnAutoLearnDetached(input.cwd ?? process.cwd(), res.root);
 } catch {}

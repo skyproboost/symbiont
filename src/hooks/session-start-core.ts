@@ -58,6 +58,55 @@ function detectCorrections(db: Database, cwd: string, currentSid: string): numbe
 }
 
 const CONTEXT_CHAR_BUDGET = 8000
+/** Ниже этого числа строк секция перестаёт быть секцией — резать дальше нечего. */
+const MIN_SECTION_ITEMS = 3
+
+/**
+ * Уложить сводку в бюджет, тратя его по ВЕСУ секций, а не по их месту в файле.
+ *
+ * Слайс по 8000-му символу выглядел безобидно, пока паспорт был мал. На зрелом
+ * проекте самая толстая секция — выведенные моделью привычки, и стоит она в
+ * файле раньше измеренных: разросшись, она выталкивала из подачи и профиль
+ * качества, и карту ключевых модулей — то есть ровно то, ради чего сводку и
+ * читают. Отрезанное при этом не называлось: срез приходился на середину
+ * строки, и понять, что паспорт подан не целиком, было неоткуда.
+ *
+ * Режем поштучно и всегда у САМОЙ ДЛИННОЙ секции: перекос лечится там, где он
+ * возник, и правило не знает ни одного названия секции — иначе оно сломалось бы
+ * на другом языке подачи или на новой секции. Каждая урезанная секция говорит,
+ * сколько строк осталось за кадром и где лежит полная версия.
+ */
+export function fitToBudget(summary: string, budget: number, fullPath: string): string {
+  if (summary.length <= budget) return summary
+  const parts = summary.split(/\n(?=## )/)
+  const blocks = parts.map((p) => {
+    const lines = p.split('\n')
+    const head = lines.findIndex((l) => l.startsWith('- '))
+    return head === -1
+      ? { lines, items: [] as string[], dropped: 0 }
+      : { lines: lines.slice(0, head), items: lines.slice(head).filter((l) => l.startsWith('- ')), dropped: 0 }
+  })
+  const render = (): string =>
+    blocks
+      .map((b) => {
+        const tail = b.dropped > 0 ? [`- …${t(`ещё ${b.dropped} — passport_conventions`, `${b.dropped} more — passport_conventions`)}`] : []
+        return [...b.lines, ...b.items, ...tail].join('\n')
+      })
+      .join('\n')
+
+  while (render().length > budget) {
+    let fat = -1
+    for (let i = 0; i < blocks.length; i++) {
+      if (blocks[i].items.length <= MIN_SECTION_ITEMS) continue
+      if (fat === -1 || blocks[i].items.length > blocks[fat].items.length) fat = i
+    }
+    if (fat === -1) break // все секции у пола — дальше только честный обрыв
+    blocks[fat].items.pop()
+    blocks[fat].dropped++
+  }
+  const fitted = render()
+  return fitted.length <= budget ? fitted : `${fitted.slice(0, budget)}\n…${t('обрезано; полная версия', 'truncated; full version')}: ${fullPath}`
+}
 
 export interface SessionStartInput {
   cwd?: string
@@ -250,11 +299,7 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
     }
     if (!summary.includes('## ')) summary = '' // один заголовок без секций — не сводка
     if (!summary && !constBlock) return {} // нечего сказать — молчим, не занимаем контекст
-    if (summary.length > CONTEXT_CHAR_BUDGET) {
-      summary =
-        summary.slice(0, CONTEXT_CHAR_BUDGET) +
-        `\n…обрезано; полная версия: ${r.summaryPath}`
-    }
+    summary = fitToBudget(summary, CONTEXT_CHAR_BUDGET, r.summaryPath)
 
     let stateBlock = g ? `\n${renderGitBlock(g, reconciled)}` : ''
     // Контекст сжат/форкнут — сводка переинжектится (восстановление после потери

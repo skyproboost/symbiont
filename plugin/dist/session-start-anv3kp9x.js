@@ -4796,7 +4796,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-63f42c9fa010";
+    return "bundle-59365b578184";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5742,6 +5742,40 @@ function detectCorrections(db, cwd, currentSid) {
   return found;
 }
 var CONTEXT_CHAR_BUDGET = 8000;
+var MIN_SECTION_ITEMS = 3;
+function fitToBudget(summary, budget, fullPath) {
+  if (summary.length <= budget)
+    return summary;
+  const parts = summary.split(/\n(?=## )/);
+  const blocks = parts.map((p) => {
+    const lines = p.split(`
+`);
+    const head = lines.findIndex((l) => l.startsWith("- "));
+    return head === -1 ? { lines, items: [], dropped: 0 } : { lines: lines.slice(0, head), items: lines.slice(head).filter((l) => l.startsWith("- ")), dropped: 0 };
+  });
+  const render = () => blocks.map((b) => {
+    const tail = b.dropped > 0 ? [`- …${t(`ещё ${b.dropped} — passport_conventions`, `${b.dropped} more — passport_conventions`)}`] : [];
+    return [...b.lines, ...b.items, ...tail].join(`
+`);
+  }).join(`
+`);
+  while (render().length > budget) {
+    let fat = -1;
+    for (let i = 0;i < blocks.length; i++) {
+      if (blocks[i].items.length <= MIN_SECTION_ITEMS)
+        continue;
+      if (fat === -1 || blocks[i].items.length > blocks[fat].items.length)
+        fat = i;
+    }
+    if (fat === -1)
+      break;
+    blocks[fat].items.pop();
+    blocks[fat].dropped++;
+  }
+  const fitted = render();
+  return fitted.length <= budget ? fitted : `${fitted.slice(0, budget)}
+…${t("обрезано; полная версия", "truncated; full version")}: ${fullPath}`;
+}
 function slugOf(path) {
   const norm = path.replaceAll("\\", "/").replace(/\/+$/, "");
   return basename2(norm).toLowerCase().replace(/[^a-z0-9-]+/g, "-") || "project";
@@ -5842,10 +5876,7 @@ ${renderConstitution(constitution)}
       summary = "";
     if (!summary && !constBlock)
       return {};
-    if (summary.length > CONTEXT_CHAR_BUDGET) {
-      summary = summary.slice(0, CONTEXT_CHAR_BUDGET) + `
-…обрезано; полная версия: ${r.summaryPath}`;
-    }
+    summary = fitToBudget(summary, CONTEXT_CHAR_BUDGET, r.summaryPath);
     let stateBlock = g ? `
 ${renderGitBlock(g, reconciled)}` : "";
     const compactNote = input.source === "compact" ? t("- контекст был сжат — паспорт восстановлен (то, что компакция могла выронить)", "- the context was compacted — the passport has been restored (what compaction could have dropped)") : input.source === "fork" ? t("- сессия форкнута — паспорт подан форку (сабагенты не наследуют контекст родителя)", "- the session was forked — the passport was delivered to the fork (subagents do not inherit the parent context)") : "";

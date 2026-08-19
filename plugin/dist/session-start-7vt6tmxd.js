@@ -1,7 +1,7 @@
 import {
   init_i18n,
   t
-} from "./session-start-j3rj72xj.js";
+} from "./session-start-anv3kp9x.js";
 
 // src/core/models.ts
 init_i18n();

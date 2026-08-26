@@ -185,3 +185,40 @@ describe('симуляция: подача учится на живом прое
     rmrf(data)
   })
 })
+
+describe('межсессионная тишина брифов графа', () => {
+  const world = () => {
+    const db = openDb(':memory:')
+    db.run('CREATE TABLE sessions(session_id TEXT PRIMARY KEY, source TEXT, started_at TEXT NOT NULL, transcript_path TEXT)')
+    ensureFeedLog(db)
+    return db
+  }
+  const session = (db: ReturnType<typeof openDb>, id: string, at: string) =>
+    db.run("INSERT INTO sessions(session_id, source, started_at) VALUES(?,?,?)", id, 'startup', at)
+
+  it('три сессии подряд без пользы — узел молчит, потом пробуется снова', () => {
+    const db = world()
+    for (let i = 1; i <= 3; i++) {
+      session(db, `s${i}`, `2026-01-0${i}`)
+      expect(claimNode(db, `s${i}`, 'src/x.ts')).toBe(true)
+    }
+    session(db, 's4', '2026-01-04')
+    expect(claimNode(db, 's4', 'src/x.ts')).toBe(false) // тишина
+    expect(claimNode(db, 's4', 'src/y.ts')).toBe(true) // другой узел не задет
+    for (let i = 5; i <= 9; i++) session(db, `s${i}`, `2026-01-0${i}`)
+    expect(claimNode(db, 's9', 'src/x.ts')).toBe(true) // срок вышел — зонд
+    db.close()
+  })
+
+  it('правка узла рвёт серию: использованный бриф не глушится', () => {
+    const db = world()
+    for (let i = 1; i <= 3; i++) {
+      session(db, `s${i}`, `2026-01-0${i}`)
+      claimNode(db, `s${i}`, 'src/x.ts')
+    }
+    markUsed(db, 's2', 'src/x.ts')
+    session(db, 's4', '2026-01-04')
+    expect(claimNode(db, 's4', 'src/x.ts')).toBe(true)
+    db.close()
+  })
+})

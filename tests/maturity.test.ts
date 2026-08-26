@@ -153,7 +153,9 @@ describe('стойка и вывод', () => {
   it('факт зрелости несёт число и разбор по осям', () => {
     const f = maturityFact(assessMaturity({ ...base, codeFiles: 50, commits: 40, testFiles: 10, prevalences: [0.9] }))
     expect(f.area).toBe('зрелость проекта')
-    expect(f.statement).toMatch(/зрелость проекта — 0\.\d\d/)
+    expect(f.statement).toMatch(/зрелость проекта — (юный|растущий|зрелый|сложившийся|[а-яё ]+):/)
+    expect(f.positive).toBeGreaterThan(0)
+    expect(f.total).toBe(100) // балл — в основании, формулировка стабильна между пересчётами
     expect(f.statement).toContain('определённость канона')
   })
 })

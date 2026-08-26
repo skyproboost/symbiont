@@ -288,12 +288,14 @@ export function maturityStance(level: MaturityLevel): string[] {
 
 /** Факт для журнала: то же старение и подтверждение, что у остальных. */
 export function maturityFact(m: Maturity): Fact {
-  const dims = m.dimensions.filter((d) => d.known).map((d) => `${d.name} ${d.value.toFixed(2)}`).join(', ')
+  // Уровень — в формулировке, балл — в основании (positive из 100): текст с
+  // баллом менялся на каждом пересчёте и вытеснял сам себя (18 версий)
+  const dims = m.dimensions.filter((d) => d.known).map((d) => d.name).join(', ')
   return {
     area: 'зрелость проекта',
-    statement: `зрелость проекта — ${m.score.toFixed(2)} (${m.level}): ${dims}`,
-    positive: 1,
-    total: 1,
+    statement: `зрелость проекта — ${m.level}: ${dims}`,
+    positive: Math.round(m.score * 100),
+    total: 100,
     prevalence: 1,
     tier: 'привычка',
   }
@@ -316,6 +318,8 @@ const levelName = (ru: string): string =>
  * и том же быть не должно. Без этого образца факт уходил в MCP по-русски даже
  * при английской подаче — единственная формулировка, которая там оставалась.
  */
+pattern(/^зрелость проекта — (.+?): (.+)$/, (m) => `project maturity — ${levelName(m[1])}: ${m[2].split(', ').map(dimName).join(', ')}`)
+// Старая форма с баллом в тексте — для записей журнала, уже вытесненных, но видимых в passport_history
 pattern(/^зрелость проекта — ([\d.]+) \((.+?)\): (.+)$/, (m) => {
   const dims = m[3]
     .split(', ')

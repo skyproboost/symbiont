@@ -10,14 +10,14 @@ import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./session-start-77r1xkz2.js";
+} from "./session-start-apx44nap.js";
 import {
   collectOutline,
   ensureSymbols,
   indexedHash,
   pruneSymbols,
   storeOutline
-} from "./session-start-n4jed5qc.js";
+} from "./session-start-m5za64jh.js";
 import {
   buildGroundingPrompt,
   dueForGrounding,
@@ -25,7 +25,7 @@ import {
   pendingDigests,
   runCommunityDigests,
   storeGrounding
-} from "./session-start-dx28qj78.js";
+} from "./session-start-qpewbbdm.js";
 import {
   PLAYBOOKS
 } from "./session-start-8ychq3hk.js";
@@ -35,12 +35,12 @@ import {
   recordLesson,
   runZSummaries,
   zoneOf
-} from "./session-start-ycv93669.js";
+} from "./session-start-f7v10bjv.js";
 import {
   buildRulesPrompt,
   parseRules,
   storeRules
-} from "./session-start-2nf69gqz.js";
+} from "./session-start-p2f2606j.js";
 import {
   CODE_EXT,
   CSVX,
@@ -69,7 +69,7 @@ import {
   sha1,
   t,
   walkFiles
-} from "./session-start-z50hya0n.js";
+} from "./session-start-b23jq1kp.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";

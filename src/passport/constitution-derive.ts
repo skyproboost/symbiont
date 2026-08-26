@@ -121,7 +121,7 @@ const labelEn = (ru: string): string =>
   })[ru] ?? axisName(ru)
 
 pattern(/^приоритет: (.+) — ось качества с наибольшим числом сигналов в проекте$/, (m) => `priority: ${axisName(m[1])} — the quality axis with the most signals in this project`)
-pattern(/^фокус работы: (.+) — преобладающий тип коммитов \((\d+) из (\d+)\)$/, (m) => `focus of work: ${labelEn(m[1])} — the prevailing commit type (${m[2]} of ${m[3]})`)
+pattern(/^фокус работы: (.+) — преобладающий тип коммитов$/, (m) => `focus of work: ${labelEn(m[1])} — the prevailing commit type`)
 pattern(
   /^ценность: (.+) — владелец возвращается к ней в формулировках работы \((\d+) из (\d+) коммитов\)$/,
   (m) => `value: ${labelEn(m[1])} — the owner keeps returning to it when describing the work (${m[2]} of ${m[3]} commits)`,
@@ -175,7 +175,9 @@ export function deriveConstitutionFacts(signals: DerivedSignals, profile: Profil
     const [type, n] = types[0]
     const label = AXIS_LABEL[type] ?? type
     if (n / signals.totalCommits >= 0.25) {
-      push(`фокус работы: ${label} — преобладающий тип коммитов (${n} из ${signals.totalCommits})`, n, signals.totalCommits, 'привычка')
+      // Числа — в основании, не в формулировке: иначе каждый коммит менял текст и
+      // вытеснял факт (25 версий одного ключа на собственном паспорте)
+      push(`фокус работы: ${label} — преобладающий тип коммитов`, n, signals.totalCommits, 'привычка')
     }
   }
 

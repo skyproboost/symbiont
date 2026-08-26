@@ -24,9 +24,11 @@ import { axisName, pattern } from '../core/i18n'
 const evidenceEn = (ru: string): string =>
   ru === 'заявлено в доках'
     ? 'declared in the docs'
-    : ru.startsWith('тестовых файлов: ')
-      ? `test files: ${ru.slice('тестовых файлов: '.length)}`
-      : ru
+    : ru === 'тестовых файлов'
+      ? 'test files'
+      : ru.startsWith('тестовых файлов: ')
+        ? `test files: ${ru.slice('тестовых файлов: '.length)}`
+        : ru
 
 const evidenceListEn = (ru: string, sep: string): string => ru.split(sep).map(evidenceEn).join(sep)
 
@@ -183,7 +185,7 @@ export function profileFacts(probes: ProfileProbe[]): Fact[] {
       area: 'профиль качества',
       statement: onlyDocs
         ? `${p.axis} — заявлена в доках, в коде проекта не обнаружена`
-        : `${p.axis} — ось качества здесь (${p.evidence.join('; ')})`,
+        : `${p.axis} — ось качества здесь (${p.evidence.map((e) => e.replace(/:\s*\d+$/, '')).join('; ')})`, // счётчики — не часть формулировки: менялись бы каждый коммит
       positive: n,
       total: n,
       prevalence: 1,

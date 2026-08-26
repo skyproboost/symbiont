@@ -2,7 +2,7 @@ import {
   contentHashOf,
   markVisited,
   summaryFor
-} from "./session-start-ycv93669.js";
+} from "./session-start-f7v10bjv.js";
 import {
   init_i18n,
   noteSurfaced,
@@ -10,7 +10,7 @@ import {
   readConfigEdges,
   renderConfigInfluence,
   t
-} from "./session-start-z50hya0n.js";
+} from "./session-start-b23jq1kp.js";
 
 // src/hooks/node-brief.ts
 init_i18n();
@@ -25,10 +25,35 @@ function ensureFeedLog(db) {
     db.run("ALTER TABLE jit_log ADD COLUMN kind TEXT NOT NULL DEFAULT 'graph'");
 }
 function claimNode(db, sessionId, file, kind = "graph") {
+  if (kind === "graph" && briefSilenced(db, sessionId, file))
+    return false;
   const fresh = Number(db.query("INSERT OR IGNORE INTO jit_log(session_id, file, kind) VALUES(?,?,?)").run(sessionId, file, kind).changes) > 0;
   if (fresh)
     noteSurfaced(db, kind);
   return fresh;
+}
+var SILENCE_AFTER = 3;
+var SILENCE_SESSIONS = 5;
+function briefSilenced(db, sessionId, file) {
+  try {
+    db.run("CREATE TABLE IF NOT EXISTS brief_silence(file TEXT PRIMARY KEY, since_ordinal INTEGER NOT NULL)");
+    const ordinal = Number(db.query("SELECT COUNT(*) n FROM sessions").get()?.n ?? 0);
+    const row = db.query("SELECT since_ordinal FROM brief_silence WHERE file=?").get(file);
+    if (row) {
+      if (ordinal - row.since_ordinal < SILENCE_SESSIONS)
+        return true;
+      db.query("DELETE FROM brief_silence WHERE file=?").run(file);
+      return false;
+    }
+    const recent = db.query(`SELECT j.used FROM jit_log j LEFT JOIN sessions s ON s.session_id = j.session_id
+         WHERE j.file=? AND j.kind='graph' AND j.session_id<>? ORDER BY s.started_at DESC LIMIT ?`).all(file, sessionId, SILENCE_AFTER);
+    if (recent.length < SILENCE_AFTER || recent.some((r) => r.used === 1))
+      return false;
+    db.query("INSERT OR REPLACE INTO brief_silence(file, since_ordinal) VALUES(?,?)").run(file, ordinal);
+    return true;
+  } catch {
+    return false;
+  }
 }
 function markUsed(db, sessionId, file, coveringKeys = []) {
   try {

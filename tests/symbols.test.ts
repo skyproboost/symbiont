@@ -67,6 +67,30 @@ describe('извлечение оглавления', () => {
     expect(names).toContain('Box.grow') // метод получает имя своего класса
   })
 
+  it('describe/it/test — символы по строке-заголовку, вложенность сохраняется, тела не разбираются', async () => {
+    const spec = [
+      "describe('store', () => {",
+      '  const helper = () => 1',
+      "  it('keeps facts', () => {",
+      '    const inner = () => 2',
+      '  })',
+      '  test(`prunes`, () => {})',
+      '})',
+      "it('top-level case', () => {})",
+      '',
+    ].join('\n')
+    const rows = await outlineOf('.ts', spec)
+    const names = rows.map((r) => r.name)
+    expect(names).toContain('describe(store)')
+    expect(names).toContain('describe(store).it(keeps facts)')
+    expect(names).toContain('describe(store).test(prunes)')
+    expect(names).toContain('it(top-level case)')
+    expect(names).not.toContain('helper') // тело случая — как тело функции: детали не в оглавлении
+    expect(names).not.toContain('inner')
+    expect(rows.find((r) => r.name === 'describe(store)')?.kind).toBe('case')
+    expect(rows.find((r) => r.name === 'describe(store)')?.endLine).toBe(7)
+  })
+
   it('не заходит внутрь функций: замыкание в теле метода не попадает в оглавление', async () => {
     const rows = await outlineOf('.ts', TS)
     expect(rows.map((r) => r.name).some((n) => n.includes('step'))).toBe(false)

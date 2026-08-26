@@ -44,9 +44,51 @@ export function ensureFeedLog(db: Database): void {
  * kind — вид подачи: он копит статистику окупаемости (см. gardener/utility.ts).
  */
 export function claimNode(db: Database, sessionId: string, file: string, kind: FeedKind = 'graph'): boolean {
+  if (kind === 'graph' && briefSilenced(db, sessionId, file)) return false
   const fresh = Number(db.query('INSERT OR IGNORE INTO jit_log(session_id, file, kind) VALUES(?,?,?)').run(sessionId, file, kind).changes) > 0
   if (fresh) noteSurfaced(db, kind)
   return fresh
+}
+
+/** Столько сессий подряд бриф узла не пригодился — дальше молчим. */
+const SILENCE_AFTER = 3
+/** Столько сессий молчим, потом пробуем снова: проект меняется, узел мог стать нужным. */
+const SILENCE_SESSIONS = 5
+
+/**
+ * Межсессионная тишина для брифов графа.
+ *
+ * Дедуп jit_log живёт в пределах сессии, и один и тот же узел приходил в
+ * каждую новую сессию заново: на собственном паспорте `src/cli/symbiont.ts`
+ * подавался 18 сессий и пригодился в 4, `gardener/truth.ts` — 13 и ни разу.
+ * Узел, чей бриф три сессии подряд не вёл к правке, молчит пять сессий, потом
+ * пробуется снова — тот же зонд, что у глушения видов подачи (utility.ts),
+ * только по узлу. Правка узла (used=1) рвёт серию. Порядковый номер сессии —
+ * число записей в `sessions`: журнал append-only, номер монотонный.
+ */
+function briefSilenced(db: Database, sessionId: string, file: string): boolean {
+  try {
+    db.run('CREATE TABLE IF NOT EXISTS brief_silence(file TEXT PRIMARY KEY, since_ordinal INTEGER NOT NULL)')
+    const ordinal = Number((db.query('SELECT COUNT(*) n FROM sessions').get() as { n: number } | null)?.n ?? 0)
+    const row = db.query('SELECT since_ordinal FROM brief_silence WHERE file=?').get(file) as { since_ordinal: number } | null
+    if (row) {
+      if (ordinal - row.since_ordinal < SILENCE_SESSIONS) return true
+      db.query('DELETE FROM brief_silence WHERE file=?').run(file)
+      return false
+    }
+    // Последние подачи этого узла в ДРУГИХ сессиях, новые первыми
+    const recent = db
+      .query(
+        `SELECT j.used FROM jit_log j LEFT JOIN sessions s ON s.session_id = j.session_id
+         WHERE j.file=? AND j.kind='graph' AND j.session_id<>? ORDER BY s.started_at DESC LIMIT ?`,
+      )
+      .all(file, sessionId, SILENCE_AFTER) as Array<{ used: number }>
+    if (recent.length < SILENCE_AFTER || recent.some((r) => r.used === 1)) return false
+    db.query('INSERT OR REPLACE INTO brief_silence(file, since_ordinal) VALUES(?,?)').run(file, ordinal)
+    return true
+  } catch {
+    return false // таблиц может не быть — подача важнее тишины
+  }
 }
 
 /**

@@ -5,8 +5,8 @@ import {
 import {
   callClaudeDetailed,
   callClaudeWithTools
-} from "./session-start-77r1xkz2.js";
-import"./session-start-62fawf29.js";
+} from "./session-start-apx44nap.js";
+import"./session-start-84pzjajf.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -16,7 +16,7 @@ import {
   renderRootNotice,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-n2m5c0ss.js";
+} from "./session-start-hz9hgf2k.js";
 import {
   activeAxes,
   artifactProfile,
@@ -34,7 +34,7 @@ import {
   slugOf,
   t,
   walkFiles
-} from "./session-start-z50hya0n.js";
+} from "./session-start-b23jq1kp.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";

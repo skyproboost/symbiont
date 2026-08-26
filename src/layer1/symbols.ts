@@ -55,6 +55,30 @@ const CONTAINERS = new Set(['class', 'interface', 'struct', 'trait', 'impl', 'en
 
 /** Присваивания вида `const f = () => {}`: имя лежит на объявлении, а функция — в значении. */
 const IS_DECLARATOR = /^(variable_declarator|assignment|short_var_declaration)$/
+/** Вызов как узел грамматики (JS/TS/Go/Rust/Python/Ruby/PHP…). */
+const IS_CALL = /^(call_expression|call|method_invocation|function_call_expression|invocation_expression)$/
+const IS_STRING = /string/
+
+/**
+ * Вызов с литералом строки первым аргументом — `describe('…')`, `it('…')`,
+ * `test('…')`, `Route::get('/x')`: имя случая лежит в строке, а не в
+ * идентификаторе. Без этого все файлы тестов — 48 из 228 на собственном
+ * паспорте — оставались без единого символа, и оглавление там не работало.
+ * Правило не знает ни одного имени функции: любой язык, любой раннер.
+ */
+function caseOf(node: TSNode): { callee: string; title: string; call: TSNode } | null {
+  const call = node.type === 'expression_statement' ? node.namedChild(0) : node
+  if (!call || !IS_CALL.test(call.type)) return null
+  const fn = call.childForFieldName?.('function') ?? call.namedChild(0)
+  const args = call.childForFieldName?.('arguments') ?? call.namedChild(1)
+  if (!fn || !args || args.namedChildCount === 0) return null
+  const first = args.namedChild(0)
+  if (!IS_STRING.test(first.type)) return null
+  const title = (first.text ?? '').replace(/^[`'"]|[`'"]$/g, '').split('\n')[0].trim().slice(0, 80)
+  const callee = (fn.text ?? '').split('\n')[0].trim().slice(0, 40)
+  if (!title || !callee) return null
+  return { callee, title, call }
+}
 const IS_FN_VALUE = /^(arrow_function|function_expression|lambda|function|closure_expression)$/
 
 /**
@@ -100,11 +124,29 @@ const hasFnValue = (node: TSNode): boolean => {
 export function collectOutline(root: TSNode): SymbolRow[] {
   const out: SymbolRow[] = []
 
-  const walk = (node: TSNode, prefix: string): void => {
+  // casesOnly — внутри случая (тела describe) собираются только вложенные
+  // случаи: замыкание-обработчик в теле теста — деталь, как и в функции
+  const walk = (node: TSNode, prefix: string, casesOnly = false): void => {
     if (out.length >= MAX_SYMBOLS) return
     for (let i = 0; i < node.namedChildCount; i++) {
       const child = node.namedChild(i)
       if (out.length >= MAX_SYMBOLS) return
+
+      const cs = caseOf(child)
+      if (cs) {
+        const start = child.startPosition?.row
+        const end = child.endPosition?.row
+        if (start !== undefined && end !== undefined) {
+          const full = `${prefix ? `${prefix}.` : ''}${cs.callee}(${cs.title})`
+          out.push({ name: full, kind: 'case', line: start + 1, endLine: end + 1, chars: Math.max(0, (child.endIndex ?? 0) - (child.startIndex ?? 0)) })
+          walk(cs.call, full, true)
+          continue
+        }
+      }
+      if (casesOnly) {
+        walk(child, prefix, true)
+        continue
+      }
 
       let kind = kindOf(child.type)
       // `const f = () => {}` — тип узла ничего не говорит о функции, говорит значение

@@ -140,6 +140,7 @@ describe('профиль качества: заявленное отличает
   it('ось с кодовым основанием остаётся действующей осью', () => {
     const facts = profileFacts([{ axis: 'корректность', evidence: ['тестов: 74', 'CI', 'заявлено в доках'] }])
     expect(facts[0].statement).toContain('ось качества здесь')
-    expect(facts[0].statement).toContain('тестов: 74')
+    expect(facts[0].statement).toContain('тестов') // счётчик — в основании, не в формулировке
+    expect(facts[0].statement).not.toContain('74')
   })
 })

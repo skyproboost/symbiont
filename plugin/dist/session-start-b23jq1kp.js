@@ -501,7 +501,7 @@ function deriveConstitutionFacts(signals, profile) {
     const [type, n] = types[0];
     const label = AXIS_LABEL[type] ?? type;
     if (n / signals.totalCommits >= 0.25) {
-      push(`фокус работы: ${label} — преобладающий тип коммитов (${n} из ${signals.totalCommits})`, n, signals.totalCommits, "привычка");
+      push(`фокус работы: ${label} — преобладающий тип коммитов`, n, signals.totalCommits, "привычка");
     }
   }
   const VALUE_LABEL = {
@@ -546,7 +546,7 @@ var init_constitution_derive = __esm(() => {
   CONVENTIONAL = /^(feat|fix|perf|seo|refactor|docs|test|chore|style|build|ci)(\([^)]*\))?!?:/i;
   REVERT = /^revert|откат|\brollback\b/i;
   pattern(/^приоритет: (.+) — ось качества с наибольшим числом сигналов в проекте$/, (m) => `priority: ${axisName(m[1])} — the quality axis with the most signals in this project`);
-  pattern(/^фокус работы: (.+) — преобладающий тип коммитов \((\d+) из (\d+)\)$/, (m) => `focus of work: ${labelEn(m[1])} — the prevailing commit type (${m[2]} of ${m[3]})`);
+  pattern(/^фокус работы: (.+) — преобладающий тип коммитов$/, (m) => `focus of work: ${labelEn(m[1])} — the prevailing commit type`);
   pattern(/^ценность: (.+) — владелец возвращается к ней в формулировках работы \((\d+) из (\d+) коммитов\)$/, (m) => `value: ${labelEn(m[1])} — the owner keeps returning to it when describing the work (${m[2]} of ${m[3]} commits)`);
   pattern(/^ограничение: зона (.+) — хрупкая \((\d+) правок-починок в истории\), менять осторожно и с проверкой$/, (m) => `constraint: the ${m[1]} area is fragile (${m[2]} fix commits in history) — change it carefully and with verification`);
   pattern(/^ограничение: в истории есть откаты \((\d+)\) — рискованные правки проверять до коммита \(регрессии тут случались\)$/, (m) => `constraint: history contains reverts (${m[1]}) — verify risky changes before committing (regressions have happened here)`);
@@ -2263,18 +2263,19 @@ function maturityStance(level) {
   ];
 }
 function maturityFact(m) {
-  const dims = m.dimensions.filter((d) => d.known).map((d) => `${d.name} ${d.value.toFixed(2)}`).join(", ");
+  const dims = m.dimensions.filter((d) => d.known).map((d) => d.name).join(", ");
   return {
     area: "зрелость проекта",
-    statement: `зрелость проекта — ${m.score.toFixed(2)} (${m.level}): ${dims}`,
-    positive: 1,
-    total: 1,
+    statement: `зрелость проекта — ${m.level}: ${dims}`,
+    positive: Math.round(m.score * 100),
+    total: 100,
     prevalence: 1,
     tier: "привычка"
   };
 }
 var dimName = (ru) => t(ru, { "определённость канона": "canon certainty", масса: "mass", проверяемость: "testability", стабильность: "stability" }[ru] ?? ru);
 var levelName = (ru) => t(ru, { зрелый: "mature", растущий: "growing", молодой: "young", "только начат": "just started" }[ru] ?? ru);
+pattern(/^зрелость проекта — (.+?): (.+)$/, (m) => `project maturity — ${levelName(m[1])}: ${m[2].split(", ").map(dimName).join(", ")}`);
 pattern(/^зрелость проекта — ([\d.]+) \((.+?)\): (.+)$/, (m) => {
   const dims = m[3].split(", ").map((part) => {
     const cut = part.lastIndexOf(" ");
@@ -2302,7 +2303,7 @@ init_signals();
 init_i18n();
 import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
 import { join as join6 } from "node:path";
-var evidenceEn = (ru) => ru === "заявлено в доках" ? "declared in the docs" : ru.startsWith("тестовых файлов: ") ? `test files: ${ru.slice("тестовых файлов: ".length)}` : ru;
+var evidenceEn = (ru) => ru === "заявлено в доках" ? "declared in the docs" : ru === "тестовых файлов" ? "test files" : ru.startsWith("тестовых файлов: ") ? `test files: ${ru.slice("тестовых файлов: ".length)}` : ru;
 var evidenceListEn = (ru, sep) => ru.split(sep).map(evidenceEn).join(sep);
 pattern(/^безопасность — защитные слои: (.+) \(их ослабление — не рядовая правка\)$/, (m) => `security — protective layers: ${m[1]} (weakening them is not an ordinary change)`);
 pattern(/^безопасность — явных защитных слоёв не обнаружено \(появятся — станут неприкосновенными\)$/, () => "security — no explicit protective layers found (once they appear, they become inviolable)");
@@ -2399,7 +2400,7 @@ function profileFacts(probes) {
     const onlyDocs = p.evidence.length === 1 && p.evidence[0] === "заявлено в доках";
     return {
       area: "профиль качества",
-      statement: onlyDocs ? `${p.axis} — заявлена в доках, в коде проекта не обнаружена` : `${p.axis} — ось качества здесь (${p.evidence.join("; ")})`,
+      statement: onlyDocs ? `${p.axis} — заявлена в доках, в коде проекта не обнаружена` : `${p.axis} — ось качества здесь (${p.evidence.map((e) => e.replace(/:\s*\d+$/, "")).join("; ")})`,
       positive: n,
       total: n,
       prevalence: 1,
@@ -4832,7 +4833,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-eb46473c3494";
+    return "bundle-83e8b2dc9d6d";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {

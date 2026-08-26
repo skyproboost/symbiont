@@ -13,6 +13,27 @@ var KIND_OF = [
 ];
 var CONTAINERS = new Set(["class", "interface", "struct", "trait", "impl", "enum", "module"]);
 var IS_DECLARATOR = /^(variable_declarator|assignment|short_var_declaration)$/;
+var IS_CALL = /^(call_expression|call|method_invocation|function_call_expression|invocation_expression)$/;
+var IS_STRING = /string/;
+function caseOf(node) {
+  const call = node.type === "expression_statement" ? node.namedChild(0) : node;
+  if (!call || !IS_CALL.test(call.type))
+    return null;
+  const fn = call.childForFieldName?.("function") ?? call.namedChild(0);
+  const args = call.childForFieldName?.("arguments") ?? call.namedChild(1);
+  if (!fn || !args || args.namedChildCount === 0)
+    return null;
+  const first = args.namedChild(0);
+  if (!IS_STRING.test(first.type))
+    return null;
+  const title = (first.text ?? "").replace(/^[`'"]|[`'"]$/g, "").split(`
+`)[0].trim().slice(0, 80);
+  const callee = (fn.text ?? "").split(`
+`)[0].trim().slice(0, 40);
+  if (!title || !callee)
+    return null;
+  return { callee, title, call };
+}
 var IS_FN_VALUE = /^(arrow_function|function_expression|lambda|function|closure_expression)$/;
 var MAX_SYMBOLS = 300;
 var kindOf = (type) => {
@@ -46,13 +67,28 @@ var hasFnValue = (node) => {
 };
 function collectOutline(root) {
   const out = [];
-  const walk = (node, prefix) => {
+  const walk = (node, prefix, casesOnly = false) => {
     if (out.length >= MAX_SYMBOLS)
       return;
     for (let i = 0;i < node.namedChildCount; i++) {
       const child = node.namedChild(i);
       if (out.length >= MAX_SYMBOLS)
         return;
+      const cs = caseOf(child);
+      if (cs) {
+        const start2 = child.startPosition?.row;
+        const end2 = child.endPosition?.row;
+        if (start2 !== undefined && end2 !== undefined) {
+          const full2 = `${prefix ? `${prefix}.` : ""}${cs.callee}(${cs.title})`;
+          out.push({ name: full2, kind: "case", line: start2 + 1, endLine: end2 + 1, chars: Math.max(0, (child.endIndex ?? 0) - (child.startIndex ?? 0)) });
+          walk(cs.call, full2, true);
+          continue;
+        }
+      }
+      if (casesOnly) {
+        walk(child, prefix, true);
+        continue;
+      }
       let kind = kindOf(child.type);
       if (!kind && IS_DECLARATOR.test(child.type) && hasFnValue(child))
         kind = "function";

@@ -1,8 +1,23 @@
 import {
-  jsonOnly
-} from "./session-start-anv3kp9x.js";
+  isSecretCarrier,
+  jsonOnly,
+  looksSecret
+} from "./session-start-z50hya0n.js";
 
 // src/env/rules.ts
+function ruleLeaks(r) {
+  return isSecretCarrier(r.configFile) || looksSecret(r.configKey, r.requires);
+}
+function purgeLeakingRules(db) {
+  try {
+    const rows = db.query("SELECT pattern, config_key, config_file, requires FROM contract_rule").all();
+    const del = db.query("DELETE FROM contract_rule WHERE pattern=? AND config_key=?");
+    for (const r of rows) {
+      if (ruleLeaks({ configFile: r.config_file, configKey: r.config_key, requires: r.requires }))
+        del.run(r.pattern, r.config_key);
+    }
+  } catch {}
+}
 function ensureRuleTable(db) {
   db.run(`CREATE TABLE IF NOT EXISTS contract_rule(
        pattern TEXT NOT NULL, config_key TEXT NOT NULL, config_file TEXT NOT NULL,
@@ -33,6 +48,8 @@ function storeRules(db, rules, nowIso = new Date().toISOString()) {
   for (const r of rules) {
     if (!isSafePattern(r.pattern))
       continue;
+    if (ruleLeaks(r))
+      continue;
     ins.run(r.pattern, r.configKey, r.configFile, r.requires, r.what, r.model, nowIso);
     stored++;
   }
@@ -41,6 +58,7 @@ function storeRules(db, rules, nowIso = new Date().toISOString()) {
 function readRules(db) {
   try {
     ensureRuleTable(db);
+    purgeLeakingRules(db);
     return db.query("SELECT pattern, config_key, config_file, requires, what, model FROM contract_rule").all().map((r) => ({
       pattern: r.pattern,
       configKey: r.config_key,

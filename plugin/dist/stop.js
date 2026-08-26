@@ -4,10 +4,10 @@ import {
 import {
   applyRules,
   readRules
-} from "./session-start-fcbm01xt.js";
+} from "./session-start-2nf69gqz.js";
 import {
   checkAgainstLaws
-} from "./session-start-330h1f5t.js";
+} from "./session-start-hn90ywdt.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -16,9 +16,10 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-25e3w7d2.js";
+} from "./session-start-n2m5c0ss.js";
 import {
   ENTITY_EXT,
+  ENV_TEMPLATES,
   FactStore,
   SessionLog,
   beat,
@@ -38,7 +39,7 @@ import {
   snapshotContent,
   statement,
   t
-} from "./session-start-anv3kp9x.js";
+} from "./session-start-z50hya0n.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts
@@ -437,7 +438,7 @@ function findCsp(root) {
   }
   return null;
 }
-var ENV_FILES = [".env.example", ".env.sample", ".env.template", ".env.dist"];
+var ENV_FILES = ENV_TEMPLATES;
 function findDeclaredEnv(root) {
   const out = new Set;
   for (const rel of ENV_FILES) {
@@ -590,6 +591,14 @@ function checkContract(content, policies, learned = []) {
 init_walk();
 init_i18n();
 var FUSE_LIMIT = 8;
+function fileStamp(cwd, rel) {
+  try {
+    const st = statSync(join2(cwd, rel));
+    return `${st.size}:${Math.floor(st.mtimeMs)}`;
+  } catch {
+    return "gone";
+  }
+}
 var JS_FAMILY = new Set([".ts", ".js", ".mjs", ".cjs", ".tsx", ".jsx", ".vue"]);
 var GATED_EXT = new Set([...JS_FAMILY, ...ENTITY_EXT]);
 var MAX_FILES = 20;
@@ -698,7 +707,7 @@ function handleStop(input, dataRoot) {
       const attributable = own.size > 0 || parallel > 0;
       const ownFiles = attributable ? sessionFiles.filter((f) => own.has(f)) : sessionFiles;
       const unattributed = sessionFiles.filter((f) => !ownFiles.includes(f));
-      const freshUnattributed = parallel > 0 ? unattributed.filter((f) => Number(dedup.run(sid, "#параллель", f).changes) > 0) : [];
+      const freshUnattributed = parallel > 0 ? unattributed.filter((f) => Number(dedup.run("*", `#параллель:${fileStamp(cwd, f)}`, f).changes) > 0) : [];
       const named = `${freshUnattributed.slice(0, 3).join(", ")}${freshUnattributed.length > 3 ? ", …" : ""}`;
       const parallelLine = freshUnattributed.length > 0 ? t(`- параллельных сессий: ${parallel} · ${freshUnattributed.length} изменённых файлов не отнесены к этой сессии и не проверяются здесь — это работа соседа (${named})`, `- parallel sessions: ${parallel} · ${freshUnattributed.length} changed files are not attributed to this session and are not checked here — they are a neighbour's work (${named})`) : "";
       const gatedFiles = parallel > 0 ? ownFiles : sessionFiles;

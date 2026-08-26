@@ -2684,7 +2684,7 @@ function analyzeParams(paramList, stats) {
 }
 function analyzeJs(content) {
   const stats = emptyJsStats();
-  const noComments = content.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  const noComments = codeOnly(content, ".js");
   stats.decl.var = count(noComments, /\bvar\s+[A-Za-z_$]/g);
   stats.decl.let = count(noComments, /\blet\s+[A-Za-z_$]/g);
   stats.decl.const = count(noComments, /\bconst\s+[A-Za-z_$]/g);
@@ -3822,10 +3822,33 @@ import { readFileSync as readFileSync7 } from "node:fs";
 import { extname as extname3 } from "node:path";
 var CONFIG_EXT = new Set([".json", ".yml", ".yaml", ".toml", ".ini", ".conf", ".env", ".cfg", ".properties"]);
 var CONFIG_NAME = /(^|\/)(\.env[\w.-]*|[\w.-]*\.?config\.[tj]s|nginx[\w.-]*\.conf|docker-compose[\w.-]*\.ya?ml|Dockerfile|\.htaccess|[\w-]*\.tf|Caddyfile|\.npmrc|Procfile)$/i;
+var ENV_TEMPLATES = [".env.example", ".env.sample", ".env.template", ".env.dist"];
+var SECRET_CARRIER = /(^|\/)(\.env(\.[\w.-]+)?|\.npmrc|\.yarnrc(\.yml)?|\.pypirc|\.netrc|\.htpasswd|id_(rsa|dsa|ed25519|ecdsa)[\w.-]*|[\w.-]*(secret|credential)s?[\w.-]*\.(json|ya?ml|toml|ini|txt)|[\w.-]*\.(pem|key|p12|pfx|jks|keystore|crt|cer|der|gpg|asc|kdbx|ovpn))$/i;
+function isSecretCarrier(rel) {
+  const p = rel.replaceAll("\\", "/");
+  const base = p.slice(p.lastIndexOf("/") + 1);
+  if (ENV_TEMPLATES.includes(base))
+    return false;
+  return SECRET_CARRIER.test(p);
+}
 function isConfigFile(rel) {
+  if (isSecretCarrier(rel))
+    return false;
   if (CONFIG_EXT.has(extname3(rel).toLowerCase()))
     return true;
   return CONFIG_NAME.test(rel.replaceAll("\\", "/"));
+}
+var SECRET_KEY = /(secret|token|passw(or)?d|passwd|pwd|api[_-]?key|private[_-]?key|credential|auth|signature|salt|dsn|access[_-]?key)/i;
+var SECRET_VALUE = /^(sk|pk|rk)[-_](live|test|prod)?[-_]?[A-Za-z0-9]{8,}|^(ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{16,}|^xox[abpors]-[A-Za-z0-9-]{10,}|^AKIA[0-9A-Z]{16}$|^AIza[0-9A-Za-z_-]{30,}|^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]{10,}|^-----BEGIN /;
+function looksSecret(key, value) {
+  if (!value)
+    return false;
+  if (SECRET_KEY.test(key))
+    return true;
+  const v = value.trim().replace(/^['"`]|['"`]$/g, "");
+  if (SECRET_VALUE.test(v))
+    return true;
+  return v.length >= 24 && !/[\s./]/.test(v) && /[0-9]/.test(v) && /[a-z]/i.test(v);
 }
 var KV_PATTERNS = [
   /^\s*["']?([\w.-]{2,60})["']?\s*[:=]\s*["']?([^\n"',;{}]{1,300})/gm,
@@ -3893,7 +3916,8 @@ function parseConfigFile(rel, content) {
   for (const re of KV_PATTERNS) {
     for (const m of content.matchAll(re)) {
       const key = m[1].trim();
-      const value = (m[2] ?? "").trim();
+      const raw = (m[2] ?? "").trim();
+      const value = looksSecret(key, raw) ? "" : raw;
       const id = `${key}=${value}`;
       if (seen.has(id))
         continue;
@@ -3991,12 +4015,24 @@ function ensureConfigEdgeTable(db) {
        config_file TEXT NOT NULL, code_file TEXT NOT NULL, via TEXT NOT NULL,
        config_key TEXT NOT NULL, token TEXT,
        PRIMARY KEY(config_file, code_file, config_key))`);
+  purgeSecretCarrierEdges(db);
+}
+function purgeSecretCarrierEdges(db) {
+  try {
+    const files = db.query("SELECT DISTINCT config_file FROM config_edges").all();
+    const del = db.query("DELETE FROM config_edges WHERE config_file=?");
+    for (const f of files)
+      if (isSecretCarrier(f.config_file))
+        del.run(f.config_file);
+  } catch {}
 }
 function storeConfigEdges(db, links) {
   ensureConfigEdgeTable(db);
   db.run("DELETE FROM config_edges");
   const perConfig = new Map;
   for (const l of links) {
+    if (isSecretCarrier(l.configFile))
+      continue;
     const list = perConfig.get(l.configFile) ?? [];
     list.push(l);
     perConfig.set(l.configFile, list);
@@ -4796,7 +4832,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-59365b578184";
+    return "bundle-eb46473c3494";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5847,6 +5883,9 @@ function handleSessionStart(input, dataRoot) {
       }
       if (input.source === "compact") {
         try {
+          db.run("DELETE FROM jit_log WHERE session_id=? AND used=0", sid);
+        } catch {}
+        try {
           const edits = db.query("SELECT file FROM session_edits WHERE session_id=? ORDER BY edited_at").all(sid);
           if (edits.length > 0) {
             const files = edits.map((e) => e.file);
@@ -5919,4 +5958,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, isConfigFile, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };
+export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };

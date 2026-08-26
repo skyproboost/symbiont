@@ -34,10 +34,60 @@ import { extname } from 'node:path'
 const CONFIG_EXT = new Set(['.json', '.yml', '.yaml', '.toml', '.ini', '.conf', '.env', '.cfg', '.properties'])
 const CONFIG_NAME = /(^|\/)(\.env[\w.-]*|[\w.-]*\.?config\.[tj]s|nginx[\w.-]*\.conf|docker-compose[\w.-]*\.ya?ml|Dockerfile|\.htaccess|[\w-]*\.tf|Caddyfile|\.npmrc|Procfile)$/i
 
-/** Является ли файл носителем конфигурации — по расширению или по имени. */
+/**
+ * Образцы окружения: значения в них ПУСТЫЕ по определению, уликой служит имя.
+ * Единственный список — его же берёт policies.ts для объявленных переменных.
+ */
+export const ENV_TEMPLATES = ['.env.example', '.env.sample', '.env.template', '.env.dist']
+
+/**
+ * Носители секретов — файлы, которые плагин НЕ ЧИТАЕТ НИКОГДА.
+ *
+ * Боевой `.env` (и `.env.local`, `.env.production`…) отличается от образца
+ * ровно тем, что значения в нём настоящие. Раньше `isConfigFile` принимал
+ * `.env[\w.-]*` целиком: значения читались в ConfigEntry, попадали в промпт
+ * вывода правил среды (`KEY = value` уходил в `claude -p`), а токены значений —
+ * в config_edges и оттуда в подсказки сессии. Владелец файла не открывал —
+ * плагин открыл за него. Это утечка, о которой сообщили снаружи.
+ *
+ * Отвергнуто «читать, но маскировать значения»: маска ловит то, что похоже на
+ * секрет, а секрет не обязан быть похожим. У боевого env-файла нет ни одной
+ * ценности для паспорта, которой не давал бы образец, — поэтому не читаем.
+ * Сюда же — ключи, сертификаты, учётки пакетных менеджеров (`.npmrc` держит
+ * auth-токен), htpasswd/netrc.
+ */
+const SECRET_CARRIER = /(^|\/)(\.env(\.[\w.-]+)?|\.npmrc|\.yarnrc(\.yml)?|\.pypirc|\.netrc|\.htpasswd|id_(rsa|dsa|ed25519|ecdsa)[\w.-]*|[\w.-]*(secret|credential)s?[\w.-]*\.(json|ya?ml|toml|ini|txt)|[\w.-]*\.(pem|key|p12|pfx|jks|keystore|crt|cer|der|gpg|asc|kdbx|ovpn))$/i
+
+export function isSecretCarrier(rel: string): boolean {
+  const p = rel.replaceAll('\\', '/')
+  const base = p.slice(p.lastIndexOf('/') + 1)
+  if (ENV_TEMPLATES.includes(base)) return false
+  return SECRET_CARRIER.test(p)
+}
+
+/** Является ли файл носителем конфигурации — по расширению или по имени. Носители секретов — нет. */
 export function isConfigFile(rel: string): boolean {
+  if (isSecretCarrier(rel)) return false
   if (CONFIG_EXT.has(extname(rel).toLowerCase())) return true
   return CONFIG_NAME.test(rel.replaceAll('\\', '/'))
+}
+
+/**
+ * Значение, похожее на секрет, — по имени ключа ИЛИ по форме значения.
+ * Вторая линия обороны для обычных конфигов (json/yaml с вписанным токеном):
+ * имя ключа остаётся уликой, значение в запись не попадает.
+ */
+const SECRET_KEY = /(secret|token|passw(or)?d|passwd|pwd|api[_-]?key|private[_-]?key|credential|auth|signature|salt|dsn|access[_-]?key)/i
+const SECRET_VALUE = /^(sk|pk|rk)[-_](live|test|prod)?[-_]?[A-Za-z0-9]{8,}|^(ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{16,}|^xox[abpors]-[A-Za-z0-9-]{10,}|^AKIA[0-9A-Z]{16}$|^AIza[0-9A-Za-z_-]{30,}|^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]{10,}|^-----BEGIN /
+
+export function looksSecret(key: string, value: string): boolean {
+  if (!value) return false
+  if (SECRET_KEY.test(key)) return true
+  const v = value.trim().replace(/^['"`]|['"`]$/g, '')
+  if (SECRET_VALUE.test(v)) return true
+  // Длинная строка без пробелов, с буквами и цифрами вперемешку и без точек
+  // (домены и версии — с точками, URL — со слэшами): по форме это токен
+  return v.length >= 24 && !/[\s./]/.test(v) && /[0-9]/.test(v) && /[a-z]/i.test(v)
 }
 
 export interface ConfigEntry {
@@ -109,7 +159,9 @@ export function parseConfigFile(rel: string, content: string): ConfigEntry[] {
   for (const re of KV_PATTERNS) {
     for (const m of content.matchAll(re)) {
       const key = m[1].trim()
-      const value = (m[2] ?? '').trim()
+      const raw = (m[2] ?? '').trim()
+      // Значение-секрет в запись не попадает: ключ — сущность, значение — нет
+      const value = looksSecret(key, raw) ? '' : raw
       const id = `${key}=${value}`
       if (seen.has(id)) continue
       seen.add(id)

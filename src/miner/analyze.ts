@@ -175,8 +175,14 @@ function analyzeParams(paramList: string, stats: JsStats): void {
 /** Анализ JS/TS-текста (для .vue — передавать содержимое <script>-блоков). */
 export function analyzeJs(content: string): JsStats {
   const stats = emptyJsStats()
-  // Грубая чистка: строки-комментарии не считаем в токенах объявлений.
-  const noComments = content.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+  // Чистка тем же проходом, что и оси конвенций (codeOnly): и комментарии, и
+  // СОДЕРЖИМОЕ строк. Раньше вырезались только комментарии, и `var` внутри
+  // строки-фикстуры (тест или пробник, держащий чужой код текстом) считался
+  // объявлением: на собственном паспорте 41% поимок гейта «var не используется»
+  // приходились на такие строки — закон, которого никто не нарушал, стоял в
+  // сводке первым по числу нарушений. Форма литералов сохраняется (пустые
+  // кавычки), поэтому счёт кавычек не страдает.
+  const noComments = codeOnly(content, '.js')
 
   stats.decl.var = count(noComments, /\bvar\s+[A-Za-z_$]/g)
   stats.decl.let = count(noComments, /\blet\s+[A-Za-z_$]/g)

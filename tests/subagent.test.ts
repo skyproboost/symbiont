@@ -53,6 +53,25 @@ describe('SubagentStart — срез паспорта', () => {
     rmrf(dataRoot)
   })
 
+  it('переполненный бюджет режется по границе строки, а не посреди слова', () => {
+    const { proj, dataRoot } = makeWorld()
+    const db = openDb(join(dataRoot, slugOf(proj), 'passport.db'))
+    // Роли (z1) — то, что в жизни и выталкивает срез за бюджет
+    db.run('CREATE TABLE IF NOT EXISTS node_summary(file TEXT PRIMARY KEY, z1 TEXT NOT NULL, content_hash TEXT NOT NULL, model TEXT NOT NULL, created_at TEXT NOT NULL)')
+    const ins = db.query('INSERT INTO graph_nodes(file,rank,in_deg,out_deg) VALUES(?,?,?,?)')
+    const role = db.query("INSERT INTO node_summary(file,z1,content_hash,model,created_at) VALUES(?,?,'h','m','2026-01-01')")
+    for (let i = 0; i < 8; i++) {
+      ins.run(`src/module-${i}.ts`, 0.9 - i * 0.01, 9, 1)
+      role.run(`src/module-${i}.ts`, `роль модуля ${i}: ${'длинное описание того, что он делает и зачем нужен '.repeat(6)}`)
+    }
+    db.close()
+    const ctx = handleSubagentStart({ cwd: proj, agent_type: 'Explore' }, dataRoot).hookSpecificOutput?.additionalContext ?? ''
+    expect(ctx.length).toBeLessThanOrEqual(SUBAGENT_CHAR_BUDGET + 2)
+    expect(ctx.endsWith('\n…')).toBe(true)
+    rmrf(proj)
+    rmrf(dataRoot)
+  })
+
   it('нет паспорта → молчание, не ошибка (fail-open)', () => {
     const proj = mkdtempSync(join(tmpdir(), 'symbiont-sub-empty-'))
     const dataRoot = mkdtempSync(join(tmpdir(), 'symbiont-sub-empty-data-'))

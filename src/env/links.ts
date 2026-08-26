@@ -16,7 +16,7 @@
  * связывает всё со всем и превращает карту в кашу. Улика обязана быть редкой.
  */
 import type { Database } from '../core/db'
-import { isConfigFile, lexicalLinks, historicalLinks, type ConfigEntry, type ConfigLink } from './config-graph'
+import { isConfigFile, isSecretCarrier, lexicalLinks, historicalLinks, type ConfigEntry, type ConfigLink } from './config-graph'
 import { t } from '../core/i18n'
 
 /** Больше — уже не связь, а общее место: настройка, влияющая на полпроекта. */
@@ -29,6 +29,23 @@ export function ensureConfigEdgeTable(db: Database): void {
        config_key TEXT NOT NULL, token TEXT,
        PRIMARY KEY(config_file, code_file, config_key))`,
   )
+  purgeSecretCarrierEdges(db)
+}
+
+/**
+ * Рёбра от носителей секретов вычищаются при каждом обращении: пока боевой
+ * .env читался, его токены могли осесть здесь и всплывать в подсудных строках
+ * подачи. Проверка стоит и на записи, и на чтении — как у непрозрачного
+ * материала в майнере: уже накопленное чистится первым же обращением.
+ */
+function purgeSecretCarrierEdges(db: Database): void {
+  try {
+    const files = db.query('SELECT DISTINCT config_file FROM config_edges').all() as Array<{ config_file: string }>
+    const del = db.query('DELETE FROM config_edges WHERE config_file=?')
+    for (const f of files) if (isSecretCarrier(f.config_file)) del.run(f.config_file)
+  } catch {
+    /* таблица пуста или недоступна — чистить нечего */
+  }
 }
 
 /**
@@ -43,6 +60,7 @@ export function storeConfigEdges(db: Database, links: ConfigLink[]): number {
   // Отсечка «настроек, связанных со всем»: они верны, но бесполезны на карте
   const perConfig = new Map<string, ConfigLink[]>()
   for (const l of links) {
+    if (isSecretCarrier(l.configFile)) continue // носитель секретов не читается — и не связывается
     const list = perConfig.get(l.configFile) ?? []
     list.push(l)
     perConfig.set(l.configFile, list)

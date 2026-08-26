@@ -15,7 +15,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseConfigFile } from './config-graph'
+import { parseConfigFile, ENV_TEMPLATES } from './config-graph'
 
 export interface CspPolicy {
   /** директива → список разрешённых источников */
@@ -121,7 +121,8 @@ export function findCsp(root: string): CspPolicy | null {
   return null
 }
 
-const ENV_FILES = ['.env.example', '.env.sample', '.env.template', '.env.dist']
+// Только образцы: боевой .env плагин не читает никогда (см. config-graph.ts)
+const ENV_FILES = ENV_TEMPLATES
 
 /** Переменные, которые проект СЧИТАЕТ объявленными (образец окружения). */
 export function findDeclaredEnv(root: string): Set<string> {

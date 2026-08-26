@@ -6,7 +6,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-25e3w7d2.js";
+} from "./session-start-n2m5c0ss.js";
 import {
   FactStore,
   beat,
@@ -16,7 +16,7 @@ import {
   slugOf,
   statement,
   t
-} from "./session-start-anv3kp9x.js";
+} from "./session-start-z50hya0n.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/subagent-start.ts
@@ -61,8 +61,13 @@ function handleSubagentStart(input, dataRoot) {
       let text = `${header}:
 ${sections.map((s) => `- ${s}`).join(`
 `)}`;
-      if (text.length > SUBAGENT_CHAR_BUDGET)
-        text = `${text.slice(0, SUBAGENT_CHAR_BUDGET)}…`;
+      if (text.length > SUBAGENT_CHAR_BUDGET) {
+        const cut = text.slice(0, SUBAGENT_CHAR_BUDGET);
+        const nl = cut.lastIndexOf(`
+`);
+        text = `${nl > SUBAGENT_CHAR_BUDGET / 2 ? cut.slice(0, nl) : cut}
+…`;
+      }
       return {
         hookSpecificOutput: {
           hookEventName: "SubagentStart",

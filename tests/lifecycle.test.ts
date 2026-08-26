@@ -28,6 +28,23 @@ describe('SessionStart на compact/fork — переинъекция сводк
     rmrf(dataRoot)
   })
 
+  it('source=compact: неиспользованные подачи снова подаваемы, использованные — помечены', () => {
+    const { proj, dataRoot } = makeWorld()
+    handleSessionStart({ cwd: proj, source: 'startup', session_id: 's1' }, dataRoot)
+    const dbPath = join(dataRoot, slugOf(proj), 'passport.db')
+    let db = openDb(dbPath)
+    db.run('CREATE TABLE IF NOT EXISTS jit_log(session_id TEXT NOT NULL, file TEXT NOT NULL, used INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL DEFAULT \'graph\', PRIMARY KEY(session_id, file))')
+    db.run("INSERT INTO jit_log(session_id, file, used) VALUES('s1','a.ts',0),('s1','b.ts',1),('s2','c.ts',0)")
+    db.close()
+    handleSessionStart({ cwd: proj, source: 'compact', session_id: 's1' }, dataRoot)
+    db = openDb(dbPath)
+    const left = (db.query('SELECT session_id, file FROM jit_log ORDER BY file').all() as Array<{ session_id: string; file: string }>).map((r) => `${r.session_id}:${r.file}`)
+    db.close()
+    expect(left).toEqual(['s1:b.ts', 's2:c.ts']) // чужая сессия не тронута
+    rmrf(proj)
+    rmrf(dataRoot)
+  })
+
   it('source=fork: пометка про сабагентов (не наследуют контекст родителя)', () => {
     const { proj, dataRoot } = makeWorld()
     handleSessionStart({ cwd: proj, source: 'startup', session_id: 's1' }, dataRoot)

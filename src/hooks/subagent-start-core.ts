@@ -99,7 +99,13 @@ export function handleSubagentStart(input: SubagentStartInput, dataRoot: string)
         `Symbiont · project passport for the subagent${input.agent_type ? ` (${input.agent_type})` : ''} — derived from the project itself`,
       )
       let text = `${header}:\n${sections.map((s) => `- ${s}`).join('\n')}`
-      if (text.length > SUBAGENT_CHAR_BUDGET) text = `${text.slice(0, SUBAGENT_CHAR_BUDGET)}…`
+      // Режем по границе строки: обрыв посреди слова («pair-string rend…»)
+      // читается как ошибка подачи, а не как бюджет
+      if (text.length > SUBAGENT_CHAR_BUDGET) {
+        const cut = text.slice(0, SUBAGENT_CHAR_BUDGET)
+        const nl = cut.lastIndexOf('\n')
+        text = `${nl > SUBAGENT_CHAR_BUDGET / 2 ? cut.slice(0, nl) : cut}\n…`
+      }
       return {
         hookSpecificOutput: {
           hookEventName: 'SubagentStart',

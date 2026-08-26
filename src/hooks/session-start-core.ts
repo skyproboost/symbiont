@@ -252,6 +252,15 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
       // (session_edits, подтверждённое авторство) и что ловил гейт. Факты
       // подаются дословно, сверка намерения с ними — задача модели.
       if (input.source === 'compact') {
+        // Сжатие уносит из окна всё, что было подано и не использовано, а дедуп
+        // jit_log помнил подачу до конца сессии — файл, открытый после сжатия,
+        // приходил без роли и связей. Использованное остаётся отмеченным: модель
+        // это уже правила и знает; неиспользованное снова становится подаваемым.
+        try {
+          db.run('DELETE FROM jit_log WHERE session_id=? AND used=0', sid)
+        } catch {
+          /* таблицы может ещё не быть — подача сама её создаст */
+        }
         try {
           const edits = db
             .query('SELECT file FROM session_edits WHERE session_id=? ORDER BY edited_at')

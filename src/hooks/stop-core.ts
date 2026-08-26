@@ -35,6 +35,16 @@ import '../core/statements' // таблицы формулировок: импо
 /** Предохранитель ralph-loop: столько блокировок подряд снимают гейт до конца сессии. */
 const FUSE_LIMIT = 8
 
+/** Отпечаток файла для дедупа между сессиями: размер и mtime, без чтения содержимого. */
+function fileStamp(cwd: string, rel: string): string {
+  try {
+    const st = statSync(join(cwd, rel))
+    return `${st.size}:${Math.floor(st.mtimeMs)}`
+  } catch {
+    return 'gone' // файла уже нет — одна отметка на всех
+  }
+}
+
 const JS_FAMILY = new Set(['.ts', '.js', '.mjs', '.cjs', '.tsx', '.jsx', '.vue'])
 // Гейтуемые расширения: код (законы формы) + контент (верификаторы направления).
 const GATED_EXT = new Set([...JS_FAMILY, ...ENTITY_EXT])
@@ -248,8 +258,14 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       // Отметку в дедупе ставим ТОЛЬКО когда строка действительно прозвучит: без
       // соседей она не печатается, и «погасить» файл молча значило бы потерять его
       // навсегда — при появлении соседа о нём бы уже не сказали.
+      // Ключ дедупа — НЕ сессия, а содержимое: незакоммиченный файл соседа живёт
+      // в дереве неделями, и сессионный дедуп называл его заново в каждой новой
+      // сессии (замер: одна и та же строка 20 раз подряд по двум файлам). Пока
+      // файл не изменился, о нём сказано; изменился — это новая работа соседа.
       const freshUnattributed =
-        parallel > 0 ? unattributed.filter((f) => Number(dedup.run(sid, '#параллель', f).changes) > 0) : []
+        parallel > 0
+          ? unattributed.filter((f) => Number(dedup.run('*', `#параллель:${fileStamp(cwd, f)}`, f).changes) > 0)
+          : []
       const named = `${freshUnattributed.slice(0, 3).join(', ')}${freshUnattributed.length > 3 ? ', …' : ''}`
       // Строка подаётся на языке владельца, как и всё остальное в этом канале:
       // русская константа посреди английской выдачи — не умолчание, а ошибка

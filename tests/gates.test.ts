@@ -25,6 +25,12 @@ describe('checkAgainstLaws', () => {
     expect(laws).toContain('filter/map/reduce — не используются (только циклы)')
   })
 
+  it('var внутри строки-фикстуры — не объявление: гейт судит код, а не текст', () => {
+    const fixture = "const LEGACY = 'var sName = 1; var i = 0;'\nconst tpl = `function f() { var x }`\nlet total = 0\n"
+    const v = checkAgainstLaws(fixture, '.ts', [{ statement: 'переменные — const/let (var не используется)' }])
+    expect(v).toEqual([])
+  })
+
   it('соответствующий код: нарушений нет', () => {
     const legacy = 'function f(_oX) {\n\tvar sName = _oX.n;\n\tfor (var i = 0; i < 3; i++) { }\n\treturn sName;\n}\n'
     expect(checkAgainstLaws(legacy, '.js', LEGACY_LAWS)).toEqual([])

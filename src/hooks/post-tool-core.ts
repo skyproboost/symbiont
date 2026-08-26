@@ -18,7 +18,7 @@ import { t, statement, initLang } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
 import { openDb, type Database } from '../core/db'
 import { FactStore } from '../core/store'
-import { checkAgainstLaws } from '../gates/checks'
+import { checkAgainstLaws, lawsForFile } from '../gates/checks'
 import { runContentVerifiers, contentVerifierActive, loadEntityResolver } from '../verifiers/content'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
@@ -29,7 +29,6 @@ import { fileDomains } from '../passport/stack'
 import { zoneAncestors } from '../passport/cascade'
 import { zoneOf } from '../gardener/lessons'
 import { findPhantoms, renderPhantom } from '../verifiers/phantom'
-import { sha1 } from '../core/salsa'
 
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 /**
@@ -152,7 +151,7 @@ export function handlePostTool(input: PostToolInput, dataRoot: string): PostTool
           )
           const dedup = db.query('INSERT OR IGNORE INTO gate_log(session_id, file, law) VALUES(?,?,?)')
           const laws = new FactStore(db).active().filter((f) => f.tier === 'закон')
-          for (const v of checkAgainstLaws(content, ext, laws)) {
+          for (const v of checkAgainstLaws(content, ext, lawsForFile(laws, rel))) {
             if (Number(dedup.run(sid, rel, v.law).changes) === 0) continue
             lines.push(t(`- отклонение от закона «${statement(v.law)}» · ${v.detail}`, `- deviation from the law “${statement(v.law)}” · ${v.detail}`))
           }
@@ -170,14 +169,14 @@ export function handlePostTool(input: PostToolInput, dataRoot: string): PostTool
             const own = new Set(
               (db.query('SELECT file FROM session_edits WHERE session_id=?').all(sid) as Array<{ file: string }>).map((r) => r.file),
             )
-            const diskHash = (f: string): string | null => {
+            const readSource = (f: string): string | null => {
               try {
-                return sha1(readFileSync(join(cwd, f), 'utf8'))
+                return readFileSync(join(cwd, f), 'utf8')
               } catch {
                 return null // файла нет — индекс о нём заведомо не свеж
               }
             }
-            for (const p of findPhantoms(db, rel, content, files, diskHash, own)) {
+            for (const p of findPhantoms(db, rel, content, files, readSource, own)) {
               if (Number(dedup.run(sid, rel, `#фантом:${p.name}`).changes) === 0) continue
               lines.push(renderPhantom(p))
             }

@@ -22,6 +22,7 @@ import { extname } from 'node:path'
 import type { Database } from '../core/db'
 import { resolveImport } from '../graph/imports'
 import { readOutline, indexedHash } from '../layer1/symbols'
+import { sha1 } from '../core/salsa'
 import { t } from '../core/i18n'
 
 /** Именованный импорт: откуда и какие имена. */
@@ -85,15 +86,36 @@ function topLevelNames(db: Database, file: string): string[] {
 }
 
 /**
- * Фантомы в записанном файле. `fresh(file)` — хэш содержимого на диске
- * (сверяется с индексом); `writtenBySession` — файлы этой сессии, не судятся.
+ * Объявлено ли имя в исходнике — по тексту, не по индексу. Оглавление снимает
+ * функции, классы и типы, а экспортированную константу (`export const CODE_EXT
+ * = new Set(…)`) — нет: она не символ навигации. Первый же прогон детектора на
+ * собственном коде назвал фантомами шесть таких констант. Поэтому индекс даёт
+ * список «что есть» для подсказки, а приговор выносится только если имени нет
+ * и в тексте объявлений: ложный фантом дороже пропущенного.
+ */
+export function declaredInSource(source: string, name: string): boolean {
+  const n = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const decl = new RegExp(
+    `(^|\\n)\\s*(export\\s+)?(default\\s+)?(async\\s+)?(const|let|var|function\\*?|class|interface|type|enum|namespace|abstract\\s+class|declare\\s+\\w+|def)\\s+${n}\\b` +
+      `|(^|\\n)\\s*${n}\\s*[:=]` + // Python-переменная / объект в модуле
+      `|export\\s*\\{[^}]*\\b${n}\\b` + // export { a, b as c }
+      `|export\\s+\\*\\s+from` + // re-export barrel — имя может быть транзитивным
+      `|(module\\.exports|exports)\\s*(\\.${n}\\b|=\\s*\\{[^}]*\\b${n}\\b)` + // CommonJS
+      `|__all__\\s*=\\s*[\\[(][^\\])]*['"]${n}['"]`, // Python __all__
+  )
+  return decl.test(source)
+}
+
+/**
+ * Фантомы в записанном файле. `readSource(file)` — содержимое источника с диска
+ * (его хэш сверяется с индексом); `writtenBySession` — файлы этой сессии, не судятся.
  */
 export function findPhantoms(
   db: Database,
   rel: string,
   content: string,
   projectFiles: Set<string>,
-  diskHash: (file: string) => string | null,
+  readSource: (file: string) => string | null,
   writtenBySession: Set<string>,
 ): Phantom[] {
   const out: Phantom[] = []
@@ -105,13 +127,16 @@ export function findPhantoms(
       source = null // резолв — обогащение; не разрешилось — не судим
     }
     if (!source || source === rel || writtenBySession.has(source)) continue
+    const text = readSource(source)
+    if (text === null) continue
     const indexed = indexedHash(db, source)
-    if (indexed === null || indexed !== diskHash(source)) continue // индекс отстал — молчим
+    if (indexed === null || indexed !== sha1(text)) continue // индекс отстал — молчим
     const names = topLevelNames(db, source)
     if (names.length === 0) continue // файл без символов (re-export barrel) — судить нечем
     const have = new Set(names)
     for (const name of imp.names) {
-      if (!have.has(name)) out.push({ name, source, available: names.slice(0, 8) })
+      if (have.has(name) || declaredInSource(text, name)) continue
+      out.push({ name, source, available: names.slice(0, 8) })
     }
   }
   return out

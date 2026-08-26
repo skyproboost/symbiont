@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { openDb } from '../src/core/db'
-import { evidenceFromTranscript, isCheckCommand } from '../src/gates/evidence'
+import { evidenceFromTranscript, isCheckCommand, searchChurn } from '../src/gates/evidence'
 import { recordEdit } from '../src/hooks/post-tool-core'
 import { handleStop } from '../src/hooks/stop-core'
 import { handleSessionStart, slugOf } from '../src/hooks/session-start-core'
@@ -83,5 +83,26 @@ describe('на Stop', () => {
     expect(JSON.stringify(checked)).not.toContain('доказательств нет')
     rmrf(proj)
     rmrf(dataRoot)
+  })
+})
+
+describe('разведка без правки (сигнал делегирования)', () => {
+  it('серия поиска считается подряд, рвётся правкой и новым сообщением владельца', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'symbiont-churn-'))
+    const p = join(dir, 't.jsonl')
+    const toRel = (abs: string) => abs.replace(/^\/proj\//, '')
+    const user = JSON.stringify({ type: 'user', message: { role: 'user', content: 'сделай X' } })
+    const result = JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] } })
+    const reads = Array.from({ length: 5 }, (_, i) => line('Read', { file_path: `/proj/src/f${i}.ts` }))
+    const greps = [line('Grep', { pattern: 'x' }), line('Bash', { command: 'rg foo src' }), line('Bash', { command: 'npm run build' })]
+    writeFileSync(p, [user, ...reads, result, ...greps].join('\n'))
+    const c = searchChurn(p, toRel)
+    expect(c.steps).toBe(7) // 5 Read + Grep + rg; build — не поиск; tool_result серию не рвёт
+    expect(c.files).toEqual(['src/f0.ts', 'src/f1.ts', 'src/f2.ts', 'src/f3.ts', 'src/f4.ts'])
+    writeFileSync(p, [user, ...reads, line('Edit', { file_path: '/proj/src/f0.ts' }), ...greps].join('\n'))
+    expect(searchChurn(p, toRel).steps).toBe(2)
+    writeFileSync(p, [...reads, user, line('Read', { file_path: '/proj/src/z.ts' })].join('\n'))
+    expect(searchChurn(p, toRel).steps).toBe(1)
+    rmrf(dir)
   })
 })

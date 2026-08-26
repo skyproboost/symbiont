@@ -34,6 +34,7 @@ import { toRelNode } from './post-tool-core'
 import { outlineView, outlineTokens, heaviestTokens } from '../layer1/symbols'
 import { shouldFeed } from '../gardener/utility'
 import { readOutlineMode } from '../gates/config'
+import { searchChurn } from '../gates/evidence'
 import type { SymbolRow } from '../layer1/symbols'
 
 /** Вид подачи в телеметрии окупаемости: он копит собственную статистику. */
@@ -53,9 +54,14 @@ export const PRE_READ_KIND = 'pre-read'
  */
 export const MIN_FILE_CHARS = 4_000
 
+/** Столько шагов разведки подряд без правки — повод предложить сабагента. */
+export const CHURN_STEPS = 8
+
 export interface PreToolInput {
   cwd?: string
   session_id?: string
+  /** транскрипт сессии — по нему видна разведка без правки (сигнал делегирования) */
+  transcript_path?: string
   tool_name?: string
   tool_input?: { file_path?: string; notebook_path?: string; offset?: number; limit?: number }
 }
@@ -156,6 +162,29 @@ export function handlePreTool(input: PreToolInput, dataRoot: string): PreToolOut
       // раньше по времени. Матчер PostToolUse больше не зовётся на Read именно
       // поэтому: два процесса на одно чтение стоили вдвое, а говорили одно.
       const lines = touchFeed(db, sid, rel, PRE_READ_KIND)
+
+      // Делегирование по сигналу поиска: длинная разведка без правки — работа
+      // для сабагента с готовым сидом. Совет с числами, не императив; один раз
+      // за серию (ключ включает длину серии, округлённую до порога).
+      try {
+        if (input.transcript_path && shouldFeed(db, 'delegate')) {
+          const churn = searchChurn(input.transcript_path, (abs) => toRelNode(cwd, abs))
+          if (churn.steps >= CHURN_STEPS) {
+            ensureFeedLog(db)
+            if (claimNode(db, sid, `#delegate:churn:${Math.floor(churn.steps / CHURN_STEPS)}`, 'delegate')) {
+              const seed = churn.files.slice(0, 5).join(', ')
+              lines.push(
+                t(
+                  `- разведка без правки: ${churn.steps} шагов поиска и чтения подряд${seed ? ` (${seed})` : ''} — задача шире одного окна: Explore-сабагент с этим сидом вернёт выжимку дешевле, чем чтение всего сюда`,
+                  `- exploration without an edit: ${churn.steps} consecutive search/read steps${seed ? ` (${seed})` : ''} — the task is wider than one window: an Explore subagent with this seed returns a digest cheaper than reading everything here`,
+                ),
+              )
+            }
+          }
+        }
+      } catch {
+        /* сигнал делегирования — обогащение; подача до чтения важнее */
+      }
 
       // Предложение структуры — только на файлах, где оно вообще способно
       // окупиться. Порог касается ТОЛЬКО его: связи и условия зоны нужны и на

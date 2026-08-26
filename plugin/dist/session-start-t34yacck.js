@@ -10,12 +10,12 @@ import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./session-start-knvxdhj4.js";
+} from "./session-start-4148g2am.js";
 import {
   buildRulesPrompt,
   parseRules,
   storeRules
-} from "./session-start-qrjts7bd.js";
+} from "./session-start-s0s43wpz.js";
 import {
   buildGroundingPrompt,
   dueForGrounding,
@@ -23,7 +23,7 @@ import {
   pendingDigests,
   runCommunityDigests,
   storeGrounding
-} from "./session-start-nttzs9gz.js";
+} from "./session-start-wwd3bw7x.js";
 import {
   collectOutline,
   ensureSymbols,
@@ -40,7 +40,7 @@ import {
   recordLesson,
   runZSummaries,
   zoneOf
-} from "./session-start-cnmd1j37.js";
+} from "./session-start-1cqw2caa.js";
 import {
   CODE_EXT,
   CSVX,
@@ -68,8 +68,9 @@ import {
   revisionsBlock,
   sha1,
   t,
-  walkFiles
-} from "./session-start-rqxgy7zy.js";
+  walkFiles,
+  zoneOfArea
+} from "./session-start-dx0v6ppa.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -508,7 +509,7 @@ function runVerbalize(projectRoot, dataDir, caller) {
   try {
     const store = new FactStore(db);
     const active = store.active();
-    const laws = active.filter((f) => f.tier === "закон").map((f) => f.statement);
+    const laws = active.filter((f) => f.tier === "закон" && zoneOfArea(f.area) === null).map((f) => f.statement);
     const dueRows = store.dueForReview();
     const due = dueRows.map((f) => f.statement);
     const dueSet = new Set(due);

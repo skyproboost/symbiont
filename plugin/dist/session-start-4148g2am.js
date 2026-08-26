@@ -7,7 +7,7 @@ import {
   readAvailability,
   recordOutcome,
   resolveVector
-} from "./session-start-7j477tnn.js";
+} from "./session-start-x7ajj8cm.js";
 import {
   internalEnv
 } from "./session-start-5s7r4262.js";
@@ -15,7 +15,7 @@ import {
   init_i18n,
   readFrame,
   t
-} from "./session-start-rqxgy7zy.js";
+} from "./session-start-dx0v6ppa.js";
 
 // src/layer2/llm.ts
 import { spawnSync } from "node:child_process";

@@ -14,7 +14,7 @@ import { Engine, sha1 } from '../core/salsa'
 import { FactStore, keyOf, factBasis } from '../core/store'
 import { walkFiles, codeFiles, CODE_EXT } from '../miner/walk'
 import { analyzeFile, aggregate } from '../miner/analyze'
-import { deriveFacts, type Fact } from '../miner/facts'
+import { deriveFacts, deriveZoneFacts, zoneOfArea, type Fact } from '../miner/facts'
 import { buildEdges, nodeStats, type NodeStat } from '../graph/graph'
 import { buildEntityGraph, renderEntityBlock, ENTITY_EXT, type EntityGraph } from '../graph/entities'
 import { probeProfile, profileFacts, readConceptText } from './profile'
@@ -65,7 +65,10 @@ export function renderGraphBlock(top: NodeStat[]): string {
 }
 
 /** Строка факта: утверждение плюс его основание (формулировка — factBasis). */
-const factLine = (f: Fact & { source?: string }): string => `- ${statement(f.statement)} — ${factBasis(f)}`
+const factLine = (f: Fact & { source?: string }): string => {
+  const zone = zoneOfArea(f.area)
+  return `- ${statement(f.statement)}${zone ? ` · ${t('только в', 'only in')} ${zone}/` : ''} — ${factBasis(f)}`
+}
 
 /**
  * Блоки сводки одним аргументом, а не хвостом позиционных параметров.
@@ -221,23 +224,27 @@ export function buildPassport(projectRoot: string, dataDir: string): BuildResult
   engine.register('facts', (ctx) => {
     ctx.input('fileset')
     // Содержимое читается только здесь — то есть только когда факты реально пересчитываются.
-    const observations = files.map((f) => {
-      const rel = relative(projectRoot, f.path)
-      ctx.input(`file:${rel}`)
+    const withRel = files.map((f) => {
+      const rawRel = relative(projectRoot, f.path)
+      ctx.input(`file:${rawRel}`) // ключ входа — как объявлен движку (без нормализации)
+      const rel = rawRel.replaceAll('\\', '/')
       let content = ''
       try {
         content = readFileSync(f.path, 'utf8')
       } catch {
         /* исчез — пропускаем */
       }
-      return analyzeFile(f.path, f.ext, content)
+      return { rel, obs: analyzeFile(f.path, f.ext, content) }
     })
+    const observations = withRel.map((w) => w.obs)
     const agg = aggregate(observations, files.map((f) => f.ext))
     // Язык комментариев — признак языка ВЛАДЕЛЬЦА, а не проекта: комментарий
     // человек пишет для себя. До первого обращения к модели это лучшее, что
     // есть для выбора языка подачи (core/i18n.ts)
     observeComments(dataDir, agg.comments.cyr, agg.comments.lat)
-    return deriveFacts(agg)
+    const global = deriveFacts(agg)
+    // Зональные законы — вдобавок к глобальным, со своей областью и ключом
+    return [...global, ...deriveZoneFacts(withRel, files.map((f) => f.ext), global)]
   })
 
   engine.register('graph', (ctx) => {

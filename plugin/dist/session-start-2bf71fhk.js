@@ -2,7 +2,7 @@ import {
   digestForFile,
   readGrounding,
   renderCorrection
-} from "./session-start-nttzs9gz.js";
+} from "./session-start-wwd3bw7x.js";
 import {
   indexedHash,
   readOutline
@@ -17,10 +17,10 @@ import {
   markUsed,
   nodeBrief,
   outlineKey
-} from "./session-start-kbzzb560.js";
+} from "./session-start-kwsr2xpd.js";
 import {
   zoneOf
-} from "./session-start-cnmd1j37.js";
+} from "./session-start-1cqw2caa.js";
 import {
   EDIT_TOUCH_WEIGHT,
   FactStore,
@@ -46,8 +46,9 @@ import {
   slugOf,
   statement,
   t,
-  zoneAncestors
-} from "./session-start-rqxgy7zy.js";
+  zoneAncestors,
+  zoneOfArea
+} from "./session-start-dx0v6ppa.js";
 
 // src/hooks/post-tool-core.ts
 init_i18n();
@@ -56,6 +57,13 @@ import { extname as extname2, join, relative } from "node:path";
 
 // src/gates/checks.ts
 init_i18n();
+function lawsForFile(laws, rel) {
+  const norm = rel.replaceAll("\\", "/");
+  return laws.filter((l) => {
+    const zone = zoneOfArea(l.area);
+    return zone === null || norm.startsWith(`${zone}/`);
+  });
+}
 var JS_FAMILY = new Set([".ts", ".js", ".mjs", ".cjs", ".tsx", ".jsx", ".vue"]);
 function checkAgainstLaws(content, ext, laws) {
   if (!JS_FAMILY.has(ext))
@@ -203,7 +211,12 @@ function extractNamedImports(content, rel) {
 function topLevelNames(db, file) {
   return readOutline(db, file).filter((r) => r.kind !== "case" && !r.name.includes(".") && !r.name.includes("(")).map((r) => r.name);
 }
-function findPhantoms(db, rel, content, projectFiles, diskHash, writtenBySession) {
+function declaredInSource(source, name) {
+  const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const decl = new RegExp(`(^|\\n)\\s*(export\\s+)?(default\\s+)?(async\\s+)?(const|let|var|function\\*?|class|interface|type|enum|namespace|abstract\\s+class|declare\\s+\\w+|def)\\s+${n}\\b` + `|(^|\\n)\\s*${n}\\s*[:=]` + `|export\\s*\\{[^}]*\\b${n}\\b` + `|export\\s+\\*\\s+from` + `|(module\\.exports|exports)\\s*(\\.${n}\\b|=\\s*\\{[^}]*\\b${n}\\b)` + `|__all__\\s*=\\s*[\\[(][^\\])]*['"]${n}['"]`);
+  return decl.test(source);
+}
+function findPhantoms(db, rel, content, projectFiles, readSource, writtenBySession) {
   const out = [];
   for (const imp of extractNamedImports(content, rel)) {
     let source = null;
@@ -214,16 +227,20 @@ function findPhantoms(db, rel, content, projectFiles, diskHash, writtenBySession
     }
     if (!source || source === rel || writtenBySession.has(source))
       continue;
+    const text = readSource(source);
+    if (text === null)
+      continue;
     const indexed = indexedHash(db, source);
-    if (indexed === null || indexed !== diskHash(source))
+    if (indexed === null || indexed !== sha1(text))
       continue;
     const names = topLevelNames(db, source);
     if (names.length === 0)
       continue;
     const have = new Set(names);
     for (const name of imp.names) {
-      if (!have.has(name))
-        out.push({ name, source, available: names.slice(0, 8) });
+      if (have.has(name) || declaredInSource(text, name))
+        continue;
+      out.push({ name, source, available: names.slice(0, 8) });
     }
   }
   return out;
@@ -297,7 +314,7 @@ function handlePostTool(input, dataRoot) {
           db.run("CREATE TABLE IF NOT EXISTS gate_log(session_id TEXT NOT NULL, file TEXT NOT NULL, law TEXT NOT NULL, PRIMARY KEY(session_id, file, law))");
           const dedup = db.query("INSERT OR IGNORE INTO gate_log(session_id, file, law) VALUES(?,?,?)");
           const laws = new FactStore(db).active().filter((f) => f.tier === "закон");
-          for (const v of checkAgainstLaws(content, ext, laws)) {
+          for (const v of checkAgainstLaws(content, ext, lawsForFile(laws, rel))) {
             if (Number(dedup.run(sid, rel, v.law).changes) === 0)
               continue;
             lines.push(t(`- отклонение от закона «${statement(v.law)}» · ${v.detail}`, `- deviation from the law “${statement(v.law)}” · ${v.detail}`));
@@ -313,14 +330,14 @@ function handlePostTool(input, dataRoot) {
           try {
             const files = new Set(db.query("SELECT file FROM graph_nodes").all().map((r) => r.file));
             const own = new Set(db.query("SELECT file FROM session_edits WHERE session_id=?").all(sid).map((r) => r.file));
-            const diskHash = (f) => {
+            const readSource = (f) => {
               try {
-                return sha1(readFileSync(join(cwd, f), "utf8"));
+                return readFileSync(join(cwd, f), "utf8");
               } catch {
                 return null;
               }
             };
-            for (const p of findPhantoms(db, rel, content, files, diskHash, own)) {
+            for (const p of findPhantoms(db, rel, content, files, readSource, own)) {
               if (Number(dedup.run(sid, rel, `#фантом:${p.name}`).changes) === 0)
                 continue;
               lines.push(renderPhantom(p));
@@ -347,4 +364,4 @@ ${lines.join(`
   }
 }
 
-export { touchFeed, checkAgainstLaws, toRelNode, handlePostTool };
+export { touchFeed, lawsForFile, checkAgainstLaws, toRelNode, handlePostTool };

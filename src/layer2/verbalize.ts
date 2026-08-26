@@ -9,6 +9,7 @@
  *   (законы зарабатываются только статистикой);
  * - строгий JSON-парс, fail-open: мусорный ответ = ноль фактов, не мусор в журнале.
  */
+import { zoneOfArea } from '../miner/facts'
 import { documentsBlock, jsonOnly } from './prompt'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -177,7 +178,7 @@ export function runVerbalize(projectRoot: string, dataDir: string, caller: LlmCa
   try {
     const store = new FactStore(db)
     const active = store.active()
-    const laws = active.filter((f) => f.tier === 'закон').map((f) => f.statement)
+    const laws = active.filter((f) => f.tier === 'закон' && zoneOfArea(f.area) === null).map((f) => f.statement)
     // FSRS: правила с истёкшим интервалом — на переподтверждение этим же проходом
     const dueRows = store.dueForReview()
     const due = dueRows.map((f) => f.statement)

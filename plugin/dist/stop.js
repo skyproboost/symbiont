@@ -1,20 +1,24 @@
 import {
   applyRules,
   readRules
-} from "./session-start-qrjts7bd.js";
+} from "./session-start-s0s43wpz.js";
+import {
+  evidenceFromTranscript
+} from "./session-start-k1samhrj.js";
 import {
   readGateMode
 } from "./session-start-yvd28w11.js";
 import {
   checkAgainstLaws,
+  lawsForFile,
   toRelNode
-} from "./session-start-qwgfa1cd.js";
-import"./session-start-nttzs9gz.js";
+} from "./session-start-2bf71fhk.js";
+import"./session-start-wwd3bw7x.js";
 import"./session-start-psab7pqj.js";
 import"./session-start-8ychq3hk.js";
-import"./session-start-kbzzb560.js";
+import"./session-start-kwsr2xpd.js";
 import"./session-start-046cybce.js";
-import"./session-start-cnmd1j37.js";
+import"./session-start-1cqw2caa.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -23,7 +27,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-a2bvxes1.js";
+} from "./session-start-0zc82bg9.js";
 import {
   ENTITY_EXT,
   ENV_TEMPLATES,
@@ -46,14 +50,14 @@ import {
   snapshotContent,
   statement,
   t
-} from "./session-start-rqxgy7zy.js";
+} from "./session-start-dx0v6ppa.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts
 import { join as join3 } from "node:path";
 
 // src/hooks/stop-core.ts
-import { existsSync as existsSync3, readFileSync as readFileSync3, statSync } from "node:fs";
+import { existsSync as existsSync2, readFileSync as readFileSync2, statSync } from "node:fs";
 import { extname, join as join2 } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -596,62 +600,6 @@ function checkContract(content, policies, learned = []) {
 
 // src/hooks/stop-core.ts
 init_walk();
-
-// src/gates/evidence.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-var CHECK_COMMAND = /\b(test|tests|spec|specs|pytest|jest|vitest|mocha|phpunit|rspec|cargo\s+(test|check|clippy)|go\s+(test|vet)|dotnet\s+test|gradle\w*\s+test|mvn\w*\s+(test|verify)|tsc\b|eslint|ruff|mypy|flake8|pylint|golangci-lint|canary|selflint|lint)\b/i;
-var EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
-var isCheckCommand = (command) => CHECK_COMMAND.test(command);
-var TAIL_LINES = 4000;
-function evidenceFromTranscript(transcriptPath, own, toRel) {
-  const none = { uncheckedFiles: [], checkedOnce: false, readable: false };
-  if (!transcriptPath || !existsSync2(transcriptPath))
-    return none;
-  let lines;
-  try {
-    lines = readFileSync2(transcriptPath, "utf8").split(`
-`);
-  } catch {
-    return none;
-  }
-  if (lines.length > TAIL_LINES)
-    lines = lines.slice(-TAIL_LINES);
-  const unchecked = new Set;
-  let checkedOnce = false;
-  for (const line of lines) {
-    if (!line.includes('"tool_use"'))
-      continue;
-    let obj;
-    try {
-      obj = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (obj.type !== "assistant" || !Array.isArray(obj.message?.content))
-      continue;
-    for (const c of obj.message?.content ?? []) {
-      if (c.type !== "tool_use" || !c.name)
-        continue;
-      if (c.name === "Bash") {
-        const cmd = String(c.input?.command ?? "");
-        if (isCheckCommand(cmd)) {
-          unchecked.clear();
-          checkedOnce = true;
-        }
-        continue;
-      }
-      if (EDIT_TOOLS.has(c.name)) {
-        const abs = String(c.input?.file_path ?? c.input?.notebook_path ?? "");
-        const rel = abs ? toRel(abs) : null;
-        if (rel && own.has(rel))
-          unchecked.add(rel);
-      }
-    }
-  }
-  return { uncheckedFiles: [...unchecked], checkedOnce, readable: true };
-}
-
-// src/hooks/stop-core.ts
 init_i18n();
 var FUSE_LIMIT = 8;
 function fileStamp(cwd, rel) {
@@ -738,7 +686,7 @@ function handleStop(input, dataRoot) {
     initLang(dataDir, cwd);
     beat(dataDir, "Stop");
     const dbPath = join2(dataDir, "passport.db");
-    if (!existsSync3(dbPath))
+    if (!existsSync2(dbPath))
       return {};
     const db = openDb(dbPath);
     try {
@@ -761,7 +709,7 @@ function handleStop(input, dataRoot) {
         try {
           if (statSync(abs).mtimeMs < sessionStartMs)
             continue;
-          contents.set(rel, readFileSync3(abs, "utf8"));
+          contents.set(rel, readFileSync2(abs, "utf8"));
           sessionFiles.push(rel);
         } catch {
           continue;
@@ -798,7 +746,7 @@ function handleStop(input, dataRoot) {
       for (const rel of gatedFiles) {
         const content = contents.get(rel) ?? "";
         const ext = extname(rel).toLowerCase();
-        for (const v of checkAgainstLaws(content, ext, laws)) {
+        for (const v of checkAgainstLaws(content, ext, lawsForFile(laws, rel))) {
           all.push({ file: rel, law: v.law, detail: v.detail });
         }
         if (contentVerifierActive(ext)) {

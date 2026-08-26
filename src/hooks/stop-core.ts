@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process'
 import { openDb, type Database } from '../core/db'
 import { SessionLog, snapshotContent } from '../core/sessions'
 import { FactStore } from '../core/store'
-import { checkAgainstLaws } from '../gates/checks'
+import { checkAgainstLaws, lawsForFile } from '../gates/checks'
 import { runContentVerifiers, contentVerifierActive, loadEntityResolver } from '../verifiers/content'
 import { detectSecurityRegressions } from '../verifiers/security'
 import { detectFocusDrift, renderFocus } from '../gates/focus'
@@ -340,7 +340,7 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       for (const rel of gatedFiles) {
         const content = contents.get(rel) ?? ''
         const ext = extname(rel).toLowerCase()
-        for (const v of checkAgainstLaws(content, ext, laws)) {
+        for (const v of checkAgainstLaws(content, ext, lawsForFile(laws, rel))) {
           all.push({ file: rel, law: v.law, detail: v.detail })
         }
         if (contentVerifierActive(ext)) {

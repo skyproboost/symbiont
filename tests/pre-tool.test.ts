@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { openDb } from '../src/core/db'
 import { sha1 } from '../src/core/salsa'
 import { slugOf } from '../src/hooks/session-start-core'
-import { handlePreTool, MIN_FILE_CHARS, PRE_READ_KIND } from '../src/hooks/pre-tool-core'
+import { handlePreTool, MIN_FILE_CHARS, PRE_READ_KIND, CHURN_STEPS } from '../src/hooks/pre-tool-core'
 import { OUTLINE_KIND } from '../src/hooks/node-brief'
 import { handlePostTool } from '../src/hooks/post-tool-core'
 import { storeOutline } from '../src/layer1/symbols'
@@ -233,6 +233,31 @@ describe('оглавление вместо чтения (gate.json outline=deny
       // без режима — прежняя подсказка
       writeFileSync(join(dataDir, 'gate.json'), '{}')
       expect(read(proj, dataRoot, 'src/core.ts', 'd4').hookSpecificOutput?.permissionDecision).toBeUndefined()
+    } finally {
+      rmrf(proj)
+      rmrf(dataRoot)
+    }
+  })
+})
+
+describe('делегирование по сигналу поиска', () => {
+  it('длинная разведка без правки → совет про Explore-сабагента с сидом, один раз на серию', () => {
+    const { proj, dataRoot } = makeWorld({ withOutline: true })
+    try {
+      const transcript = join(dataRoot, 't.jsonl')
+      const toolUse = (name: string, input: Record<string, unknown>) =>
+        JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name, input }] } })
+      writeFileSync(transcript, Array.from({ length: CHURN_STEPS }, (_, i) => toolUse('Read', { file_path: join(proj, 'src', `f${i}.ts`) })).join('\n'))
+      const call = () =>
+        handlePreTool({ cwd: proj, session_id: 'c1', transcript_path: transcript, tool_name: 'Read', tool_input: { file_path: join(proj, 'src/core.ts') } }, dataRoot)
+      const first = call().hookSpecificOutput?.additionalContext ?? ''
+      expect(first).toContain('разведка без правки')
+      expect(first).toContain('src/f0.ts')
+      expect(call().hookSpecificOutput?.additionalContext ?? '').not.toContain('разведка без правки')
+      // короткая серия — молчание
+      writeFileSync(transcript, toolUse('Read', { file_path: join(proj, 'src', 'a.ts') }))
+      const short = handlePreTool({ cwd: proj, session_id: 'c2', transcript_path: transcript, tool_name: 'Read', tool_input: { file_path: join(proj, 'src/core.ts') } }, dataRoot)
+      expect(short.hookSpecificOutput?.additionalContext ?? '').not.toContain('разведка без правки')
     } finally {
       rmrf(proj)
       rmrf(dataRoot)

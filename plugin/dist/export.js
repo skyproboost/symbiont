@@ -2,7 +2,7 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-a2bvxes1.js";
+} from "./session-start-0zc82bg9.js";
 import {
   FactStore,
   factBasis,
@@ -12,8 +12,9 @@ import {
   runtimeBlocker,
   slugOf,
   statement,
-  t
-} from "./session-start-rqxgy7zy.js";
+  t,
+  zoneOfArea
+} from "./session-start-dx0v6ppa.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/export.ts
@@ -47,7 +48,7 @@ var section = "";
 try {
   const store = new FactStore(db);
   const active = store.active();
-  const laws = active.filter((f) => f.tier === "закон").slice(0, LAWS_MAX);
+  const laws = active.filter((f) => f.tier === "закон" && zoneOfArea(f.area) === null).slice(0, LAWS_MAX);
   const habits = active.filter((f) => f.tier === "привычка").slice(0, HABITS_MAX);
   let modules = [];
   try {

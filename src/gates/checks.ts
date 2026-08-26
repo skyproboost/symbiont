@@ -3,7 +3,20 @@
  * Чистые функции, детерминизм; законы сопоставляются по предмету утверждения.
  */
 import { analyzeJs, detectIndent } from '../miner/analyze'
+import { zoneOfArea } from '../miner/facts'
 import { t } from '../core/i18n'
+
+/** Законы, применимые к файлу: глобальные и те зональные, в чьей зоне он лежит. */
+export function lawsForFile<L extends { area: string }>(laws: L[], rel: string): L[] {
+  const norm = rel.replaceAll('\\', '/')
+  return laws.filter((l) => {
+    const zone = zoneOfArea(l.area)
+    return zone === null || norm.startsWith(`${zone}/`)
+  })
+}
+
+/** Только глобальные законы — для срезов, где файл не назван (сабагент, экспорт, вербализация). */
+export const globalLaws = <L extends { area: string }>(laws: L[]): L[] => laws.filter((l) => zoneOfArea(l.area) === null)
 
 export interface LawLike {
   statement: string

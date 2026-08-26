@@ -18,6 +18,7 @@
  * утилизации, а протухшие правила — главная болезнь, от которой умирают
  * memory-инструменты. Живой канал строго лучше своей статической копии.
  */
+import { zoneOfArea } from '../miner/facts'
 import { join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { openDb } from '../core/db'
@@ -61,7 +62,7 @@ let section = ''
 try {
   const store = new FactStore(db)
   const active = store.active()
-  const laws = active.filter((f) => f.tier === 'закон').slice(0, LAWS_MAX)
+  const laws = active.filter((f) => f.tier === 'закон' && zoneOfArea(f.area) === null).slice(0, LAWS_MAX)
   const habits = active.filter((f) => f.tier === 'привычка').slice(0, HABITS_MAX)
   let modules: Array<{ file: string; in_deg: number; z1: string | null }> = []
   try {

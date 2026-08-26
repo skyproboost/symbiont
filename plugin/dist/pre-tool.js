@@ -1,11 +1,14 @@
 import {
+  searchChurn
+} from "./session-start-k1samhrj.js";
+import {
   readOutlineMode
 } from "./session-start-yvd28w11.js";
 import {
   toRelNode,
   touchFeed
-} from "./session-start-qwgfa1cd.js";
-import"./session-start-nttzs9gz.js";
+} from "./session-start-2bf71fhk.js";
+import"./session-start-wwd3bw7x.js";
 import {
   heaviestTokens,
   outlineTokens,
@@ -17,9 +20,9 @@ import {
   claimNode,
   ensureFeedLog,
   outlineKey
-} from "./session-start-kbzzb560.js";
+} from "./session-start-kwsr2xpd.js";
 import"./session-start-046cybce.js";
-import"./session-start-cnmd1j37.js";
+import"./session-start-1cqw2caa.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -28,7 +31,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-a2bvxes1.js";
+} from "./session-start-0zc82bg9.js";
 import {
   beat,
   initLang,
@@ -38,7 +41,7 @@ import {
   shouldFeed,
   slugOf,
   t
-} from "./session-start-rqxgy7zy.js";
+} from "./session-start-dx0v6ppa.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/pre-tool.ts
@@ -50,6 +53,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 var PRE_READ_KIND = "pre-read";
 var MIN_FILE_CHARS = 4000;
+var CHURN_STEPS = 8;
 function renderOutlineDenial(file, rows, wholeTokens) {
   const list = rows.slice(0, 40).map((r) => `  ${r.line}-${r.endLine} ${r.kind} ${r.name}`).join(`
 `);
@@ -103,6 +107,18 @@ function handlePreTool(input, dataRoot) {
         return {};
       const sid = input.session_id ?? "manual";
       const lines = touchFeed(db, sid, rel, PRE_READ_KIND);
+      try {
+        if (input.transcript_path && shouldFeed(db, "delegate")) {
+          const churn = searchChurn(input.transcript_path, (abs) => toRelNode(cwd, abs));
+          if (churn.steps >= CHURN_STEPS) {
+            ensureFeedLog(db);
+            if (claimNode(db, sid, `#delegate:churn:${Math.floor(churn.steps / CHURN_STEPS)}`, "delegate")) {
+              const seed = churn.files.slice(0, 5).join(", ");
+              lines.push(t(`- разведка без правки: ${churn.steps} шагов поиска и чтения подряд${seed ? ` (${seed})` : ""} — задача шире одного окна: Explore-сабагент с этим сидом вернёт выжимку дешевле, чем чтение всего сюда`, `- exploration without an edit: ${churn.steps} consecutive search/read steps${seed ? ` (${seed})` : ""} — the task is wider than one window: an Explore subagent with this seed returns a digest cheaper than reading everything here`));
+            }
+          }
+        }
+      } catch {}
       const view = content.length >= MIN_FILE_CHARS ? outlineView(db, rel, () => content, sha1) : null;
       const cost = view ? outlineTokens(view.rows) : 0;
       const offer = view && view.fresh && view.rows.length > 0 && cost * 2 < view.wholeFileTokens ? renderOutlineOffer(rel, view.rows.length, view.wholeFileTokens, cost, heaviestTokens(view.rows)) : "";

@@ -85,3 +85,68 @@ export function evidenceFromTranscript(transcriptPath: string | null, own: Set<s
   }
   return { uncheckedFiles: [...unchecked], checkedOnce, readable: true }
 }
+
+/** Инструменты разведки: чтение и поиск, без записи. */
+const SEARCH_TOOLS = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
+const SEARCH_BASH = /\b(grep|rg|find|ls|cat|head|tail|sed\s+-n|git\s+(log|show|grep|blame))\b/
+
+export interface SearchChurn {
+  /** шагов разведки подряд без правки и без новой задачи от владельца */
+  steps: number
+  /** файлы проекта, которые при этом читались (сид для делегирования) */
+  files: string[]
+}
+
+/**
+ * Разведка без правки: сколько подряд шагов модель ищет и читает, ничего не
+ * меняя. Длинная серия — признак того, что задача шире одного окна: её дешевле
+ * раздать сабагентам с готовым сидом, чем тянуть всё в один контекст. Серия
+ * рвётся правкой (модель нашла, что искала) и новым сообщением владельца
+ * (новая задача). Сигнал — из того же транскрипта, что и доказательства.
+ */
+export function searchChurn(transcriptPath: string | null, toRel: (abs: string) => string | null): SearchChurn {
+  const none: SearchChurn = { steps: 0, files: [] }
+  if (!transcriptPath || !existsSync(transcriptPath)) return none
+  let lines: string[]
+  try {
+    lines = readFileSync(transcriptPath, 'utf8').split('\n')
+  } catch {
+    return none
+  }
+  if (lines.length > TAIL_LINES) lines = lines.slice(-TAIL_LINES)
+  let steps = 0
+  const files = new Set<string>()
+  for (const line of lines) {
+    if (!line.includes('"tool_use"') && !line.includes('"type":"user"')) continue
+    let obj: { type?: string; message?: { content?: unknown } }
+    try {
+      obj = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (obj.type === 'user') {
+      // Текст владельца (не результат инструмента) — новая задача, серия обнуляется
+      const c = obj.message?.content
+      const isText = typeof c === 'string' || (Array.isArray(c) && c.some((x) => (x as { type?: string }).type === 'text'))
+      if (isText) {
+        steps = 0
+        files.clear()
+      }
+      continue
+    }
+    if (obj.type !== 'assistant' || !Array.isArray(obj.message?.content)) continue
+    for (const c of obj.message?.content as Array<{ type?: string; name?: string; input?: Record<string, unknown> }>) {
+      if (c.type !== 'tool_use' || !c.name) continue
+      if (EDIT_TOOLS.has(c.name)) {
+        steps = 0
+        files.clear()
+      } else if (SEARCH_TOOLS.has(c.name) || (c.name === 'Bash' && SEARCH_BASH.test(String(c.input?.command ?? '')))) {
+        steps++
+        const abs = String(c.input?.file_path ?? '')
+        const rel = abs ? toRel(abs) : null
+        if (rel) files.add(rel)
+      }
+    }
+  }
+  return { steps, files: [...files].slice(0, 8) }
+}

@@ -16,6 +16,7 @@
  */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { zoneOfArea } from '../miner/facts'
 import { openDb } from '../core/db'
 import { t, statement, initLang } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
@@ -56,7 +57,7 @@ export function handleSubagentStart(input: SubagentStartInput, dataRoot: string)
     try {
       const laws = new FactStore(db)
         .active()
-        .filter((f) => f.tier === 'закон')
+        .filter((f) => f.tier === 'закон' && zoneOfArea(f.area) === null) // зональный закон без файла не читается
         .slice(0, LAWS_MAX)
         .map((f) => statement(f.statement))
       let nodes: Array<{ file: string; in_deg: number; z1: string | null }> = []

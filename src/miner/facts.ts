@@ -1,4 +1,4 @@
-import type { Aggregate } from './analyze'
+import { aggregate, type Aggregate, type FileObservation } from './analyze'
 import { AXES } from './packs'
 import { pair } from '../core/i18n'
 
@@ -298,4 +298,57 @@ export function deriveFacts(agg: Aggregate): Fact[] {
   }
 
   return facts
+}
+
+// ── законы по зонам ──────────────────────────────────────────────────────────
+
+/** Меньше файлов — зона не набирает собственной статистики. */
+export const ZONE_MIN_FILES = 10
+
+/** Область факта со скоупом: «форматирование@src» — закон действует только в src/. */
+export const zoneAreaOf = (area: string, zone: string): string => `${area}@${zone}`
+export const zoneOfArea = (area: string): string | null => {
+  const i = area.indexOf('@')
+  return i === -1 ? null : area.slice(i + 1)
+}
+/** Верхний каталог пути; файл в корне зоны не имеет. */
+export const topZoneOf = (rel: string): string | null => {
+  const norm = rel.replaceAll('\\', '/')
+  const i = norm.indexOf('/')
+  return i === -1 ? null : norm.slice(0, i)
+}
+
+/**
+ * Законы, действующие в ОДНОЙ зоне проекта, когда весь проект их не набирает.
+ *
+ * Глобальная распространённость — среднее по репозиторию, а у репозитория
+ * есть части с разным каноном: в src/ ни одного var, в tests/ — фикстуры на
+ * старом синтаксисе. Глобально выходит «привычка», и гейт молчит в src/, где
+ * правило на деле закон; либо наоборот — глобальный закон судит tests/ по
+ * чужой планке. Условная энтропия H(правило | зона) ≪ H(правило) и есть признак
+ * того, что правило зональное. Здесь — прямая форма этого признака: зона с
+ * собственной выборкой (≥ ZONE_MIN_FILES файлов) даёт закон, которого нет у
+ * проекта в целом. Зональный закон не спорит с глобальным фактом: у него своя
+ * область (`area@zone`), свой ключ и своя история в журнале.
+ */
+export function deriveZoneFacts(observations: Array<{ rel: string; obs: FileObservation }>, allExts: string[], globalFacts: Fact[]): Fact[] {
+  const byZone = new Map<string, FileObservation[]>()
+  for (const { rel, obs } of observations) {
+    const zone = topZoneOf(rel)
+    if (!zone) continue
+    const list = byZone.get(zone) ?? []
+    list.push(obs)
+    byZone.set(zone, list)
+  }
+  const globalLaw = new Set(globalFacts.filter((f) => f.tier === 'закон').map((f) => `${f.area}|${f.statement.split('—')[0].trim()}`))
+  const out: Fact[] = []
+  for (const [zone, obs] of byZone) {
+    if (obs.length < ZONE_MIN_FILES) continue
+    for (const f of deriveFacts(aggregate(obs, allExts))) {
+      if (f.tier !== 'закон') continue
+      if (globalLaw.has(`${f.area}|${f.statement.split('—')[0].trim()}`)) continue // проект и так знает этот закон
+      out.push({ ...f, area: zoneAreaOf(f.area, zone) })
+    }
+  }
+  return out
 }

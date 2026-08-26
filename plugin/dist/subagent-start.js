@@ -6,7 +6,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-a2bvxes1.js";
+} from "./session-start-0zc82bg9.js";
 import {
   FactStore,
   beat,
@@ -15,8 +15,9 @@ import {
   openDb,
   slugOf,
   statement,
-  t
-} from "./session-start-rqxgy7zy.js";
+  t,
+  zoneOfArea
+} from "./session-start-dx0v6ppa.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/subagent-start.ts
@@ -40,7 +41,7 @@ function handleSubagentStart(input, dataRoot) {
       return {};
     const db = openDb(dbPath, { readonly: true });
     try {
-      const laws = new FactStore(db).active().filter((f) => f.tier === "закон").slice(0, LAWS_MAX).map((f) => statement(f.statement));
+      const laws = new FactStore(db).active().filter((f) => f.tier === "закон" && zoneOfArea(f.area) === null).slice(0, LAWS_MAX).map((f) => statement(f.statement));
       let nodes = [];
       try {
         nodes = db.query("SELECT g.file, g.in_deg, s.z1 FROM graph_nodes g LEFT JOIN node_summary s ON s.file = g.file ORDER BY g.rank DESC LIMIT ?").all(NODES_MAX);

@@ -4845,7 +4845,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-e1123345810a";
+    return "bundle-56f26697633f";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5835,7 +5835,23 @@ function detectCorrections(db, cwd, currentSid) {
 }
 var CONTEXT_CHAR_BUDGET = 8000;
 var MIN_SECTION_ITEMS = 3;
-function fitToBudget(summary, budget, fullPath) {
+function lineValueFromGate(db) {
+  try {
+    const rows = db.query("SELECT law, COUNT(*) n FROM gate_log WHERE law NOT LIKE '#%' GROUP BY law").all();
+    if (rows.length === 0)
+      return () => 1;
+    return (line) => {
+      let v = 1;
+      for (const r of rows)
+        if (line.includes(r.law))
+          v += r.n;
+      return v;
+    };
+  } catch {
+    return () => 1;
+  }
+}
+function fitToBudget(summary, budget, fullPath, value = () => 1) {
   if (summary.length <= budget)
     return summary;
   const parts = summary.split(/\n(?=## )/);
@@ -5861,7 +5877,17 @@ function fitToBudget(summary, budget, fullPath) {
     }
     if (fat === -1)
       break;
-    blocks[fat].items.pop();
+    const items = blocks[fat].items;
+    let victim = items.length - 1;
+    let worst = Number.POSITIVE_INFINITY;
+    for (let i = 0;i < items.length; i++) {
+      const d = value(items[i]) / Math.max(1, items[i].length);
+      if (d < worst || d === worst && i > victim) {
+        worst = d;
+        victim = i;
+      }
+    }
+    items.splice(victim, 1);
     blocks[fat].dropped++;
   }
   const fitted = render();
@@ -5890,6 +5916,7 @@ function handleSessionStart(input, dataRoot) {
     let utilLine = "";
     let entryBlock = "";
     let survivalLine = "";
+    let lineValue = () => 1;
     const g = gitState(cwd);
     try {
       const db = openDb(join15(dataDir, "passport.db"));
@@ -5957,6 +5984,7 @@ function handleSessionStart(input, dataRoot) {
         } catch {}
       }
       entryBlock = reconstructEntry(db, threadFiles, g?.dirtyTop ?? [], Date.now());
+      lineValue = lineValueFromGate(db);
       db.close();
     } catch {}
     const constitution = readConstitution(dataDir);
@@ -5971,7 +5999,7 @@ ${renderConstitution(constitution)}
       summary = "";
     if (!summary && !constBlock)
       return {};
-    summary = fitToBudget(summary, CONTEXT_CHAR_BUDGET, r.summaryPath);
+    summary = fitToBudget(summary, CONTEXT_CHAR_BUDGET, r.summaryPath, lineValue);
     let stateBlock = g ? `
 ${renderGitBlock(g, reconciled)}` : "";
     const compactNote = input.source === "compact" ? t("- контекст был сжат — паспорт восстановлен (то, что компакция могла выронить)", "- the context was compacted — the passport has been restored (what compaction could have dropped)") : input.source === "fork" ? t("- сессия форкнута — паспорт подан форку (сабагенты не наследуют контекст родителя)", "- the session was forked — the passport was delivered to the fork (subagents do not inherit the parent context)") : "";

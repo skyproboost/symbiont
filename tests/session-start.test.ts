@@ -92,3 +92,15 @@ describe('fitToBudget', () => {
     expect(out).toContain('полная версия: C:/p/SUMMARY.md')
   })
 })
+
+describe('fitToBudget по ценности', () => {
+  it('в толстой секции первой уходит строка с наименьшей плотностью ценности, а не последняя', () => {
+    const items = Array.from({ length: 12 }, (_, i) => `- правило ${i} — формулировка одинаковой длины ....`)
+    const doc = `# П\n\n## Законы\n\n${items.join('\n')}\n## Карта\n\n- a.ts\n- b.ts\n- c.ts\n`
+    const value = (line: string): number => (line.includes('правило 11') ? 50 : 1)
+    const out = fitToBudget(doc, doc.length - 40, 'C:/p/S.md', value)
+    expect(out).toContain('правило 11') // ценная последняя строка осталась
+    expect(out).not.toContain('правило 10') // а неценная перед ней ушла
+    expect(out).toContain('ещё 2')
+  })
+})

@@ -62,6 +62,28 @@ const CONTEXT_CHAR_BUDGET = 8000
 const MIN_SECTION_ITEMS = 3
 
 /**
+ * Ценность строки сводки — сколько раз её правило ловил гейт. Закон, который
+ * модель соблюдает и без нас (camelCase в TS-репозитории), стоит в подаче
+ * столько же символов, сколько закон, который она нарушает каждую сессию, —
+ * а режется по длине первым: на собственном паспорте 30 из 45 привычек
+ * выпадали по месту в секции, не по нужности. Ценность считается по gate_log
+ * и не знает ни одного названия секции.
+ */
+export function lineValueFromGate(db: Database): (line: string) => number {
+  try {
+    const rows = db.query('SELECT law, COUNT(*) n FROM gate_log WHERE law NOT LIKE \'#%\' GROUP BY law').all() as Array<{ law: string; n: number }>
+    if (rows.length === 0) return () => 1
+    return (line) => {
+      let v = 1
+      for (const r of rows) if (line.includes(r.law)) v += r.n
+      return v
+    }
+  } catch {
+    return () => 1 // журнала поимок нет — все строки равны
+  }
+}
+
+/**
  * Уложить сводку в бюджет, тратя его по ВЕСУ секций, а не по их месту в файле.
  *
  * Слайс по 8000-му символу выглядел безобидно, пока паспорт был мал. На зрелом
@@ -76,7 +98,7 @@ const MIN_SECTION_ITEMS = 3
  * на другом языке подачи или на новой секции. Каждая урезанная секция говорит,
  * сколько строк осталось за кадром и где лежит полная версия.
  */
-export function fitToBudget(summary: string, budget: number, fullPath: string): string {
+export function fitToBudget(summary: string, budget: number, fullPath: string, value: (line: string) => number = () => 1): string {
   if (summary.length <= budget) return summary
   const parts = summary.split(/\n(?=## )/)
   const blocks = parts.map((p) => {
@@ -101,7 +123,19 @@ export function fitToBudget(summary: string, budget: number, fullPath: string): 
       if (fat === -1 || blocks[i].items.length > blocks[fat].items.length) fat = i
     }
     if (fat === -1) break // все секции у пола — дальше только честный обрыв
-    blocks[fat].items.pop()
+    // Внутри самой толстой секции уходит строка с наименьшей плотностью
+    // ценности (ценность / длина), а не последняя по порядку
+    const items = blocks[fat].items
+    let victim = items.length - 1
+    let worst = Number.POSITIVE_INFINITY
+    for (let i = 0; i < items.length; i++) {
+      const d = value(items[i]) / Math.max(1, items[i].length)
+      if (d < worst || (d === worst && i > victim)) {
+        worst = d
+        victim = i
+      }
+    }
+    items.splice(victim, 1)
     blocks[fat].dropped++
   }
   const fitted = render()
@@ -162,6 +196,7 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
     let utilLine = ''
     let entryBlock = ''
     let survivalLine = ''
+    let lineValue: (line: string) => number = () => 1
     // git-состояние — до журнала: dirty-файлы нужны реконструкции входа
     const g = gitState(cwd)
     try {
@@ -289,6 +324,7 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
       }
       // Протокол самостарта: реконструкция состояния работы + её граф-окружение
       entryBlock = reconstructEntry(db, threadFiles, g?.dirtyTop ?? [], Date.now())
+      lineValue = lineValueFromGate(db)
       db.close()
     } catch {
       /* журнал недоступен — сводка важнее */
@@ -308,7 +344,7 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
     }
     if (!summary.includes('## ')) summary = '' // один заголовок без секций — не сводка
     if (!summary && !constBlock) return {} // нечего сказать — молчим, не занимаем контекст
-    summary = fitToBudget(summary, CONTEXT_CHAR_BUDGET, r.summaryPath)
+    summary = fitToBudget(summary, CONTEXT_CHAR_BUDGET, r.summaryPath, lineValue)
 
     let stateBlock = g ? `\n${renderGitBlock(g, reconciled)}` : ''
     // Контекст сжат/форкнут — сводка переинжектится (восстановление после потери

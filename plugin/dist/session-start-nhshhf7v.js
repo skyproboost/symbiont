@@ -3497,6 +3497,18 @@ ${spec.spec}`;
   return hit.filter((f) => f !== fromRel);
 }
 var indexCache = new WeakMap;
+function resolveImport(fromRel, spec, files) {
+  let index = indexCache.get(files);
+  if (!index) {
+    index = buildImportIndex([...files].map((rel) => ({ rel })));
+    indexCache.set(files, index);
+  }
+  const p = packOf(fromRel);
+  if (!p)
+    return null;
+  const form = p.patterns.some((x) => x.form === "path") ? "path" : p.patterns[0].form;
+  return resolveSpec(fromRel, { spec, form }, index)[0] ?? null;
+}
 
 // src/graph/graph.ts
 function buildEdges(files) {
@@ -4833,7 +4845,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-83e8b2dc9d6d";
+    return "bundle-e1123345810a";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5444,6 +5456,18 @@ function renderBackground(db, ids, nowMs) {
 
 // src/gardener/utility.ts
 init_i18n();
+var HOLDOUT_SHARE = 0.1;
+var holdoutShare = () => process.env.SYMBIONT_HOLDOUT === "0" ? 0 : HOLDOUT_SHARE;
+var MIN_WITHHELD = 8;
+var NEVER_WITHHELD = new Set(["editfail"]);
+function shouldWithhold(sessionId, key, kind, share = holdoutShare()) {
+  if (share <= 0 || NEVER_WITHHELD.has(kind))
+    return false;
+  let h = 2166136261;
+  for (const ch of `${sessionId}|${key}`)
+    h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  return h % 1000 < share * 1000;
+}
 var MUTE_SCORE = 0.15;
 var MIN_SAMPLE = 12;
 var EXPLORE_EVERY = 10;
@@ -5456,6 +5480,27 @@ function ensureUtilityTable(db) {
     db.run("ALTER TABLE feed_utility ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0");
   if (!cols.includes("decayed_at"))
     db.run("ALTER TABLE feed_utility ADD COLUMN decayed_at TEXT");
+  if (!cols.includes("withheld"))
+    db.run("ALTER TABLE feed_utility ADD COLUMN withheld REAL NOT NULL DEFAULT 0");
+  if (!cols.includes("withheld_used"))
+    db.run("ALTER TABLE feed_utility ADD COLUMN withheld_used REAL NOT NULL DEFAULT 0");
+}
+function noteWithheld(db, kind) {
+  try {
+    ensureUtilityTable(db);
+    db.query("INSERT INTO feed_utility(kind, surfaced, used, withheld) VALUES(?,0,0,1) ON CONFLICT(kind) DO UPDATE SET withheld=withheld+1").run(kind);
+  } catch {}
+}
+function noteWithheldUsed(db, kind) {
+  try {
+    ensureUtilityTable(db);
+    db.query("INSERT INTO feed_utility(kind, surfaced, used, withheld, withheld_used) VALUES(?,0,0,1,1) ON CONFLICT(kind) DO UPDATE SET withheld_used=withheld_used+1").run(kind);
+  } catch {}
+}
+function liftOf(u) {
+  if (u.withheld < MIN_WITHHELD || u.surfaced <= 0)
+    return null;
+  return Math.round((u.used / u.surfaced - u.withheldUsed / u.withheld) * 100);
 }
 function foldDecay(db, kind, nowMs) {
   const row = db.query("SELECT surfaced, used, decayed_at FROM feed_utility WHERE kind=?").get(kind);
@@ -5488,12 +5533,12 @@ function noteUsed(db, kind, nowMs = Date.now()) {
 function utilityOf(db, kind) {
   try {
     ensureUtilityTable(db);
-    const row = db.query("SELECT surfaced, used FROM feed_utility WHERE kind=?").get(kind);
+    const row = db.query("SELECT surfaced, used, withheld, withheld_used FROM feed_utility WHERE kind=?").get(kind);
     const surfaced = row?.surfaced ?? 0;
     const used = row?.used ?? 0;
-    return { kind, surfaced, used, score: (used + 1) / (surfaced + 2) };
+    return { kind, surfaced, used, score: (used + 1) / (surfaced + 2), withheld: row?.withheld ?? 0, withheldUsed: row?.withheld_used ?? 0 };
   } catch {
-    return { kind, surfaced: 0, used: 0, score: 0.5 };
+    return { kind, surfaced: 0, used: 0, score: 0.5, withheld: 0, withheldUsed: 0 };
   }
 }
 function shouldFeed(db, kind, nowMs = Date.now()) {
@@ -5519,8 +5564,15 @@ function shouldFeed(db, kind, nowMs = Date.now()) {
 function rankKinds(db) {
   try {
     ensureUtilityTable(db);
-    const rows = db.query("SELECT kind, surfaced, used FROM feed_utility").all();
-    return rows.map((r) => ({ kind: r.kind, surfaced: r.surfaced, used: r.used, score: (r.used + 1) / (r.surfaced + 2) })).sort((a, b) => b.score - a.score);
+    const rows = db.query("SELECT kind, surfaced, used, withheld, withheld_used FROM feed_utility").all();
+    return rows.map((r) => ({
+      kind: r.kind,
+      surfaced: r.surfaced,
+      used: r.used,
+      score: (r.used + 1) / (r.surfaced + 2),
+      withheld: r.withheld ?? 0,
+      withheldUsed: r.withheld_used ?? 0
+    })).sort((a, b) => b.score - a.score);
   } catch {
     return [];
   }
@@ -5531,7 +5583,10 @@ function mutedKinds(db) {
 function renderUtility(rows) {
   if (rows.length === 0)
     return "";
-  const shown = rows.filter((r) => r.surfaced > 0).slice(0, 6).map((r) => `${r.kind} ${Math.round(r.score * 100)}% (${Math.round(r.used)}/${Math.round(r.surfaced)})`);
+  const shown = rows.filter((r) => r.surfaced > 0).slice(0, 6).map((r) => {
+    const lift = liftOf(r);
+    return `${r.kind} ${Math.round(r.score * 100)}% (${Math.round(r.used)}/${Math.round(r.surfaced)})${lift === null ? "" : t(` лифт ${lift >= 0 ? "+" : ""}${lift}пп`, ` lift ${lift >= 0 ? "+" : ""}${lift}pp`)}`;
+  });
   return shown.length > 0 ? `${t("окупаемость подачи", "feed payback")}: ${shown.join(" · ")}` : "";
 }
 
@@ -5959,4 +6014,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };
+export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, resolveImport, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, slugOf, handleSessionStart };

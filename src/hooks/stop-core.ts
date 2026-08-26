@@ -26,6 +26,8 @@ import { readRules } from '../env/rules'
 import { ENTITY_EXT } from '../graph/entities'
 import { inDerivedZone } from '../miner/walk'
 import { readGateMode } from '../gates/config'
+import { evidenceFromTranscript } from '../gates/evidence'
+import { toRelNode } from './post-tool-core'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
 import { sha1 } from '../core/salsa'
@@ -53,6 +55,8 @@ const MAX_FILES = 20
 export interface StopInput {
   cwd?: string
   session_id?: string
+  /** транскрипт сессии — Claude Code передаёт каждому хуку; источник для гейта доказательств */
+  transcript_path?: string
 }
 
 export interface StopOutput {
@@ -357,6 +361,40 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
           all.push({ file: rel, law: `контракт среды: ${c.kind}`, detail: `${c.requirement} · ${c.policy} · ${c.detail}` })
         }
       }
+      // Гейт доказательств: код правлен, проверка после правки не запускалась.
+      // Судятся только подтверждённо свои кодовые файлы и только в проекте, где
+      // проверка вообще есть (тестовые файлы в графе). В dry-run — наблюдение,
+      // в режиме блокировки — нарушение наравне с законами формы.
+      const evidenceLines: string[] = []
+      try {
+        const codeOwn = new Set(ownFiles.filter((f) => !ENTITY_EXT.has(extname(f).toLowerCase()) && !isConfigFile(f)))
+        const hasTests =
+          codeOwn.size > 0 &&
+          (db.query("SELECT COUNT(*) n FROM graph_nodes WHERE file LIKE '%test%' OR file LIKE '%spec%'").get() as { n: number }).n > 0
+        if (hasTests) {
+          const transcript =
+            input.transcript_path ??
+            (db.query('SELECT transcript_path FROM sessions WHERE session_id=?').get(sid) as { transcript_path: string | null } | null)?.transcript_path ??
+            null
+          const ev = evidenceFromTranscript(transcript, codeOwn, (abs) => toRelNode(cwd, abs))
+          if (ev.readable && ev.uncheckedFiles.length > 0) {
+            const files = [...ev.uncheckedFiles].sort()
+            const shown = `${files.slice(0, 4).join(', ')}${files.length > 4 ? `, … (+${files.length - 4})` : ''}`
+            const detail = t(
+              `после последней правки проверка не запускалась (${shown}) — запусти тесты/проверку или скажи владельцу, почему она здесь не нужна`,
+              `no check was run after the last edit (${shown}) — run the tests/check, or tell the owner why none is needed here`,
+            )
+            if (readGateMode(dataDir) === 'block') {
+              all.push({ file: shown, law: 'доказательства', detail })
+            } else if (Number(dedup.run(sid, '#доказательства', files.join(',')).changes) > 0) {
+              evidenceLines.push(t(`- доказательств нет: ${detail}`, `- no evidence: ${detail}`))
+            }
+          }
+        }
+      } catch {
+        /* гейт доказательств — обогащение: транскрипт нестабилен, молчание безопасно */
+      }
+
       // Страж фокуса: расфокус виден из графа и диффов, без единого токена.
       // Отдельно от гейта формы: это не нарушение правила, а наблюдение о ходе
       // работы — сообщается фактом и НИКОГДА не блокирует (намерение решает
@@ -403,7 +441,7 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       // Наблюдения о ходе работы — один поток: расфокус, бюджеты качества и
       // отчёт о неразобранном при живых соседних сессиях. Раньше бюджеты
       // считались, но терялись в обеих ветках вывода — печатался только расфокус.
-      const observations = [...focusLines, ...budgetLines, parallelLine].filter(Boolean)
+      const observations = [...evidenceLines, ...focusLines, ...budgetLines, parallelLine].filter(Boolean)
 
       // Статистика поимок — всегда (усиливает подачу правила в сводке)
       // Закон показывается через statement(): в журнале он записан по-русски

@@ -2,15 +2,18 @@ import {
   contentHashOf,
   markVisited,
   summaryFor
-} from "./session-start-f7v10bjv.js";
+} from "./session-start-ehh2y93s.js";
 import {
   init_i18n,
   noteSurfaced,
   noteUsed,
+  noteWithheld,
+  noteWithheldUsed,
   readConfigEdges,
   renderConfigInfluence,
+  shouldWithhold,
   t
-} from "./session-start-b23jq1kp.js";
+} from "./session-start-nhshhf7v.js";
 
 // src/hooks/node-brief.ts
 init_i18n();
@@ -23,14 +26,22 @@ function ensureFeedLog(db) {
     db.run("ALTER TABLE jit_log ADD COLUMN used INTEGER NOT NULL DEFAULT 0");
   if (!cols.includes("kind"))
     db.run("ALTER TABLE jit_log ADD COLUMN kind TEXT NOT NULL DEFAULT 'graph'");
+  if (!cols.includes("withheld"))
+    db.run("ALTER TABLE jit_log ADD COLUMN withheld INTEGER NOT NULL DEFAULT 0");
 }
 function claimNode(db, sessionId, file, kind = "graph") {
   if (kind === "graph" && briefSilenced(db, sessionId, file))
     return false;
-  const fresh = Number(db.query("INSERT OR IGNORE INTO jit_log(session_id, file, kind) VALUES(?,?,?)").run(sessionId, file, kind).changes) > 0;
-  if (fresh)
-    noteSurfaced(db, kind);
-  return fresh;
+  const withheld = shouldWithhold(sessionId, file, kind);
+  const fresh = Number(db.query("INSERT OR IGNORE INTO jit_log(session_id, file, kind, withheld) VALUES(?,?,?,?)").run(sessionId, file, kind, withheld ? 1 : 0).changes) > 0;
+  if (!fresh)
+    return false;
+  if (withheld) {
+    noteWithheld(db, kind);
+    return false;
+  }
+  noteSurfaced(db, kind);
+  return true;
 }
 var SILENCE_AFTER = 3;
 var SILENCE_SESSIONS = 5;
@@ -60,12 +71,15 @@ function markUsed(db, sessionId, file, coveringKeys = []) {
     const keys = [file, ...coveringKeys];
     const marked = new Set;
     for (const key of keys) {
-      const row = db.query("SELECT kind, used FROM jit_log WHERE session_id=? AND file=?").get(sessionId, key);
+      const row = db.query("SELECT kind, used, withheld FROM jit_log WHERE session_id=? AND file=?").get(sessionId, key);
       if (!row || row.used === 1 || marked.has(key))
         continue;
       db.query("UPDATE jit_log SET used=1 WHERE session_id=? AND file=?").run(sessionId, key);
       marked.add(key);
-      noteUsed(db, row.kind ?? "graph");
+      if (row.withheld === 1)
+        noteWithheldUsed(db, row.kind ?? "graph");
+      else
+        noteUsed(db, row.kind ?? "graph");
     }
   } catch {}
 }

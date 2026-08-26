@@ -28,6 +28,8 @@ import { EDIT_TOUCH_WEIGHT, READ_TOUCH_WEIGHT } from '../graph/heat'
 import { fileDomains } from '../passport/stack'
 import { zoneAncestors } from '../passport/cascade'
 import { zoneOf } from '../gardener/lessons'
+import { findPhantoms, renderPhantom } from '../verifiers/phantom'
+import { sha1 } from '../core/salsa'
 
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 /**
@@ -161,6 +163,26 @@ export function handlePostTool(input: PostToolInput, dataRoot: string): PostTool
               if (Number(dedup.run(sid, rel, v.verifier).changes) === 0) continue
               lines.push(t(`- верификатор «${v.verifier}» · ${v.detail}`, `- verifier “${v.verifier}” · ${v.detail}`))
             }
+          }
+          // Фантомные импорты — по индексу структуры, сразу после правки (см. verifiers/phantom.ts)
+          try {
+            const files = new Set((db.query('SELECT file FROM graph_nodes').all() as Array<{ file: string }>).map((r) => r.file))
+            const own = new Set(
+              (db.query('SELECT file FROM session_edits WHERE session_id=?').all(sid) as Array<{ file: string }>).map((r) => r.file),
+            )
+            const diskHash = (f: string): string | null => {
+              try {
+                return sha1(readFileSync(join(cwd, f), 'utf8'))
+              } catch {
+                return null // файла нет — индекс о нём заведомо не свеж
+              }
+            }
+            for (const p of findPhantoms(db, rel, content, files, diskHash, own)) {
+              if (Number(dedup.run(sid, rel, `#фантом:${p.name}`).changes) === 0) continue
+              lines.push(renderPhantom(p))
+            }
+          } catch {
+            /* графа ещё нет — судить нечем; детектор — обогащение */
           }
         }
       }

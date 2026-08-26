@@ -8,7 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb } from '../src/core/db'
-import { noteSurfaced, noteUsed, utilityOf, shouldFeed, rankKinds, renderUtility, UTILITY_HALF_LIFE_MS } from '../src/gardener/utility'
+import { noteSurfaced, noteUsed, utilityOf, shouldFeed, rankKinds, renderUtility, UTILITY_HALF_LIFE_MS, shouldWithhold, liftOf } from '../src/gardener/utility'
 import { ensureFeedLog, claimNode, markUsed } from '../src/hooks/node-brief'
 import { handlePostTool } from '../src/hooks/post-tool-core'
 import { buildPassport } from '../src/passport/build'
@@ -220,5 +220,50 @@ describe('межсессионная тишина брифов графа', () =
     session(db, 's4', '2026-01-04')
     expect(claimNode(db, 's4', 'src/x.ts')).toBe(true)
     db.close()
+  })
+})
+
+describe('контрольная группа (удержание подачи)', () => {
+  it('удержание детерминированно по сессии и ключу, доля ≈ заданной, editfail не удерживается', () => {
+    let n = 0
+    for (let i = 0; i < 2000; i++) if (shouldWithhold('s', `k${i}`, 'graph', 0.1)) n++
+    expect(n).toBeGreaterThan(140)
+    expect(n).toBeLessThan(260)
+    expect(shouldWithhold('s', 'k1', 'graph', 0.1)).toBe(shouldWithhold('s', 'k1', 'graph', 0.1))
+    expect(shouldWithhold('s', 'k1', 'editfail', 1)).toBe(false)
+    expect(shouldWithhold('s', 'k1', 'graph', 0)).toBe(false)
+  })
+
+  it('удержанная подача не отдаётся, но считается; правка после неё — в контрольную группу; лифт виден', () => {
+    const prev = process.env.SYMBIONT_HOLDOUT
+    process.env.SYMBIONT_HOLDOUT = '1'
+    try {
+      const db = openDb(':memory:')
+      ensureFeedLog(db)
+      // подбираем ключи: один удержанный, один поданный
+      let held = ''
+      let fed = ''
+      for (let i = 0; i < 500 && !(held && fed); i++) {
+        const k = `src/f${i}.ts`
+        if (shouldWithhold('s1', k, 'graph')) held ||= k
+        else fed ||= k
+      }
+      expect(claimNode(db, 's1', held)).toBe(false)
+      expect(claimNode(db, 's1', held)).toBe(false) // повтор — тоже не отдаётся (запись есть)
+      expect(claimNode(db, 's1', fed)).toBe(true)
+      markUsed(db, 's1', held)
+      markUsed(db, 's1', fed)
+      const u = utilityOf(db, 'graph')
+      expect(u.withheld).toBe(1)
+      expect(u.withheldUsed).toBe(1)
+      expect(u.used).toBe(1)
+      expect(u.surfaced).toBe(1)
+      expect(liftOf(u)).toBeNull() // контрольная группа мала
+      expect(liftOf({ ...u, surfaced: 20, used: 12, withheld: 10, withheldUsed: 3 })).toBe(30)
+      expect(renderUtility([{ ...u, surfaced: 20, used: 12, withheld: 10, withheldUsed: 3 }])).toContain('+30')
+      db.close()
+    } finally {
+      process.env.SYMBIONT_HOLDOUT = prev
+    }
   })
 })

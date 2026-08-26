@@ -1,13 +1,20 @@
 import {
-  readGateMode
-} from "./session-start-g0g6tesq.js";
-import {
   applyRules,
   readRules
-} from "./session-start-p2f2606j.js";
+} from "./session-start-yy1exarv.js";
 import {
-  checkAgainstLaws
-} from "./session-start-ag4pz1jw.js";
+  readGateMode
+} from "./session-start-yvd28w11.js";
+import {
+  checkAgainstLaws,
+  toRelNode
+} from "./session-start-f6jkdtrr.js";
+import"./session-start-6vfyfrmt.js";
+import"./session-start-psab7pqj.js";
+import"./session-start-8ychq3hk.js";
+import"./session-start-p1t5vyb4.js";
+import"./session-start-046cybce.js";
+import"./session-start-ehh2y93s.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -16,7 +23,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-hz9hgf2k.js";
+} from "./session-start-j1yy7aw2.js";
 import {
   ENTITY_EXT,
   ENV_TEMPLATES,
@@ -39,14 +46,14 @@ import {
   snapshotContent,
   statement,
   t
-} from "./session-start-b23jq1kp.js";
+} from "./session-start-nhshhf7v.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts
 import { join as join3 } from "node:path";
 
 // src/hooks/stop-core.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2, statSync } from "node:fs";
+import { existsSync as existsSync3, readFileSync as readFileSync3, statSync } from "node:fs";
 import { extname, join as join2 } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -589,6 +596,62 @@ function checkContract(content, policies, learned = []) {
 
 // src/hooks/stop-core.ts
 init_walk();
+
+// src/gates/evidence.ts
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
+var CHECK_COMMAND = /\b(test|tests|spec|specs|pytest|jest|vitest|mocha|phpunit|rspec|cargo\s+(test|check|clippy)|go\s+(test|vet)|dotnet\s+test|gradle\w*\s+test|mvn\w*\s+(test|verify)|tsc\b|eslint|ruff|mypy|flake8|pylint|golangci-lint|canary|selflint|lint)\b/i;
+var EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+var isCheckCommand = (command) => CHECK_COMMAND.test(command);
+var TAIL_LINES = 4000;
+function evidenceFromTranscript(transcriptPath, own, toRel) {
+  const none = { uncheckedFiles: [], checkedOnce: false, readable: false };
+  if (!transcriptPath || !existsSync2(transcriptPath))
+    return none;
+  let lines;
+  try {
+    lines = readFileSync2(transcriptPath, "utf8").split(`
+`);
+  } catch {
+    return none;
+  }
+  if (lines.length > TAIL_LINES)
+    lines = lines.slice(-TAIL_LINES);
+  const unchecked = new Set;
+  let checkedOnce = false;
+  for (const line of lines) {
+    if (!line.includes('"tool_use"'))
+      continue;
+    let obj;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (obj.type !== "assistant" || !Array.isArray(obj.message?.content))
+      continue;
+    for (const c of obj.message?.content ?? []) {
+      if (c.type !== "tool_use" || !c.name)
+        continue;
+      if (c.name === "Bash") {
+        const cmd = String(c.input?.command ?? "");
+        if (isCheckCommand(cmd)) {
+          unchecked.clear();
+          checkedOnce = true;
+        }
+        continue;
+      }
+      if (EDIT_TOOLS.has(c.name)) {
+        const abs = String(c.input?.file_path ?? c.input?.notebook_path ?? "");
+        const rel = abs ? toRel(abs) : null;
+        if (rel && own.has(rel))
+          unchecked.add(rel);
+      }
+    }
+  }
+  return { uncheckedFiles: [...unchecked], checkedOnce, readable: true };
+}
+
+// src/hooks/stop-core.ts
 init_i18n();
 var FUSE_LIMIT = 8;
 function fileStamp(cwd, rel) {
@@ -675,7 +738,7 @@ function handleStop(input, dataRoot) {
     initLang(dataDir, cwd);
     beat(dataDir, "Stop");
     const dbPath = join2(dataDir, "passport.db");
-    if (!existsSync2(dbPath))
+    if (!existsSync3(dbPath))
       return {};
     const db = openDb(dbPath);
     try {
@@ -698,7 +761,7 @@ function handleStop(input, dataRoot) {
         try {
           if (statSync(abs).mtimeMs < sessionStartMs)
             continue;
-          contents.set(rel, readFileSync2(abs, "utf8"));
+          contents.set(rel, readFileSync3(abs, "utf8"));
           sessionFiles.push(rel);
         } catch {
           continue;
@@ -750,6 +813,25 @@ function handleStop(input, dataRoot) {
           all.push({ file: rel, law: `контракт среды: ${c.kind}`, detail: `${c.requirement} · ${c.policy} · ${c.detail}` });
         }
       }
+      const evidenceLines = [];
+      try {
+        const codeOwn = new Set(ownFiles.filter((f) => !ENTITY_EXT.has(extname(f).toLowerCase()) && !isConfigFile(f)));
+        const hasTests = codeOwn.size > 0 && db.query("SELECT COUNT(*) n FROM graph_nodes WHERE file LIKE '%test%' OR file LIKE '%spec%'").get().n > 0;
+        if (hasTests) {
+          const transcript = input.transcript_path ?? db.query("SELECT transcript_path FROM sessions WHERE session_id=?").get(sid)?.transcript_path ?? null;
+          const ev = evidenceFromTranscript(transcript, codeOwn, (abs) => toRelNode(cwd, abs));
+          if (ev.readable && ev.uncheckedFiles.length > 0) {
+            const files = [...ev.uncheckedFiles].sort();
+            const shown = `${files.slice(0, 4).join(", ")}${files.length > 4 ? `, … (+${files.length - 4})` : ""}`;
+            const detail = t(`после последней правки проверка не запускалась (${shown}) — запусти тесты/проверку или скажи владельцу, почему она здесь не нужна`, `no check was run after the last edit (${shown}) — run the tests/check, or tell the owner why none is needed here`);
+            if (readGateMode(dataDir) === "block") {
+              all.push({ file: shown, law: "доказательства", detail });
+            } else if (Number(dedup.run(sid, "#доказательства", files.join(",")).changes) > 0) {
+              evidenceLines.push(t(`- доказательств нет: ${detail}`, `- no evidence: ${detail}`));
+            }
+          }
+        }
+      } catch {}
       const focusLines = [];
       try {
         const edges = db.query("SELECT from_file, to_file FROM graph_edges").all();
@@ -780,7 +862,7 @@ function handleStop(input, dataRoot) {
           }
         }
       } catch {}
-      const observations = [...focusLines, ...budgetLines, parallelLine].filter(Boolean);
+      const observations = [...evidenceLines, ...focusLines, ...budgetLines, parallelLine].filter(Boolean);
       const freshLines = all.filter((v) => Number(dedup.run(sid, v.file, v.law).changes) > 0).map((v) => `- ${v.file} · ${t(`«${statement(v.law)}»`, `“${statement(v.law)}”`)} · ${v.detail}`);
       db.run("CREATE TABLE IF NOT EXISTS gate_fuse(session_id TEXT PRIMARY KEY, streak INTEGER NOT NULL DEFAULT 0, released INTEGER NOT NULL DEFAULT 0)");
       const fuse = db.query("SELECT streak, released FROM gate_fuse WHERE session_id=?").get(sid) ?? { streak: 0, released: 0 };

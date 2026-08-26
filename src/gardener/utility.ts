@@ -46,6 +46,34 @@ export interface Utility {
   used: number
   /** сглажённая доля пользы, 0..1 */
   score: number
+  /** удержанные подачи (контрольная группа) и сколько из них всё равно «пригодились» */
+  withheld: number
+  withheldUsed: number
+}
+
+/**
+ * Доля подач, которые УДЕРЖИВАЮТСЯ ради контрольной группы.
+ *
+ * «Подано → файл потом правили» — корреляция: модель уже шла в этот файл, она
+ * сама его запросила. Без контрольной группы «окупаемость» измеряет не пользу
+ * подсказки, а маршрут модели, и на этом числе стоят глушение видов и веса
+ * секций. Удержание каждой десятой подачи даёт базовую линию: лифт вида =
+ * P(правка | подано) − P(правка | удержано). Решение детерминированное (хэш
+ * сессии и ключа), чтобы повтор хука в той же сессии не менял группу.
+ */
+export const HOLDOUT_SHARE = 0.1
+/** SYMBIONT_HOLDOUT=0 выключает контрольную группу (тесты и канарейка судят подачу, а не её статистику). */
+const holdoutShare = (): number => (process.env.SYMBIONT_HOLDOUT === '0' ? 0 : HOLDOUT_SHARE)
+/** Ниже этого числа удержаний лифт не показывается: шум. */
+const MIN_WITHHELD = 8
+/** Виды, которые не удерживаются: восстановление после сбоя дороже статистики. */
+const NEVER_WITHHELD = new Set(['editfail'])
+
+export function shouldWithhold(sessionId: string, key: string, kind: FeedKind, share = holdoutShare()): boolean {
+  if (share <= 0 || NEVER_WITHHELD.has(kind)) return false
+  let h = 2166136261
+  for (const ch of `${sessionId}|${key}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0
+  return h % 1000 < share * 1000
 }
 
 /** Ниже этого вид считается не окупающимся на этом проекте. */
@@ -80,6 +108,36 @@ export function ensureUtilityTable(db: Database): void {
   // decayed_at — отметка последнего сложения затухания (не последней подачи!):
   // счётчики стареют от неё, и складывать можно идемпотентно в любом канале.
   if (!cols.includes('decayed_at')) db.run('ALTER TABLE feed_utility ADD COLUMN decayed_at TEXT')
+  if (!cols.includes('withheld')) db.run('ALTER TABLE feed_utility ADD COLUMN withheld REAL NOT NULL DEFAULT 0')
+  if (!cols.includes('withheld_used')) db.run('ALTER TABLE feed_utility ADD COLUMN withheld_used REAL NOT NULL DEFAULT 0')
+}
+
+export function noteWithheld(db: Database, kind: FeedKind): void {
+  try {
+    ensureUtilityTable(db)
+    db.query(
+      'INSERT INTO feed_utility(kind, surfaced, used, withheld) VALUES(?,0,0,1) ON CONFLICT(kind) DO UPDATE SET withheld=withheld+1',
+    ).run(kind)
+  } catch {
+    /* контрольная группа — обогащение */
+  }
+}
+
+export function noteWithheldUsed(db: Database, kind: FeedKind): void {
+  try {
+    ensureUtilityTable(db)
+    db.query(
+      'INSERT INTO feed_utility(kind, surfaced, used, withheld, withheld_used) VALUES(?,0,0,1,1) ON CONFLICT(kind) DO UPDATE SET withheld_used=withheld_used+1',
+    ).run(kind)
+  } catch {
+    /* см. выше */
+  }
+}
+
+/** Лифт вида в процентных пунктах, либо null, пока контрольная группа мала. */
+export function liftOf(u: Utility): number | null {
+  if (u.withheld < MIN_WITHHELD || u.surfaced <= 0) return null
+  return Math.round((u.used / u.surfaced - u.withheldUsed / u.withheld) * 100)
 }
 
 /**
@@ -144,14 +202,14 @@ export function noteUsed(db: Database, kind: FeedKind, nowMs = Date.now()): void
 export function utilityOf(db: Database, kind: FeedKind): Utility {
   try {
     ensureUtilityTable(db)
-    const row = db.query('SELECT surfaced, used FROM feed_utility WHERE kind=?').get(kind) as
-      | { surfaced: number; used: number }
+    const row = db.query('SELECT surfaced, used, withheld, withheld_used FROM feed_utility WHERE kind=?').get(kind) as
+      | { surfaced: number; used: number; withheld: number; withheld_used: number }
       | null
     const surfaced = row?.surfaced ?? 0
     const used = row?.used ?? 0
-    return { kind, surfaced, used, score: (used + 1) / (surfaced + 2) }
+    return { kind, surfaced, used, score: (used + 1) / (surfaced + 2), withheld: row?.withheld ?? 0, withheldUsed: row?.withheld_used ?? 0 }
   } catch {
-    return { kind, surfaced: 0, used: 0, score: 0.5 }
+    return { kind, surfaced: 0, used: 0, score: 0.5, withheld: 0, withheldUsed: 0 }
   }
 }
 
@@ -191,9 +249,22 @@ export function shouldFeed(db: Database, kind: FeedKind, nowMs = Date.now()): bo
 export function rankKinds(db: Database): Utility[] {
   try {
     ensureUtilityTable(db)
-    const rows = db.query('SELECT kind, surfaced, used FROM feed_utility').all() as Array<{ kind: string; surfaced: number; used: number }>
+    const rows = db.query('SELECT kind, surfaced, used, withheld, withheld_used FROM feed_utility').all() as Array<{
+      kind: string
+      surfaced: number
+      used: number
+      withheld: number
+      withheld_used: number
+    }>
     return rows
-      .map((r) => ({ kind: r.kind, surfaced: r.surfaced, used: r.used, score: (r.used + 1) / (r.surfaced + 2) }))
+      .map((r) => ({
+        kind: r.kind,
+        surfaced: r.surfaced,
+        used: r.used,
+        score: (r.used + 1) / (r.surfaced + 2),
+        withheld: r.withheld ?? 0,
+        withheldUsed: r.withheld_used ?? 0,
+      }))
       .sort((a, b) => b.score - a.score)
   } catch {
     return []
@@ -216,6 +287,10 @@ export function renderUtility(rows: Utility[]): string {
     .filter((r) => r.surfaced > 0)
     .slice(0, 6)
     // Счётчики после сложения затухания дробные — наружу целые (это оценка веса улик, не журнал событий)
-    .map((r) => `${r.kind} ${Math.round(r.score * 100)}% (${Math.round(r.used)}/${Math.round(r.surfaced)})`)
+    .map((r) => {
+      const lift = liftOf(r)
+      // Лифт — причинная оценка (против контрольной группы); доля — наблюдаемая
+      return `${r.kind} ${Math.round(r.score * 100)}% (${Math.round(r.used)}/${Math.round(r.surfaced)})${lift === null ? '' : t(` лифт ${lift >= 0 ? '+' : ''}${lift}пп`, ` lift ${lift >= 0 ? '+' : ''}${lift}pp`)}`
+    })
   return shown.length > 0 ? `${t('окупаемость подачи', 'feed payback')}: ${shown.join(' · ')}` : ''
 }

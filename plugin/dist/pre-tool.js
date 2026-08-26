@@ -1,23 +1,25 @@
 import {
-  heaviestTokens,
-  outlineTokens,
-  outlineView
-} from "./session-start-m5za64jh.js";
+  readOutlineMode
+} from "./session-start-yvd28w11.js";
 import {
   toRelNode,
   touchFeed
-} from "./session-start-99j36nfj.js";
-import"./session-start-qpewbbdm.js";
+} from "./session-start-f6jkdtrr.js";
+import"./session-start-6vfyfrmt.js";
+import {
+  heaviestTokens,
+  outlineTokens,
+  outlineView
+} from "./session-start-psab7pqj.js";
 import"./session-start-8ychq3hk.js";
 import {
   OUTLINE_KIND,
   claimNode,
   ensureFeedLog,
   outlineKey
-} from "./session-start-f3x6ygde.js";
+} from "./session-start-p1t5vyb4.js";
 import"./session-start-046cybce.js";
-import"./session-start-f7v10bjv.js";
-import"./session-start-ag4pz1jw.js";
+import"./session-start-ehh2y93s.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -26,7 +28,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-hz9hgf2k.js";
+} from "./session-start-j1yy7aw2.js";
 import {
   beat,
   initLang,
@@ -36,7 +38,7 @@ import {
   shouldFeed,
   slugOf,
   t
-} from "./session-start-b23jq1kp.js";
+} from "./session-start-nhshhf7v.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/pre-tool.ts
@@ -48,6 +50,25 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 var PRE_READ_KIND = "pre-read";
 var MIN_FILE_CHARS = 4000;
+function renderOutlineDenial(file, rows, wholeTokens) {
+  const list = rows.slice(0, 40).map((r) => `  ${r.line}-${r.endLine} ${r.kind} ${r.name}`).join(`
+`);
+  const more = rows.length > 40 ? t(`
+  … ещё ${rows.length - 40}`, `
+  … ${rows.length - 40} more`) : "";
+  return t(`Symbiont · ${file} целиком ≈${wholeTokens}t — вместо этого его оглавление (строки · вид · имя):
+${list}${more}
+` + `Прочитай нужный диапазон: Read(file_path, offset, limit). Нужен весь файл — повтори тот же Read, второй раз он не отменяется.`, `Symbiont · ${file} in full ≈${wholeTokens}t — here is its outline instead (lines · kind · name):
+${list}${more}
+` + `Read the range you need: Read(file_path, offset, limit). If you need the whole file, repeat the same Read — it is not cancelled twice.`);
+}
+function writtenBySession(db, sid, rel) {
+  try {
+    return db.query("SELECT 1 FROM session_edits WHERE session_id=? AND file=?").get(sid, rel) !== null;
+  } catch {
+    return false;
+  }
+}
 function renderOutlineOffer(file, symbols, wholeTokens, outlineCost, heaviest) {
   return t(`- структура уже разобрана: ${symbols} символов · файл целиком ≈${wholeTokens}t, оглавление ≈${outlineCost}t, самый большой символ ≈${heaviest}t — passport_outline("${file}"), затем passport_unfold(file, symbol)`, `- structure already parsed: ${symbols} symbols · whole file ≈${wholeTokens}t, outline ≈${outlineCost}t, largest symbol ≈${heaviest}t — passport_outline("${file}"), then passport_unfold(file, symbol)`);
 }
@@ -87,7 +108,19 @@ function handlePreTool(input, dataRoot) {
       const offer = view && view.fresh && view.rows.length > 0 && cost * 2 < view.wholeFileTokens ? renderOutlineOffer(rel, view.rows.length, view.wholeFileTokens, cost, heaviestTokens(view.rows)) : "";
       if (offer) {
         ensureFeedLog(db);
-        if (claimNode(db, sid, outlineKey(rel), OUTLINE_KIND))
+        const fresh = claimNode(db, sid, outlineKey(rel), OUTLINE_KIND);
+        const wholeRead = input.tool_input?.offset === undefined && input.tool_input?.limit === undefined;
+        if (fresh && wholeRead && view && readOutlineMode(dataDir) === "deny" && !writtenBySession(db, sid, rel)) {
+          return {
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: "deny",
+              permissionDecisionReason: [renderOutlineDenial(rel, view.rows, view.wholeFileTokens), ...lines].join(`
+`)
+            }
+          };
+        }
+        if (fresh)
           lines.push(offer);
       }
       if (lines.length === 0)

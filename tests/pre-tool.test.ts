@@ -203,3 +203,39 @@ describe('подача до чтения', () => {
     }
   })
 })
+
+describe('оглавление вместо чтения (gate.json outline=deny)', () => {
+  it('первое чтение большого файла целиком отменяется с оглавлением; диапазон и повтор проходят; свой файл не трогается', () => {
+    const { proj, dataRoot, dataDir } = makeWorld({ withOutline: true })
+    try {
+      writeFileSync(join(dataDir, 'gate.json'), '{"outline":"deny"}')
+      const first = read(proj, dataRoot, 'src/core.ts', 'd1')
+      expect(first.hookSpecificOutput?.permissionDecision).toBe('deny')
+      const reason = first.hookSpecificOutput?.permissionDecisionReason ?? ''
+      expect(reason).toContain('alpha')
+      expect(reason).toContain('5-400 class Beta')
+      expect(reason).toContain('offset')
+      // повтор того же чтения — не отменяется
+      const second = read(proj, dataRoot, 'src/core.ts', 'd1')
+      expect(second.hookSpecificOutput?.permissionDecision).toBeUndefined()
+      // чтение диапазона — осознанный выбор, не отменяется даже в первый раз
+      const ranged = handlePreTool(
+        { cwd: proj, session_id: 'd2', tool_name: 'Read', tool_input: { file_path: join(proj, 'src/core.ts'), offset: 5, limit: 40 } },
+        dataRoot,
+      )
+      expect(ranged.hookSpecificOutput?.permissionDecision).toBeUndefined()
+      // файл, который сессия писала, — индекс отстал, отменять нельзя
+      const db = openDb(join(dataDir, 'passport.db'))
+      db.run("CREATE TABLE IF NOT EXISTS session_edits(session_id TEXT NOT NULL, file TEXT NOT NULL, edited_at TEXT NOT NULL, PRIMARY KEY(session_id, file))")
+      db.run("INSERT INTO session_edits VALUES('d3','src/core.ts','2026-01-01')")
+      db.close()
+      expect(read(proj, dataRoot, 'src/core.ts', 'd3').hookSpecificOutput?.permissionDecision).toBeUndefined()
+      // без режима — прежняя подсказка
+      writeFileSync(join(dataDir, 'gate.json'), '{}')
+      expect(read(proj, dataRoot, 'src/core.ts', 'd4').hookSpecificOutput?.permissionDecision).toBeUndefined()
+    } finally {
+      rmrf(proj)
+      rmrf(dataRoot)
+    }
+  })
+})

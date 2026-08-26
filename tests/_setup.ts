@@ -5,6 +5,10 @@
  * активные каталоги ТЕКУЩЕГО прогона не трогаем (они свежие). Fail-open.
  */
 import { readdirSync, rmSync } from 'node:fs'
+
+// Контрольная группа подачи выключена: тесты проверяют, ЧТО подаётся, а
+// удержание каждой десятой подачи по хэшу делало бы отдельные ключи «невезучими»
+process.env.SYMBIONT_HOLDOUT = '0'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 

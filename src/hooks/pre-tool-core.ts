@@ -24,7 +24,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { t, initLang } from '../core/i18n'
-import { openDb } from '../core/db'
+import { openDb, type Database } from '../core/db'
 import { sha1 } from '../core/salsa'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
@@ -33,6 +33,8 @@ import { touchFeed } from './touch-feed'
 import { toRelNode } from './post-tool-core'
 import { outlineView, outlineTokens, heaviestTokens } from '../layer1/symbols'
 import { shouldFeed } from '../gardener/utility'
+import { readOutlineMode } from '../gates/config'
+import type { SymbolRow } from '../layer1/symbols'
 
 /** Вид подачи в телеметрии окупаемости: он копит собственную статистику. */
 export const PRE_READ_KIND = 'pre-read'
@@ -55,13 +57,51 @@ export interface PreToolInput {
   cwd?: string
   session_id?: string
   tool_name?: string
-  tool_input?: { file_path?: string; notebook_path?: string }
+  tool_input?: { file_path?: string; notebook_path?: string; offset?: number; limit?: number }
 }
 
 export interface PreToolOutput {
   hookSpecificOutput?: {
     hookEventName: 'PreToolUse'
-    additionalContext: string
+    additionalContext?: string
+    /** режим «оглавление вместо чтения»: вызов отменён, причина уходит модели */
+    permissionDecision?: 'deny'
+    permissionDecisionReason?: string
+  }
+}
+
+/**
+ * Оглавление ВМЕСТО чтения (режим `outline: "deny"` в gate.json).
+ *
+ * Совет «есть оглавление за 70 токенов» не работал: на собственном паспорте из
+ * 14 предложений ни одно не привело к passport_outline, файл читался целиком.
+ * Модель берёт оглавление, только когда оно приходит РЕЗУЛЬТАТОМ инструмента.
+ * Поэтому в этом режиме первое чтение большого файла отменяется, а причиной
+ * отказа уходит само оглавление — следующим ходом модель читает диапазон
+ * (offset/limit) или повторяет тот же Read: второй раз не отменяется.
+ *
+ * Границы намеренно узкие: только большие файлы со свежим индексом, только
+ * чтение целиком (offset/limit — уже осознанный выбор), никогда для файлов,
+ * которые эта сессия сама писала. Режим — явный выбор владельца: отмена
+ * сильнее подсказки и спорит с принципом «ничего не блокировать».
+ */
+export function renderOutlineDenial(file: string, rows: SymbolRow[], wholeTokens: number): string {
+  const list = rows.slice(0, 40).map((r) => `  ${r.line}-${r.endLine} ${r.kind} ${r.name}`).join('\n')
+  const more = rows.length > 40 ? t(`\n  … ещё ${rows.length - 40}`, `\n  … ${rows.length - 40} more`) : ''
+  return t(
+    `Symbiont · ${file} целиком ≈${wholeTokens}t — вместо этого его оглавление (строки · вид · имя):\n${list}${more}\n` +
+      `Прочитай нужный диапазон: Read(file_path, offset, limit). Нужен весь файл — повтори тот же Read, второй раз он не отменяется.`,
+    `Symbiont · ${file} in full ≈${wholeTokens}t — here is its outline instead (lines · kind · name):\n${list}${more}\n` +
+      `Read the range you need: Read(file_path, offset, limit). If you need the whole file, repeat the same Read — it is not cancelled twice.`,
+  )
+}
+
+/** Файл, который эта сессия уже писала: индекс о нём заведомо отстал, отменять чтение нельзя. */
+function writtenBySession(db: Database, sid: string, rel: string): boolean {
+  try {
+    return (db.query('SELECT 1 FROM session_edits WHERE session_id=? AND file=?').get(sid, rel) as unknown) !== null
+  } catch {
+    return false // журнала правок нет — сессия ничего не писала
   }
 }
 
@@ -133,7 +173,18 @@ export function handlePreTool(input: PreToolInput, dataRoot: string): PreToolOut
       // структуры выглядело бы вдвое бесполезнее, чем оно есть.
       if (offer) {
         ensureFeedLog(db) // touchFeed создаёт журнал лишь когда узел есть в графе
-        if (claimNode(db, sid, outlineKey(rel), OUTLINE_KIND)) lines.push(offer)
+        const fresh = claimNode(db, sid, outlineKey(rel), OUTLINE_KIND)
+        const wholeRead = input.tool_input?.offset === undefined && input.tool_input?.limit === undefined
+        if (fresh && wholeRead && view && readOutlineMode(dataDir) === 'deny' && !writtenBySession(db, sid, rel)) {
+          return {
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'deny',
+              permissionDecisionReason: [renderOutlineDenial(rel, view.rows, view.wholeFileTokens), ...lines].join('\n'),
+            },
+          }
+        }
+        if (fresh) lines.push(offer)
       }
 
       if (lines.length === 0) return {}

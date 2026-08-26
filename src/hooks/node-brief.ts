@@ -10,7 +10,7 @@
 import type { Database } from '../core/db'
 import { markVisited, summaryFor, contentHashOf } from '../graph/zsummary'
 import { t } from '../core/i18n'
-import { noteSurfaced, noteUsed, type FeedKind } from '../gardener/utility'
+import { noteSurfaced, noteUsed, noteWithheld, noteWithheldUsed, shouldWithhold, type FeedKind } from '../gardener/utility'
 import { readConfigEdges, renderConfigInfluence } from '../env/links'
 
 export interface GraphNode {
@@ -37,6 +37,8 @@ export function ensureFeedLog(db: Database): void {
   if (!cols.includes('used')) db.run('ALTER TABLE jit_log ADD COLUMN used INTEGER NOT NULL DEFAULT 0')
   // Вид подачи: без него нельзя понять, ЧТО именно окупается на этом проекте
   if (!cols.includes('kind')) db.run("ALTER TABLE jit_log ADD COLUMN kind TEXT NOT NULL DEFAULT 'graph'")
+  // Контрольная группа: подача решена, но удержана — «пригодилось ли» считается отдельно
+  if (!cols.includes('withheld')) db.run('ALTER TABLE jit_log ADD COLUMN withheld INTEGER NOT NULL DEFAULT 0')
 }
 
 /**
@@ -45,9 +47,20 @@ export function ensureFeedLog(db: Database): void {
  */
 export function claimNode(db: Database, sessionId: string, file: string, kind: FeedKind = 'graph'): boolean {
   if (kind === 'graph' && briefSilenced(db, sessionId, file)) return false
-  const fresh = Number(db.query('INSERT OR IGNORE INTO jit_log(session_id, file, kind) VALUES(?,?,?)').run(sessionId, file, kind).changes) > 0
-  if (fresh) noteSurfaced(db, kind)
-  return fresh
+  // Удержание решается ДО записи: удержанная подача — тоже запись (иначе её
+  // повторили бы следующим касанием и контрольная группа исчезла бы)
+  const withheld = shouldWithhold(sessionId, file, kind)
+  const fresh =
+    Number(
+      db.query('INSERT OR IGNORE INTO jit_log(session_id, file, kind, withheld) VALUES(?,?,?,?)').run(sessionId, file, kind, withheld ? 1 : 0).changes,
+    ) > 0
+  if (!fresh) return false
+  if (withheld) {
+    noteWithheld(db, kind)
+    return false
+  }
+  noteSurfaced(db, kind)
+  return true
 }
 
 /** Столько сессий подряд бриф узла не пригодился — дальше молчим. */
@@ -103,13 +116,14 @@ export function markUsed(db: Database, sessionId: string, file: string, covering
     const keys = [file, ...coveringKeys]
     const marked = new Set<string>()
     for (const key of keys) {
-      const row = db.query('SELECT kind, used FROM jit_log WHERE session_id=? AND file=?').get(sessionId, key) as
-        | { kind: string; used: number }
+      const row = db.query('SELECT kind, used, withheld FROM jit_log WHERE session_id=? AND file=?').get(sessionId, key) as
+        | { kind: string; used: number; withheld: number }
         | null
       if (!row || row.used === 1 || marked.has(key)) continue
       db.query('UPDATE jit_log SET used=1 WHERE session_id=? AND file=?').run(sessionId, key)
       marked.add(key)
-      noteUsed(db, row.kind ?? 'graph')
+      if (row.withheld === 1) noteWithheldUsed(db, row.kind ?? 'graph')
+      else noteUsed(db, row.kind ?? 'graph')
     }
   } catch {
     /* старая схема без колонок — телеметрия best-effort */

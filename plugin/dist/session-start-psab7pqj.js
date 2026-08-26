@@ -174,4 +174,4 @@ function outlineView(db, file, readFile, hashOf) {
   return { file, rows, fresh, wholeFileTokens: content === null ? 0 : tokensOf(content.length) };
 }
 
-export { collectOutline, ensureSymbols, indexedHash, storeOutline, pruneSymbols, tokensOf, outlineTokens, heaviestTokens, resolveIndexed, outlineView };
+export { collectOutline, ensureSymbols, indexedHash, storeOutline, pruneSymbols, readOutline, tokensOf, outlineTokens, heaviestTokens, resolveIndexed, outlineView };

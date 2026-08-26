@@ -7,12 +7,6 @@
 <a id="-русский"></a>
 <div align="center">
 
-## 🇷🇺 Русский
-
-</div>
-
-<div align="center">
-
 # 🧬 Symbiont
 
 ### Плагин, который изучает ваш проект — и остаётся с ним
@@ -251,18 +245,11 @@ claude plugin update symbiont
 
 </div>
 
-<br/><br/>
+<br/>
 
----
 ---
 
 <a id="-english"></a>
-<div align="center">
-
-## 🇬🇧 English
-
-</div>
-
 <div align="center">
 
 # 🧬 Symbiont

@@ -18,6 +18,7 @@ import { silentChannels, readBeats, renderDiagnosis } from './diagnose'
 import { sha1 } from '../core/salsa'
 import { renderBackground, renderGardenerSilence, REPORTED_WORKS } from '../gardener/scheduler'
 import { mutedKinds } from '../gardener/utility'
+import { voicedCandidates, renderVoiced, VOICED_MIN_SESSIONS } from '../gardener/voiced'
 import { inspectRuntime, renderRuntimeWarning } from '../core/runtime'
 import { t, statement, initLang } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
@@ -196,6 +197,7 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
     let utilLine = ''
     let entryBlock = ''
     let survivalLine = ''
+    let voicedBlock = ''
     let lineValue: (line: string) => number = () => 1
     // git-состояние — до журнала: dirty-файлы нужны реконструкции входа
     const g = gitState(cwd)
@@ -325,6 +327,14 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
       // Протокол самостарта: реконструкция состояния работы + её граф-окружение
       entryBlock = reconstructEntry(db, threadFiles, g?.dirtyTop ?? [], Date.now())
       lineValue = lineValueFromGate(db)
+      // Сказанное вслух и повторённое — приглашение в устав; уже зафиксированное
+      // в уставе не дублируется (сравнение тем же ключом повтора).
+      try {
+        const known = (readConstitution(dataDir)?.pairs ?? []).flatMap((p) => [p.goal, p.constraint])
+        voicedBlock = renderVoiced(voicedCandidates(db, VOICED_MIN_SESSIONS, known))
+      } catch {
+        /* накопленного нет — секции нет */
+      }
       db.close()
     } catch {
       /* журнал недоступен — сводка важнее */
@@ -332,7 +342,7 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
 
     // Конституция подаётся даже в пустом проекте (назначена — охраняется с первого коммита)
     const constitution = readConstitution(dataDir)
-    const constBlock = constitution ? `\n${renderConstitution(constitution)}\n` : ''
+    const constBlock = `${constitution ? `\n${renderConstitution(constitution)}\n` : ''}${voicedBlock ? `\n${voicedBlock}\n` : ''}`
 
     // Сводка живёт журналом, не только статистикой кода: контентный репозиторий
     // без единого кодового файла всё равно несёт профиль качества/LLM-правила

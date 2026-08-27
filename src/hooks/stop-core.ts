@@ -27,6 +27,7 @@ import { ENTITY_EXT } from '../graph/entities'
 import { inDerivedZone } from '../miner/walk'
 import { readGateMode } from '../gates/config'
 import { evidenceFromTranscript } from '../gates/evidence'
+import { harvestVoiced } from '../gardener/voiced'
 import { toRelNode } from './post-tool-core'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
@@ -393,6 +394,19 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
         }
       } catch {
         /* гейт доказательств — обогащение: транскрипт нестабилен, молчание безопасно */
+      }
+
+      // Устные правила владельца — из того же транскрипта, тем же ходом. Ничего
+      // не подаётся здесь: сырьё копится, голос получает только повтор в разных
+      // сессиях (см. gardener/voiced.ts), и показывает его SessionStart.
+      try {
+        const transcript =
+          input.transcript_path ??
+          (db.query('SELECT transcript_path FROM sessions WHERE session_id=?').get(sid) as { transcript_path: string | null } | null)?.transcript_path ??
+          null
+        harvestVoiced(db, transcript, sid, new Date().toISOString())
+      } catch {
+        /* накопление — не условие хода: без него гейт и наблюдения всё равно отданы */
       }
 
       // Страж фокуса: расфокус виден из графа и диффов, без единого токена.

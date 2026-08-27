@@ -1,7 +1,7 @@
 import {
   applyRules,
   readRules
-} from "./session-start-s0s43wpz.js";
+} from "./session-start-syzex3bk.js";
 import {
   evidenceFromTranscript
 } from "./session-start-k1samhrj.js";
@@ -12,13 +12,13 @@ import {
   checkAgainstLaws,
   lawsForFile,
   toRelNode
-} from "./session-start-2bf71fhk.js";
-import"./session-start-wwd3bw7x.js";
+} from "./session-start-tjewkh61.js";
+import"./session-start-kv9qshcv.js";
 import"./session-start-psab7pqj.js";
 import"./session-start-8ychq3hk.js";
-import"./session-start-kwsr2xpd.js";
+import"./session-start-xxpp3h7f.js";
 import"./session-start-046cybce.js";
-import"./session-start-1cqw2caa.js";
+import"./session-start-r4k0qmcn.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -27,7 +27,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-0zc82bg9.js";
+} from "./session-start-b9p4mzc4.js";
 import {
   ENTITY_EXT,
   ENV_TEMPLATES,
@@ -35,6 +35,7 @@ import {
   SessionLog,
   beat,
   contentVerifierActive,
+  harvestVoiced,
   inDerivedZone,
   initLang,
   init_i18n,
@@ -50,7 +51,7 @@ import {
   snapshotContent,
   statement,
   t
-} from "./session-start-dx0v6ppa.js";
+} from "./session-start-ywbay0qy.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts
@@ -779,6 +780,10 @@ function handleStop(input, dataRoot) {
             }
           }
         }
+      } catch {}
+      try {
+        const transcript = input.transcript_path ?? db.query("SELECT transcript_path FROM sessions WHERE session_id=?").get(sid)?.transcript_path ?? null;
+        harvestVoiced(db, transcript, sid, new Date().toISOString());
       } catch {}
       const focusLines = [];
       try {

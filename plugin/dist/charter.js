@@ -3,8 +3,8 @@ import {
 } from "./session-start-7bev5jvd.js";
 import {
   callClaudeDetailed
-} from "./session-start-4148g2am.js";
-import"./session-start-x7ajj8cm.js";
+} from "./session-start-e86b9xvb.js";
+import"./session-start-jdcnvzam.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -13,9 +13,10 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-0zc82bg9.js";
+} from "./session-start-b9p4mzc4.js";
 import {
   FactStore,
+  VOICED_MIN_SESSIONS,
   detectStack,
   initLang,
   init_i18n,
@@ -28,8 +29,9 @@ import {
   slugOf,
   t,
   upsertConstitution,
+  voicedCandidates,
   walkFiles
-} from "./session-start-dx0v6ppa.js";
+} from "./session-start-ywbay0qy.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/charter.ts
@@ -180,6 +182,21 @@ if (existing) {
 }
 var requirements = stripDataFlag(process.argv.slice(2)).join(" ").trim();
 if (!requirements) {
+  try {
+    const db = openDb(join2(dataDir, "passport.db"), { readonly: true });
+    try {
+      const known = (existing?.pairs ?? []).flatMap((p) => [p.goal, p.constraint]);
+      const voiced = voicedCandidates(db, VOICED_MIN_SESSIONS, known);
+      if (voiced.length > 0) {
+        console.log(t("Повторялось в ваших сообщениях модели, в уставе нет:", "Repeated in your messages to the model, not in the charter:"));
+        for (const v of voiced.slice(0, 8))
+          console.log(`- «${v.statement}» · ×${v.sessions}`);
+        console.log("");
+      }
+    } finally {
+      db.close();
+    }
+  } catch {}
   console.log(t("Добавить/изменить — передай требования текстом. Пример: /symbiont:charter «важнее всего приватность пациентов; не трогать прод-оплаты; топ-1 по качеству разборов». Существующее сохранится (дополнится/обновится по цели).", "To add or change it, pass your requirements as text. For example: /symbiont:charter “patient privacy matters most; never touch production payments; be best in class at parsing quality”. What is already recorded is kept and extended."));
   process.exit(0);
 }

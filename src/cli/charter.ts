@@ -12,6 +12,8 @@ import { upsertConstitution, readConstitution, renderConstitution } from '../cor
 import { callClaudeDetailed } from '../layer2/llm'
 import { resolveDataRoot, migrateLegacyPassports, stripDataFlag } from '../core/data-root'
 import { slugOf } from '../hooks/session-start-core'
+import { openDb } from '../core/db'
+import { voicedCandidates, VOICED_MIN_SESSIONS } from '../gardener/voiced'
 
 const root = process.cwd()
 const res = resolveDataRoot(join(import.meta.dirname, '..', '..', '.data'))
@@ -47,6 +49,24 @@ if (existing) {
 // требования — всё после имени скрипта, склеенное; или из stdin
 const requirements = stripDataFlag(process.argv.slice(2)).join(' ').trim()
 if (!requirements) {
+  // Сказанное вслух и повторённое — готовые кандидаты: владелец уже формулировал
+  // их модели, осталось перенести в устав тем же текстом.
+  try {
+    const db = openDb(join(dataDir, 'passport.db'), { readonly: true })
+    try {
+      const known = (existing?.pairs ?? []).flatMap((p) => [p.goal, p.constraint])
+      const voiced = voicedCandidates(db, VOICED_MIN_SESSIONS, known)
+      if (voiced.length > 0) {
+        console.log(t('Повторялось в ваших сообщениях модели, в уставе нет:', 'Repeated in your messages to the model, not in the charter:'))
+        for (const v of voiced.slice(0, 8)) console.log(`- «${v.statement}» · ×${v.sessions}`)
+        console.log('')
+      }
+    } finally {
+      db.close()
+    }
+  } catch {
+    /* базы ещё нет — кандидатов нет, подсказка ниже всё равно уместна */
+  }
   console.log(
     t(
       'Добавить/изменить — передай требования текстом. Пример: /symbiont:charter «важнее всего приватность пациентов; не трогать прод-оплаты; топ-1 по качеству разборов». Существующее сохранится (дополнится/обновится по цели).',

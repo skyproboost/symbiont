@@ -2,7 +2,7 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-x7ajj8cm.js";
+} from "./session-start-jdcnvzam.js";
 import {
   readGateMode
 } from "./session-start-yvd28w11.js";
@@ -11,12 +11,12 @@ import {
   countLessons,
   summaryFor,
   summaryStats
-} from "./session-start-1cqw2caa.js";
+} from "./session-start-r4k0qmcn.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-0zc82bg9.js";
+} from "./session-start-b9p4mzc4.js";
 import {
   REPORTED_WORKS,
   auditTruth,
@@ -42,7 +42,7 @@ import {
   statement,
   t,
   tier
-} from "./session-start-dx0v6ppa.js";
+} from "./session-start-ywbay0qy.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";

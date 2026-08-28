@@ -16,6 +16,8 @@ import { readHeatRows, effectiveHeat } from '../graph/heat'
 import { summaryStats, summaryFor, contentHashOf } from '../graph/zsummary'
 import { countLessons } from '../gardener/lessons'
 import { computeDrift, renderDrift } from '../gardener/drift'
+import { citedStats } from '../gardener/cited'
+import { reviewQueue, renderReviewQueue } from '../gardener/review'
 import { inspectRuntime } from '../core/runtime'
 
 const ago = (iso: string): string => {
@@ -139,10 +141,20 @@ export function buildStatusReport(dataDir: string): string {
     try {
       const surfaced = one<{ n: number }>(db, "SELECT COUNT(*) n FROM jit_log WHERE file NOT LIKE '#%'")?.n ?? 0
       const used = one<{ n: number }>(db, "SELECT COUNT(*) n FROM jit_log WHERE file NOT LIKE '#%' AND used=1")?.n ?? 0
-      if (surfaced > 0) L.push(`   ${pad(t('окупаемость', 'payback'), 15)} ${t('подано файлов', 'files surfaced')} ${surfaced} · ${t('пригодилось', 'used')} ${used} (${Math.round((used / surfaced) * 100)}%)`)
+      if (surfaced > 0) {
+        // Третий сигнал — самоотчёт: поданный файл назван в ответе модели
+        // (правки не было, но знание дошло до владельца); лифт — против удержанных
+        const c = citedStats(db)
+        const citedPart = c
+          ? ` · ${t('названо в ответах', 'named in replies')} ${c.cited}${c.lift === null ? '' : t(` (лифт ${c.lift >= 0 ? '+' : ''}${c.lift}пп)`, ` (lift ${c.lift >= 0 ? '+' : ''}${c.lift}pp)`)}`
+          : ''
+        L.push(`   ${pad(t('окупаемость', 'payback'), 15)} ${t('подано файлов', 'files surfaced')} ${surfaced} · ${t('пригодилось', 'used')} ${used} (${Math.round((used / surfaced) * 100)}%)${citedPart}`)
+      }
     } catch {
       /* старая схема без колонки used — метрики просто нет */
     }
+    // Очередь ревизии: какие узлы система подаёт впустую (данные те же, что у тишины брифов)
+    for (const line of renderReviewQueue(reviewQueue(db))) L.push(line)
     // Авто-петля: последний фоновый LLM-проход (запускается сам по сырью)
     try {
       const meta = one<{ value: string }>(db, "SELECT value FROM learn_meta WHERE key='auto_learn'")

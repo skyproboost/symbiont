@@ -5,7 +5,7 @@ import {
 } from "./session-start-psab7pqj.js";
 import {
   resolveDataRoot
-} from "./session-start-b9p4mzc4.js";
+} from "./session-start-5p4d188q.js";
 import {
   FactStore,
   area,
@@ -14,13 +14,14 @@ import {
   factBasis,
   initLang,
   init_i18n,
+  mutedKeys,
   openDb,
   sha1,
   slugOf,
   statement,
   t,
   tier
-} from "./session-start-ywbay0qy.js";
+} from "./session-start-99y99kna.js";
 import"./session-start-70d7ckvt.js";
 
 // src/mcp/server.ts
@@ -135,7 +136,8 @@ function callTool(name, args, dataDir, projectRoot = process.cwd()) {
   try {
     const store = new FactStore(db);
     if (name === "passport_conventions") {
-      let facts = store.active();
+      const muted = mutedKeys(db);
+      let facts = store.active(Date.now(), true);
       const asked = typeof args.area === "string" ? args.area.trim() : "";
       const key = asked ? areaKey(asked) : "";
       if (key)
@@ -145,7 +147,7 @@ function callTool(name, args, dataDir, projectRoot = process.cwd()) {
       }
       return [
         t("Легенда: ключ · факт · ярус · распространённость · дата замера", "Legend: key · fact · tier · prevalence · measurement date"),
-        ...facts.map(factLine)
+        ...facts.map((f) => muted.has(f.key) ? `${factLine(f)} · ${t("⊘ приглушён владельцем — не подаётся, не судится", "⊘ muted by the owner — not delivered, not enforced")}` : factLine(f))
       ].join(`
 `);
     }

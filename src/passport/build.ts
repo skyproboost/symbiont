@@ -12,6 +12,7 @@ import { spawnSync } from 'node:child_process'
 import { parseNameOnlyLog, pairCounts } from '../graph/cochange'
 import { Engine, sha1 } from '../core/salsa'
 import { FactStore, keyOf, factBasis } from '../core/store'
+import { mutedKeys } from '../gardener/labels'
 import { walkFiles, codeFiles, CODE_EXT } from '../miner/walk'
 import { analyzeFile, aggregate } from '../miner/analyze'
 import { deriveFacts, deriveZoneFacts, zoneOfArea, type Fact } from '../miner/facts'
@@ -86,6 +87,8 @@ export interface SummaryBlocks {
   stack?: string
   entity?: string
   maturity?: string
+  /** сколько правил владелец приглушил как вводящие в заблуждение (gardener/labels.ts) */
+  muted?: number
 }
 
 /** Проекция: компактная сводка фактов — формулировки фактами, не императивами. */
@@ -120,6 +123,18 @@ export function renderSummary(projectName: string, allFacts: Array<Fact & { sour
     lines.push(`## ${title}`, '')
     for (const f of list) lines.push(factLine(f))
     lines.push('')
+  }
+  // Приглушённое владельцем не подаётся, но и не исчезает молча: одна строка
+  // называет число и команду, которой метка снимается, — иначе пропавшее
+  // правило выглядело бы поломкой паспорта
+  if ((blocks.muted ?? 0) > 0) {
+    lines.push(
+      t(
+        `_приглушено владельцем как вводящее в заблуждение: ${blocks.muted} — не подаётся и не судится гейтом; список и отмена: /symbiont:mute list_`,
+        `_muted by the owner as misleading: ${blocks.muted} — not delivered and not enforced by the gate; list and undo: /symbiont:mute list_`,
+      ),
+      '',
+    )
   }
   const mixed = facts.filter((f) => f.tier === 'нет консенсуса')
   if (mixed.length > 0) {
@@ -345,6 +360,7 @@ export function buildPassport(projectRoot: string, dataDir: string): BuildResult
     ctx.input('maturity') // стадия проекта считается ниже: сводка читает её как вход
     return renderSummary(basename(projectRoot), new FactStore(engine.db).active(), {
       graphTop: ctx.get<{ top: NodeStat[] }>('graph').top,
+      muted: mutedKeys(engine.db).size,
       artifacts: artifactsBlock,
       stance: stanceBlock,
       stack: stackBlock,
@@ -557,8 +573,10 @@ ${learnedBlock}` : ''}` : learnedBlock,
       superseded: journal.superseded + cj.superseded + gone,
     }
   }
+  // Метки владельца входят в хэш: приглушённое правило обязано уйти из сводки
+  // той же сессией, а не ждать следующего замера
   const journalHash = sha1(
-    JSON.stringify(store.active().map((r) => [r.id, r.tier, r.statement, r.prevalence, r.positive, r.total])),
+    JSON.stringify(store.active().map((r) => [r.id, r.tier, r.statement, r.prevalence, r.positive, r.total])) + [...mutedKeys(engine.db)].sort().join('|'),
   )
   engine.setInput('journal-active', journalHash)
   const summary = engine.get<string>('summary')

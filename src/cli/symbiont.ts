@@ -20,6 +20,7 @@ import { slugOf } from '../hooks/session-start-core'
 import { buildStatusReport, buildMapReport } from './reports'
 import { computeHealth, computeDrift, renderDriftReport, hotspotsFromGit } from '../gardener/drift'
 import { auditTruth, renderTruth } from '../gardener/truth'
+import { staleFacts, renderStale } from '../gardener/stale'
 import { rankKinds, renderUtility } from '../gardener/utility'
 import { lastRun, REPORTED_WORKS } from '../gardener/scheduler'
 import { collectGraphData, renderGraphHtml } from './graph-html'
@@ -156,6 +157,8 @@ try {
     // и том же разное — «hotspot: data-root.ts» против «hotspot-ов нет».
     console.log(renderDriftReport(computeHealth(db), computeDrift(db), hotspotsFromGit(root)))
     console.log('\n' + renderTruth(auditTruth(db, root, dataDir)))
+    // Устаревание: факты, чьё основание могло уйти из-под ног, — без замера и без модели
+    console.log('\n' + renderStale(staleFacts(db, root)))
     console.log(
       '\n' +
         t(

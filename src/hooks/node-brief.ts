@@ -39,6 +39,8 @@ export function ensureFeedLog(db: Database): void {
   if (!cols.includes('kind')) db.run("ALTER TABLE jit_log ADD COLUMN kind TEXT NOT NULL DEFAULT 'graph'")
   // Контрольная группа: подача решена, но удержана — «пригодилось ли» считается отдельно
   if (!cols.includes('withheld')) db.run('ALTER TABLE jit_log ADD COLUMN withheld INTEGER NOT NULL DEFAULT 0')
+  // Самоотчёт: поданный файл назван в тексте ответа модели (gardener/cited.ts)
+  if (!cols.includes('cited')) db.run('ALTER TABLE jit_log ADD COLUMN cited INTEGER NOT NULL DEFAULT 0')
 }
 
 /**
@@ -76,7 +78,8 @@ const SILENCE_SESSIONS = 5
  * подавался 18 сессий и пригодился в 4, `gardener/truth.ts` — 13 и ни разу.
  * Узел, чей бриф три сессии подряд не вёл к правке, молчит пять сессий, потом
  * пробуется снова — тот же зонд, что у глушения видов подачи (utility.ts),
- * только по узлу. Правка узла (used=1) рвёт серию. Порядковый номер сессии —
+ * только по узлу. Правка узла (used=1) или его упоминание в ответе модели
+ * (cited=1) рвёт серию: названный владельцу файл — тоже польза. Порядковый номер сессии —
  * число записей в `sessions`: журнал append-only, номер монотонный.
  */
 function briefSilenced(db: Database, sessionId: string, file: string): boolean {
@@ -92,11 +95,11 @@ function briefSilenced(db: Database, sessionId: string, file: string): boolean {
     // Последние подачи этого узла в ДРУГИХ сессиях, новые первыми
     const recent = db
       .query(
-        `SELECT j.used FROM jit_log j LEFT JOIN sessions s ON s.session_id = j.session_id
+        `SELECT j.used, j.cited FROM jit_log j LEFT JOIN sessions s ON s.session_id = j.session_id
          WHERE j.file=? AND j.kind='graph' AND j.session_id<>? ORDER BY s.started_at DESC LIMIT ?`,
       )
-      .all(file, sessionId, SILENCE_AFTER) as Array<{ used: number }>
-    if (recent.length < SILENCE_AFTER || recent.some((r) => r.used === 1)) return false
+      .all(file, sessionId, SILENCE_AFTER) as Array<{ used: number; cited: number }>
+    if (recent.length < SILENCE_AFTER || recent.some((r) => r.used === 1 || r.cited === 1)) return false
     db.query('INSERT OR REPLACE INTO brief_silence(file, since_ordinal) VALUES(?,?)').run(file, ordinal)
     return true
   } catch {

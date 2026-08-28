@@ -13,6 +13,7 @@ import type { Fact } from '../miner/facts'
 import { t } from './i18n'
 import { initRating, confirmRating, isSurprise, effectiveDeviation, liveTier } from './ratings'
 import { initialStability, retrievability, confirmStability, isDue } from './schedule'
+import { mutedKeys } from '../gardener/labels'
 
 export interface FactRow extends Fact {
   id: number
@@ -125,11 +126,22 @@ export class FactStore {
     }
   }
 
-  /** Активные факты с ЖИВЫМ ярусом (рейтинг + старение), не ярусом рождения. */
-  active(nowMs = Date.now()): FactRow[] {
-    const rows = this.db
+  /**
+   * Активные факты с ЖИВЫМ ярусом (рейтинг + старение), не ярусом рождения.
+   *
+   * Факт, который владелец пометил «вводит в заблуждение» (gardener/labels.ts),
+   * отсюда не отдаётся: это единственная дверь ко всем подачам и гейту, и
+   * фильтр в ней — гарантия, что приглушённое не всплывёт ни в одном канале.
+   * withMuted=true — для тех, кто показывает журнал целиком (MCP, /symbiont:mute).
+   */
+  active(nowMs = Date.now(), withMuted = false): FactRow[] {
+    let rows = this.db
       .query('SELECT * FROM fact_journal WHERE superseded_by IS NULL ORDER BY area, statement')
       .all() as FactRow[]
+    if (!withMuted) {
+      const muted = mutedKeys(this.db)
+      if (muted.size > 0) rows = rows.filter((r) => !muted.has(r.key))
+    }
     for (const r of rows) {
       if (typeof r.rating === 'number' && typeof r.deviation === 'number') {
         r.tier = liveTier(r.rating, effectiveDeviation(r.deviation, r.seen_at, nowMs), r.total)

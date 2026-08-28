@@ -1,7 +1,10 @@
 import {
+  markCited
+} from "./session-start-bjm447q5.js";
+import {
   applyRules,
   readRules
-} from "./session-start-syzex3bk.js";
+} from "./session-start-mhewct36.js";
 import {
   evidenceFromTranscript
 } from "./session-start-k1samhrj.js";
@@ -12,13 +15,13 @@ import {
   checkAgainstLaws,
   lawsForFile,
   toRelNode
-} from "./session-start-tjewkh61.js";
-import"./session-start-kv9qshcv.js";
+} from "./session-start-w5841kap.js";
+import"./session-start-xz0anara.js";
 import"./session-start-psab7pqj.js";
 import"./session-start-8ychq3hk.js";
-import"./session-start-xxpp3h7f.js";
+import"./session-start-aya35p7m.js";
 import"./session-start-046cybce.js";
-import"./session-start-r4k0qmcn.js";
+import"./session-start-vfx505v5.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -27,7 +30,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-b9p4mzc4.js";
+} from "./session-start-5p4d188q.js";
 import {
   ENTITY_EXT,
   ENV_TEMPLATES,
@@ -51,7 +54,7 @@ import {
   snapshotContent,
   statement,
   t
-} from "./session-start-ywbay0qy.js";
+} from "./session-start-99y99kna.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts
@@ -784,6 +787,7 @@ function handleStop(input, dataRoot) {
       try {
         const transcript = input.transcript_path ?? db.query("SELECT transcript_path FROM sessions WHERE session_id=?").get(sid)?.transcript_path ?? null;
         harvestVoiced(db, transcript, sid, new Date().toISOString());
+        markCited(db, sid, transcript);
       } catch {}
       const focusLines = [];
       try {

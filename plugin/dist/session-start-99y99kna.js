@@ -270,14 +270,14 @@ var init_i18n = __esm(() => {
 });
 
 // src/passport/signals.ts
-import { readFileSync as readFileSync3 } from "node:fs";
+import { readFileSync as readFileSync2 } from "node:fs";
 import { join as join3 } from "node:path";
 function readManifestDeps(root) {
   const all = new Set;
   const prod = new Set;
   const read = (name) => {
     try {
-      return readFileSync3(join3(root, name), "utf8");
+      return readFileSync2(join3(root, name), "utf8");
     } catch {
       return null;
     }
@@ -489,19 +489,19 @@ function deriveSignals(commits) {
 }
 function deriveConstitutionFacts(signals, profile) {
   const facts = [];
-  const push = (statement2, positive, total, tier2) => {
+  const push2 = (statement2, positive, total, tier2) => {
     facts.push({ area: "конституция", statement: statement2, positive, total: Math.max(total, positive, 1), prevalence: 1, tier: tier2 });
   };
   const topAxes = profile.filter((p) => p.axis !== "безопасность").sort((a, b) => b.evidence.length - a.evidence.length).slice(0, 2);
   for (const a of topAxes) {
-    push(`приоритет: ${a.axis} — ось качества с наибольшим числом сигналов в проекте`, a.evidence.length, a.evidence.length, a.evidence.length >= 2 ? "привычка" : "гипотеза");
+    push2(`приоритет: ${a.axis} — ось качества с наибольшим числом сигналов в проекте`, a.evidence.length, a.evidence.length, a.evidence.length >= 2 ? "привычка" : "гипотеза");
   }
   const types = Object.entries(signals.commitTypes).sort((a, b) => b[1] - a[1]);
   if (types.length > 0 && signals.totalCommits >= 20) {
     const [type, n] = types[0];
     const label = AXIS_LABEL[type] ?? type;
     if (n / signals.totalCommits >= 0.25) {
-      push(`фокус работы: ${label} — преобладающий тип коммитов`, n, signals.totalCommits, "привычка");
+      push2(`фокус работы: ${label} — преобладающий тип коммитов`, n, signals.totalCommits, "привычка");
     }
   }
   const VALUE_LABEL = {
@@ -518,18 +518,18 @@ function deriveConstitutionFacts(signals, profile) {
   const VALUE_MIN_SHARE = 0.12;
   const values = Object.entries(signals.valueMentions ?? {}).filter((e) => VALUE_LABEL[e[0]] !== undefined && e[1] >= 3 && e[1] / Math.max(signals.totalCommits, 1) >= VALUE_MIN_SHARE).sort((a, b) => b[1] - a[1]).slice(0, 2);
   for (const v of values) {
-    push(`ценность: ${VALUE_LABEL[v[0]]} — владелец возвращается к ней в формулировках работы (${v[1]} из ${signals.totalCommits} коммитов)`, v[1], signals.totalCommits, v[1] >= 6 ? "привычка" : "гипотеза");
+    push2(`ценность: ${VALUE_LABEL[v[0]]} — владелец возвращается к ней в формулировках работы (${v[1]} из ${signals.totalCommits} коммитов)`, v[1], signals.totalCommits, v[1] >= 6 ? "привычка" : "гипотеза");
   }
   const fragile = Object.entries(signals.fixZones).filter(([, n]) => n >= CONSTRAINT_MIN_FIXES).sort((a, b) => b[1] - a[1]).slice(0, 3);
   for (const [zone, n] of fragile) {
-    push(`ограничение: зона ${zone} — хрупкая (${n} правок-починок в истории), менять осторожно и с проверкой`, n, signals.totalCommits, n >= CONSTRAINT_MIN_FIXES * 2 ? "привычка" : "гипотеза");
+    push2(`ограничение: зона ${zone} — хрупкая (${n} правок-починок в истории), менять осторожно и с проверкой`, n, signals.totalCommits, n >= CONSTRAINT_MIN_FIXES * 2 ? "привычка" : "гипотеза");
   }
   if (signals.reverts >= 2) {
-    push(`ограничение: в истории есть откаты (${signals.reverts}) — рискованные правки проверять до коммита (регрессии тут случались)`, signals.reverts, signals.totalCommits, "гипотеза");
+    push2(`ограничение: в истории есть откаты (${signals.reverts}) — рискованные правки проверять до коммита (регрессии тут случались)`, signals.reverts, signals.totalCommits, "гипотеза");
   }
   const sec = profile.find((p) => p.axis === "безопасность");
   if (sec && sec.evidence.length > 0) {
-    push(`ограничение: защитные слои (${sec.evidence.slice(0, 4).join(", ")}) не ослаблять без явного решения владельца`, sec.evidence.length, sec.evidence.length, "привычка");
+    push2(`ограничение: защитные слои (${sec.evidence.slice(0, 4).join(", ")}) не ослаблять без явного решения владельца`, sec.evidence.length, sec.evidence.length, "привычка");
   }
   return facts;
 }
@@ -570,8 +570,8 @@ __export(exports_walk, {
   JS_EXT: () => JS_EXT,
   CODE_EXT: () => CODE_EXT
 });
-import { readdirSync, readFileSync as readFileSync4, statSync } from "node:fs";
-import { extname, join as join4 } from "node:path";
+import { readdirSync, readFileSync as readFileSync5, statSync } from "node:fs";
+import { extname, join as join6 } from "node:path";
 function inDerivedZone(rel) {
   return rel.split("/").some((seg) => SKIP_DIRS.has(seg));
 }
@@ -580,7 +580,7 @@ function declaredSkips(root) {
   const prefixes = new Set;
   let text = "";
   try {
-    text = readFileSync4(join4(root, ".gitignore"), "utf8");
+    text = readFileSync5(join6(root, ".gitignore"), "utf8");
   } catch {}
   for (const raw of text.split(`
 `)) {
@@ -616,10 +616,10 @@ function walkFiles(root) {
         const childRel = rel ? `${rel}/${e.name}` : e.name;
         if (skips.prefixes.has(childRel))
           continue;
-        stack.push({ abs: join4(dir, e.name), rel: childRel });
+        stack.push({ abs: join6(dir, e.name), rel: childRel });
         continue;
       }
-      const p = join4(dir, e.name);
+      const p = join6(dir, e.name);
       const ext = extname(e.name).toLowerCase();
       let size = 0;
       let mtimeMs = 0;
@@ -838,210 +838,6 @@ function mustLoad(runtime, what) {
     throw new Error(runtimeBlocker() ?? `Symbiont: в этом рантайме недоступен ${what}`);
   }
   return driver;
-}
-
-// src/core/store.ts
-init_i18n();
-
-// src/core/ratings.ts
-var clamp = (x, lo, hi) => Math.min(Math.max(x, lo), hi);
-function initRating(source, prevalence, total) {
-  if (source.startsWith("llm:")) {
-    return { rating: Math.min(prevalence, 0.94), deviation: 0.22 };
-  }
-  return { rating: prevalence, deviation: clamp(1 / Math.sqrt(Math.max(total, 1)), 0.03, 0.35) };
-}
-var SURPRISE_GAP = 0.1;
-function isSurprise(prev, newPrevalence) {
-  return Math.abs(newPrevalence - prev.rating) > SURPRISE_GAP;
-}
-function confirmRating(prev, newPrevalence) {
-  if (isSurprise(prev, newPrevalence)) {
-    const deviation = Math.min(prev.deviation + Math.abs(newPrevalence - prev.rating), 0.35);
-    const w2 = Math.min(deviation * 2, 0.5);
-    return { rating: prev.rating * (1 - w2) + newPrevalence * w2, deviation };
-  }
-  const w = Math.min(prev.deviation * 2, 0.5);
-  return {
-    rating: prev.rating * (1 - w) + newPrevalence * w,
-    deviation: Math.max(prev.deviation * 0.85, 0.02)
-  };
-}
-var MONTH_MS = 30 * 24 * 3600000;
-var AGING_PER_MONTH = 0.05;
-var DEVIATION_CAP = 0.5;
-function effectiveDeviation(deviation, seenAtIso, nowMs = Date.now()) {
-  const months = Math.max(0, (nowMs - Date.parse(seenAtIso)) / MONTH_MS);
-  if (!Number.isFinite(months))
-    return DEVIATION_CAP;
-  return Math.min(deviation + AGING_PER_MONTH * months, DEVIATION_CAP);
-}
-function liveTier(rating, effDeviation, total) {
-  if (rating >= 0.95 && effDeviation <= 0.19 && total >= 30)
-    return "закон";
-  if (rating >= 0.7 && effDeviation <= 0.32 && total >= 3)
-    return "привычка";
-  if (rating >= 0.55)
-    return "гипотеза";
-  return "нет консенсуса";
-}
-
-// src/core/schedule.ts
-var RETENTION_THRESHOLD = 0.9;
-var DECAY = -0.5;
-var FACTOR = 19 / 81;
-function initialStability(source) {
-  if (source.startsWith("llm:corrections:"))
-    return 7;
-  if (source.startsWith("llm:"))
-    return 14;
-  return null;
-}
-function retrievability(stabilityDays, seenAtIso, nowMs = Date.now()) {
-  const days = (nowMs - Date.parse(seenAtIso)) / 86400000;
-  if (!Number.isFinite(days) || days <= 0)
-    return 1;
-  return Math.pow(1 + FACTOR * (days / Math.max(stabilityDays, 0.1)), DECAY);
-}
-function confirmStability(stabilityDays, r) {
-  const growth = 1.6 + 1.4 * (1 - Math.min(Math.max(r, 0), 1));
-  return Math.min(stabilityDays * growth, 365);
-}
-function isDue(stabilityDays, seenAtIso, nowMs = Date.now()) {
-  if (stabilityDays === null)
-    return false;
-  return retrievability(stabilityDays, seenAtIso, nowMs) < RETENTION_THRESHOLD;
-}
-
-// src/core/store.ts
-function factBasis(fact) {
-  const pct = Math.round(fact.prevalence * 100);
-  if (typeof fact.source === "string" && fact.source.startsWith("llm:")) {
-    return t(`выведено по ${fact.total} образцам (уверенность ${pct}%, не измерено)`, `inferred from ${fact.total} samples (confidence ${pct}%, not measured)`);
-  }
-  if (fact.positive === fact.total && fact.total > 0) {
-    return t(`ни одного случая обратного на ${fact.total} наблюдений`, `no counterexample in ${fact.total} observations`);
-  }
-  return `${fact.positive} ${t("из", "of")} ${fact.total} (${pct}%)`;
-}
-function keyOf(fact) {
-  const subject = fact.statement.split("—")[0].trim();
-  return `${fact.area}|${subject}`;
-}
-
-class FactStore {
-  db;
-  constructor(db) {
-    this.db = db;
-    try {
-      db.run(`CREATE TABLE IF NOT EXISTS fact_journal(
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          key TEXT NOT NULL,
-          area TEXT NOT NULL,
-          statement TEXT NOT NULL,
-          tier TEXT NOT NULL,
-          prevalence REAL NOT NULL,
-          positive INTEGER NOT NULL,
-          total INTEGER NOT NULL,
-          source TEXT NOT NULL,
-          asserted_at TEXT NOT NULL,
-          seen_at TEXT NOT NULL,
-          superseded_by INTEGER
-        )`);
-      db.run("CREATE INDEX IF NOT EXISTS idx_fact_key ON fact_journal(key)");
-      const cols = db.query("PRAGMA table_info(fact_journal)").all().map((c) => c.name);
-      if (!cols.includes("rating")) {
-        db.run("ALTER TABLE fact_journal ADD COLUMN rating REAL");
-        db.run("ALTER TABLE fact_journal ADD COLUMN deviation REAL");
-        db.run("ALTER TABLE fact_journal ADD COLUMN confirmations INTEGER NOT NULL DEFAULT 0");
-      }
-      const legacy = db.query("SELECT id, source, prevalence, total FROM fact_journal WHERE rating IS NULL").all();
-      if (legacy.length > 0) {
-        const upd = db.query("UPDATE fact_journal SET rating=?, deviation=? WHERE id=?");
-        for (const r of legacy) {
-          const init = initRating(r.source, r.prevalence, r.total);
-          upd.run(init.rating, init.deviation, r.id);
-        }
-      }
-      if (!cols.includes("stability")) {
-        db.run("ALTER TABLE fact_journal ADD COLUMN stability REAL");
-        const llm = db.query("SELECT id, source FROM fact_journal WHERE source LIKE 'llm:%'").all();
-        const upd = db.query("UPDATE fact_journal SET stability=? WHERE id=?");
-        for (const r of llm)
-          upd.run(initialStability(r.source), r.id);
-      }
-    } catch {}
-  }
-  active(nowMs = Date.now()) {
-    const rows = this.db.query("SELECT * FROM fact_journal WHERE superseded_by IS NULL ORDER BY area, statement").all();
-    for (const r of rows) {
-      if (typeof r.rating === "number" && typeof r.deviation === "number") {
-        r.tier = liveTier(r.rating, effectiveDeviation(r.deviation, r.seen_at, nowMs), r.total);
-      }
-    }
-    return rows;
-  }
-  journalSize() {
-    return this.db.query("SELECT COUNT(*) AS n FROM fact_journal").get().n;
-  }
-  assertAll(facts, source, now = new Date().toISOString()) {
-    let born = 0;
-    let updated = 0;
-    let superseded = 0;
-    for (const f of facts) {
-      const key = keyOf(f);
-      const current2 = this.db.query("SELECT * FROM fact_journal WHERE key=? AND superseded_by IS NULL").get(key);
-      if (!current2) {
-        this.insert(f, key, source, now);
-        born++;
-        continue;
-      }
-      if (current2.statement === f.statement) {
-        const prev = {
-          rating: current2.rating ?? initRating(current2.source, current2.prevalence, current2.total).rating,
-          deviation: current2.deviation ?? initRating(current2.source, current2.prevalence, current2.total).deviation
-        };
-        const next = confirmRating(prev, f.prevalence);
-        const prevStability = current2.stability ?? initialStability(current2.source);
-        const nextStability = prevStability === null ? null : isSurprise(prev, f.prevalence) ? prevStability : confirmStability(prevStability, retrievability(prevStability, current2.seen_at, Date.parse(now)));
-        this.db.query("UPDATE fact_journal SET prevalence=?, positive=?, total=?, seen_at=?, rating=?, deviation=?, stability=?, confirmations=confirmations+1 WHERE id=?").run(f.prevalence, f.positive, f.total, now, next.rating, next.deviation, nextStability, current2.id);
-        updated++;
-        continue;
-      }
-      const newId = this.insert(f, key, source, now);
-      this.db.query("UPDATE fact_journal SET superseded_by=? WHERE id=?").run(newId, current2.id);
-      superseded++;
-    }
-    return { born, updated, superseded };
-  }
-  insert(f, key, source, now) {
-    const init = initRating(source, f.prevalence, f.total);
-    const res = this.db.query(`INSERT INTO fact_journal(key, area, statement, tier, prevalence, positive, total, source, asserted_at, seen_at, superseded_by, rating, deviation, confirmations, stability)
-         VALUES(?,?,?,?,?,?,?,?,?,?,NULL,?,?,0,?)`).run(key, f.area, f.statement, f.tier, f.prevalence, f.positive, f.total, source, now, now, init.rating, init.deviation, initialStability(source));
-    return Number(res.lastInsertRowid);
-  }
-  dueForReview(nowMs = Date.now()) {
-    const rows = this.db.query("SELECT * FROM fact_journal WHERE superseded_by IS NULL AND source LIKE 'llm:%' AND stability IS NOT NULL").all();
-    return rows.filter((r) => isDue(r.stability, r.seen_at, nowMs));
-  }
-  touchAll(now = new Date().toISOString()) {
-    this.db.query("UPDATE fact_journal SET seen_at=? WHERE superseded_by IS NULL AND source NOT LIKE 'llm:%'").run(now);
-  }
-  retractMissingBySource(source, presentKeys) {
-    const rows = this.db.query("SELECT id, key FROM fact_journal WHERE superseded_by IS NULL AND source=?").all(source);
-    let retracted = 0;
-    const upd = this.db.query("UPDATE fact_journal SET superseded_by=0 WHERE id=?");
-    for (const r of rows) {
-      if (presentKeys.has(r.key))
-        continue;
-      upd.run(r.id);
-      retracted++;
-    }
-    return retracted;
-  }
-  history(key) {
-    return this.db.query("SELECT * FROM fact_journal WHERE key=? ORDER BY id DESC").all(key);
-  }
 }
 
 // src/miner/packs.ts
@@ -1829,266 +1625,6 @@ function deriveZoneFacts(observations, allExts, globalFacts) {
   return out;
 }
 
-// src/gardener/truth.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { join as join2 } from "node:path";
-var tableExists = (db, name) => {
-  try {
-    return db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?").get(name).n > 0;
-  } catch {
-    return false;
-  }
-};
-var deadOf = (db, table, column, root) => {
-  if (!tableExists(db, table))
-    return [];
-  try {
-    const rows = db.query(`SELECT ${column} AS f FROM ${table}`).all();
-    return rows.filter((r) => typeof r.f === "string" && !existsSync2(join2(root, r.f))).map((r) => r.f);
-  } catch {
-    return [];
-  }
-};
-function deadLessonZones(db, root) {
-  if (!tableExists(db, "lessons"))
-    return [];
-  try {
-    const rows = db.query("SELECT DISTINCT zone FROM lessons").all();
-    return rows.filter((r) => r.zone && r.zone !== "(корень)" && !existsSync2(join2(root, r.zone))).map((r) => r.zone);
-  } catch {
-    return [];
-  }
-}
-function staleSummaryLines(summary, activeStatements) {
-  const out = [];
-  let inFactSection = false;
-  for (const raw of summary.split(`
-`)) {
-    const line = raw.trim();
-    if (line.startsWith("#")) {
-      inFactSection = /(Законы стиля|Преобладающий стиль|Профиль качества)/i.test(line);
-      continue;
-    }
-    if (!inFactSection || !line.startsWith("- "))
-      continue;
-    const body = line.slice(2).trim();
-    if (!activeStatements.some((s) => body.startsWith(s)))
-      out.push(body.slice(0, 120));
-  }
-  return out;
-}
-function auditTruth(db, root, dataDir) {
-  const issues = [];
-  const push = (kind, dead, healable = true) => {
-    if (dead.length > 0) {
-      issues.push({ kind, detail: dead.slice(0, 3).join(", ") + (dead.length > 3 ? ", …" : ""), count: dead.length, healable });
-    }
-  };
-  push("узлы графа без файла", deadOf(db, "graph_nodes", "file", root));
-  push("сущности контент-графа без файла", deadOf(db, "entity_nodes", "file", root));
-  push("роли удалённых файлов", deadOf(db, "node_summary", "file", root));
-  push("тепло удалённых файлов", deadOf(db, "node_heat", "file", root));
-  push("уроки по несуществующим зонам", deadLessonZones(db, root));
-  try {
-    const summary = readFileSync2(join2(dataDir, "SUMMARY.md"), "utf8");
-    const active = new FactStore(db).active().map((f) => f.statement);
-    const stale = staleSummaryLines(summary, active);
-    if (stale.length > 0) {
-      issues.push({
-        kind: "строки сводки без активного факта",
-        detail: stale.slice(0, 2).join(" · "),
-        count: stale.length,
-        healable: false
-      });
-    }
-  } catch {}
-  return issues;
-}
-function healProjections(db, root) {
-  const report = { removed: 0, tables: [] };
-  const clean = (table, column, dead) => {
-    if (dead.length === 0)
-      return;
-    try {
-      const del = db.query(`DELETE FROM ${table} WHERE ${column} = ?`);
-      for (const f of dead)
-        del.run(f);
-      report.removed += dead.length;
-      report.tables.push(table);
-    } catch {}
-  };
-  clean("graph_nodes", "file", deadOf(db, "graph_nodes", "file", root));
-  clean("entity_nodes", "file", deadOf(db, "entity_nodes", "file", root));
-  clean("node_summary", "file", deadOf(db, "node_summary", "file", root));
-  clean("node_heat", "file", deadOf(db, "node_heat", "file", root));
-  clean("lessons", "zone", deadLessonZones(db, root));
-  if (tableExists(db, "graph_edges") && tableExists(db, "graph_nodes")) {
-    try {
-      const before = db.query("SELECT COUNT(*) n FROM graph_edges").get().n;
-      db.run("DELETE FROM graph_edges WHERE from_file NOT IN (SELECT file FROM graph_nodes) OR to_file NOT IN (SELECT file FROM graph_nodes)");
-      const after = db.query("SELECT COUNT(*) n FROM graph_edges").get().n;
-      if (before > after) {
-        report.removed += before - after;
-        report.tables.push("graph_edges");
-      }
-    } catch {}
-  }
-  return report;
-}
-function renderTruth(issues) {
-  if (issues.length === 0)
-    return " Само-образ      паспорт честен: подаётся только живое";
-  const lines = [" Само-образ — паспорт подаёт то, чего нет:"];
-  for (const i of issues) {
-    lines.push(`   ${i.kind}: ${i.count} · ${i.detail}${i.healable ? "" : " (пересборка уже назначена фоном)"}`);
-  }
-  return lines.join(`
-`);
-}
-
-// src/gardener/drift.ts
-init_i18n();
-var num = (db, sql) => {
-  try {
-    const r = db.query(sql).get();
-    return r && r.v != null ? r.v : 0;
-  } catch {
-    return 0;
-  }
-};
-var hasTable = (db, name) => db.query("SELECT COUNT(*) v FROM sqlite_master WHERE type='table' AND name=?").get(name).v > 0;
-function computeHealth(db) {
-  const lawCount = num(db, "SELECT COUNT(*) v FROM fact_journal WHERE superseded_by IS NULL AND tier='закон'");
-  const lawPrevalence = num(db, "SELECT AVG(prevalence) v FROM fact_journal WHERE superseded_by IS NULL AND tier='закон'");
-  const activeFacts = num(db, "SELECT COUNT(*) v FROM fact_journal WHERE superseded_by IS NULL");
-  const graphNodes = hasTable(db, "graph_nodes") ? num(db, "SELECT COUNT(*) v FROM graph_nodes") : 0;
-  const graphEdges = hasTable(db, "graph_edges") ? num(db, "SELECT COUNT(*) v FROM graph_edges") : 0;
-  const orphans = hasTable(db, "entity_nodes") ? num(db, "SELECT COUNT(*) v FROM entity_nodes WHERE in_deg=0 AND is_hub=0") : 0;
-  const broken = hasTable(db, "entity_broken") ? num(db, "SELECT COUNT(*) v FROM entity_broken") : 0;
-  const gateCatches = hasTable(db, "gate_log") ? num(db, "SELECT COUNT(*) v FROM gate_log") : 0;
-  return {
-    lawCount,
-    lawPrevalence,
-    activeFacts,
-    graphNodes,
-    graphEdges,
-    density: graphNodes > 0 ? graphEdges / graphNodes : 0,
-    orphans,
-    broken,
-    gateCatches
-  };
-}
-function ensureSnapshots(db) {
-  db.run("CREATE TABLE IF NOT EXISTS health_snapshot(commit_hash TEXT PRIMARY KEY, ts TEXT NOT NULL, metrics TEXT NOT NULL)");
-}
-function captureHealth(db, commit, now) {
-  if (!commit || commit === "no-git")
-    return;
-  try {
-    ensureSnapshots(db);
-    const m = computeHealth(db);
-    db.query("INSERT INTO health_snapshot(commit_hash, ts, metrics) VALUES(?,?,?) ON CONFLICT(commit_hash) DO UPDATE SET ts=excluded.ts, metrics=excluded.metrics").run(commit, now, JSON.stringify(m));
-  } catch {}
-}
-function computeDrift(db, baseWindow = 8) {
-  try {
-    if (!hasTable(db, "health_snapshot"))
-      return null;
-    const rows = db.query("SELECT metrics FROM health_snapshot ORDER BY ts DESC").all();
-    if (rows.length < 2)
-      return null;
-    const latest = JSON.parse(rows[0].metrics);
-    const baseIdx = Math.min(baseWindow, rows.length - 1);
-    const base = JSON.parse(rows[baseIdx].metrics);
-    return { span: baseIdx, latest, base };
-  } catch {
-    return null;
-  }
-}
-function renderDrift(d) {
-  if (!d)
-    return "";
-  const worse = [];
-  const prevDrop = d.base.lawPrevalence - d.latest.lawPrevalence;
-  if (prevDrop >= 0.03)
-    worse.push(t(`конвенции −${Math.round(prevDrop * 100)}% (уползание от своей нормы)`, `conventions −${Math.round(prevDrop * 100)}% (drifting from the project's own norm)`));
-  if (d.latest.orphans - d.base.orphans >= 3)
-    worse.push(t(`сироты +${d.latest.orphans - d.base.orphans}`, `orphans +${d.latest.orphans - d.base.orphans}`));
-  if (d.latest.broken - d.base.broken >= 1)
-    worse.push(t(`битые ссылки +${d.latest.broken - d.base.broken}`, `broken links +${d.latest.broken - d.base.broken}`));
-  if (d.base.density > 0 && d.latest.density - d.base.density >= 0.5)
-    worse.push(t(`плотность графа +${(d.latest.density - d.base.density).toFixed(1)}/узел (оплотнение)`, `graph density +${(d.latest.density - d.base.density).toFixed(1)}/node (tightening)`));
-  if (d.latest.gateCatches - d.base.gateCatches >= 10)
-    worse.push(t(`гейт-поимки +${d.latest.gateCatches - d.base.gateCatches}`, `gate catches +${d.latest.gateCatches - d.base.gateCatches}`));
-  if (worse.length === 0)
-    return "";
-  return t(` Уползание (за ${d.span} замеров, только ухудшения): ${worse.join(" · ")}`, ` Drift (over ${d.span} snapshots, regressions only): ${worse.join(" · ")}`);
-}
-var FIX_SUBJECT = /^fix(\(|!|:)|^revert|откат/i;
-function computeHotspots(commits, sizeByFile, k = 8) {
-  const fixFreq = new Map;
-  for (const c of commits) {
-    if (!FIX_SUBJECT.test(c.subject.trim()))
-      continue;
-    for (const f of new Set(c.files))
-      fixFreq.set(f, (fixFreq.get(f) ?? 0) + 1);
-  }
-  return [...fixFreq.entries()].filter((e) => e[1] >= 2 && sizeByFile.has(e[0])).map((e) => ({ file: e[0], fixes: e[1], size: sizeByFile.get(e[0]), score: e[1] * sizeByFile.get(e[0]) })).sort((a, b) => b.score - a.score).slice(0, k);
-}
-function renderDriftReport(health, drift, hotspots) {
-  const L2 = [t("Symbiont · здоровье проекта и куда оно движется", "Symbiont · project health and where it is heading"), ""];
-  L2.push(t(" Здоровье сейчас", " Health right now"));
-  L2.push(t(`   законов ${health.lawCount} · ср.распространённость ${Math.round(health.lawPrevalence * 100)}% · активных фактов ${health.activeFacts}`, `   laws ${health.lawCount} · avg prevalence ${Math.round(health.lawPrevalence * 100)}% · active facts ${health.activeFacts}`));
-  L2.push(t(`   граф ${health.graphNodes} узлов / ${health.graphEdges} рёбер (плотность ${health.density.toFixed(2)}/узел)`, `   graph ${health.graphNodes} nodes / ${health.graphEdges} edges (density ${health.density.toFixed(2)}/node)`));
-  if (health.orphans > 0 || health.broken > 0)
-    L2.push(t(`   контент: сирот ${health.orphans} · битых ссылок ${health.broken}`, `   content: orphans ${health.orphans} · broken links ${health.broken}`));
-  L2.push("");
-  const dl = renderDrift(drift);
-  L2.push(t(" Тренд (против прошлых замеров)", " Trend (against previous snapshots)"));
-  L2.push(dl ? "  " + dl.trim() : drift ? t("   стабильно или лучше — уползания нет", "   stable or better — no drift") : t("   снимков мало — тренд появится за несколько коммитов", "   too few snapshots — the trend appears after a few commits"));
-  L2.push("");
-  L2.push(t(" Где чаще всего чинят (частота починок × размер файла — там копится беспорядок; кандидаты на рефакторинг)", " Most-repaired places (fix frequency × file size — where mess accumulates; refactoring candidates)"));
-  if (hotspots.length === 0)
-    L2.push(t("   выраженных зон нет — история починок ровная", "   no pronounced areas — the repair history is even"));
-  else
-    for (const h of hotspots)
-      L2.push(t(`   ${h.file} · фиксов ${h.fixes} · ${h.size} строк`, `   ${h.file} · fixes ${h.fixes} · ${h.size} lines`));
-  return L2.join(`
-`);
-}
-function hotspotsFromGit(projectRoot) {
-  const { spawnSync: spawnSync2 } = __require("node:child_process");
-  const { readFileSync: readFileSync5 } = __require("node:fs");
-  const { join: join5, extname: extname2 } = __require("node:path");
-  const { parseCommitLog: parseCommitLog2 } = (init_constitution_derive(), __toCommonJS(exports_constitution_derive));
-  const { CODE_EXT: CODE_EXT2 } = (init_walk(), __toCommonJS(exports_walk));
-  const r = spawnSync2("git", ["log", "--name-only", "--pretty=format:@%H%x09%s", "-n", "400"], {
-    cwd: projectRoot,
-    encoding: "utf8",
-    timeout: 15000,
-    windowsHide: true,
-    maxBuffer: 32 * 1024 * 1024
-  });
-  if (r.status !== 0 || typeof r.stdout !== "string" || !r.stdout)
-    return [];
-  const commits = parseCommitLog2(r.stdout);
-  const touched = new Set;
-  for (const c of commits)
-    if (FIX_SUBJECT.test(c.subject.trim()))
-      for (const f of c.files)
-        touched.add(f);
-  const sizeByFile = new Map;
-  for (const rel of touched) {
-    if (!CODE_EXT2.has(extname2(rel).toLowerCase()))
-      continue;
-    try {
-      sizeByFile.set(rel, readFileSync5(join5(projectRoot, rel), "utf8").split(`
-`).length);
-    } catch {}
-  }
-  return computeHotspots(commits, sizeByFile);
-}
-
 // src/layer1/facts1.ts
 init_i18n();
 var push = (facts, area2, statement2, positive, total) => {
@@ -2145,7 +1681,7 @@ init_i18n();
 
 // src/graph/entities.ts
 init_i18n();
-import { dirname, join as join5, normalize as normalize2 } from "node:path/posix";
+import { dirname, join as join2, normalize as normalize2 } from "node:path/posix";
 var ENTITY_EXT = new Set([".md", ".mdx", ".markdown", ".html", ".htm", ".yaml", ".yml"]);
 var EXTERNAL_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 var MD_LINK_RE = /(^|[^!])\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
@@ -2241,7 +1777,7 @@ function resolveContentTarget(fromRel, rawTarget, index) {
       return { kind: "entity", rel: hit };
     return hasEntityExt(lower) ? { kind: "broken" } : { kind: "unresolved" };
   }
-  const joined = normalize2(join5(dirname(fromRel.toLowerCase()), lower));
+  const joined = normalize2(join2(dirname(fromRel.toLowerCase()), lower));
   if (!joined.startsWith("..")) {
     const hit = tryKeys(joined);
     if (hit)
@@ -2503,15 +2039,15 @@ function canonCertainty(prevalences) {
 }
 var MASS_HALF_FILES = 40;
 var MASS_HALF_COMMITS = 60;
-function massScore(codeFiles2, commits) {
-  const f = Math.max(0, codeFiles2) / (Math.max(0, codeFiles2) + MASS_HALF_FILES);
+function massScore(codeFiles, commits) {
+  const f = Math.max(0, codeFiles) / (Math.max(0, codeFiles) + MASS_HALF_FILES);
   const c = Math.max(0, commits) / (Math.max(0, commits) + MASS_HALF_COMMITS);
   return clamp01((clamp01(f) + clamp01(c)) / 2);
 }
-function verifiabilityScore(codeFiles2, testFiles, hasCi) {
-  if (codeFiles2 === 0)
+function verifiabilityScore(codeFiles, testFiles, hasCi) {
+  if (codeFiles === 0)
     return 0;
-  const ratio = clamp01(testFiles / (codeFiles2 / 3));
+  const ratio = clamp01(testFiles / (codeFiles / 3));
   return clamp01(ratio * 0.8 + (hasCi ? 0.2 : 0));
 }
 function contentIntegrityScore(c) {
@@ -2649,8 +2185,8 @@ function renderMaturity(m) {
 // src/passport/profile.ts
 init_signals();
 init_i18n();
-import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
-import { join as join6 } from "node:path";
+import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
+import { join as join4 } from "node:path";
 var evidenceEn = (ru) => ru === "заявлено в доках" ? "declared in the docs" : ru === "тестовых файлов" ? "test files" : ru.startsWith("тестовых файлов: ") ? `test files: ${ru.slice("тестовых файлов: ".length)}` : ru;
 var evidenceListEn = (ru, sep) => ru.split(sep).map(evidenceEn).join(sep);
 pattern(/^безопасность — защитные слои: (.+) \(их ослабление — не рядовая правка\)$/, (m) => `security — protective layers: ${m[1]} (weakening them is not an ordinary change)`);
@@ -2673,13 +2209,13 @@ function readConceptText(root, relPaths) {
   const parts = [];
   for (const name of ["README.md", "readme.md", "README.rst", "CONCEPT.md", "AGENTS.md", "CLAUDE.md"]) {
     try {
-      parts.push(readFileSync5(join6(root, name), "utf8").slice(0, README_LIMIT));
+      parts.push(readFileSync3(join4(root, name), "utf8").slice(0, README_LIMIT));
     } catch {}
   }
   const docFiles = relPaths.filter((p) => /^(docs|\.docs|doc)\//i.test(p) && p.endsWith(".md")).slice(0, 12);
   for (const rel of docFiles) {
     try {
-      parts.push(readFileSync5(join6(root, rel), "utf8").slice(0, 8000));
+      parts.push(readFileSync3(join4(root, rel), "utf8").slice(0, 8000));
     } catch {}
   }
   return parts.join(`
@@ -2689,7 +2225,7 @@ function readPackageSignals(root) {
   const { all } = readManifestDeps(root);
   let scripts = "";
   try {
-    const pkg = JSON.parse(readFileSync5(join6(root, "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync3(join4(root, "package.json"), "utf8"));
     scripts = Object.values(pkg.scripts ?? {}).join(" ");
   } catch {}
   return { deps: all, scripts };
@@ -2700,7 +2236,7 @@ function probeProfile(root, relPaths) {
   if (relPaths.length === 0 && deps.length === 0 && docsText.trim().length === 0)
     return [];
   const probes = [];
-  const ciPresent = [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].filter((p) => existsSync3(join6(root, p)));
+  const ciPresent = [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].filter((p) => existsSync2(join4(root, p)));
   for (const d of DETECTORS) {
     const sig = SIGNALS[d.signal];
     const evidence = [];
@@ -2759,6 +2295,524 @@ function profileFacts(probes) {
 
 // src/core/statements.ts
 init_constitution_derive();
+
+// src/gardener/labels.ts
+init_i18n();
+var MISLEADING = "misleading";
+function ensureLabels(db) {
+  db.run(`CREATE TABLE IF NOT EXISTS fact_labels(
+      key TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      at TEXT NOT NULL
+    )`);
+}
+var hasTable = (db) => {
+  try {
+    return db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='fact_labels'").get().n > 0;
+  } catch {
+    return false;
+  }
+};
+function readLabels(db) {
+  if (!hasTable(db))
+    return [];
+  try {
+    return db.query("SELECT key, label, note, at FROM fact_labels ORDER BY at DESC").all();
+  } catch {
+    return [];
+  }
+}
+function mutedKeys(db) {
+  return new Set(readLabels(db).filter((l) => l.label === MISLEADING).map((l) => l.key));
+}
+function labelFact(db, key, label, note, at) {
+  ensureLabels(db);
+  db.query("INSERT INTO fact_labels(key, label, note, at) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET label=excluded.label, note=excluded.note, at=excluded.at").run(key, label, note, at);
+}
+function unlabelFact(db, key) {
+  if (!hasTable(db))
+    return false;
+  return Number(db.query("DELETE FROM fact_labels WHERE key=?").run(key).changes) > 0;
+}
+function matchFacts(facts, phrase) {
+  const q = phrase.trim().toLowerCase();
+  if (!q)
+    return [];
+  const exact = facts.filter((f) => f.key.toLowerCase() === q);
+  if (exact.length > 0)
+    return exact;
+  return facts.filter((f) => f.statement.toLowerCase().includes(q) || statement(f.statement).toLowerCase().includes(q));
+}
+
+// src/core/store.ts
+init_i18n();
+
+// src/core/ratings.ts
+var clamp = (x, lo, hi) => Math.min(Math.max(x, lo), hi);
+function initRating(source, prevalence, total) {
+  if (source.startsWith("llm:")) {
+    return { rating: Math.min(prevalence, 0.94), deviation: 0.22 };
+  }
+  return { rating: prevalence, deviation: clamp(1 / Math.sqrt(Math.max(total, 1)), 0.03, 0.35) };
+}
+var SURPRISE_GAP = 0.1;
+function isSurprise(prev, newPrevalence) {
+  return Math.abs(newPrevalence - prev.rating) > SURPRISE_GAP;
+}
+function confirmRating(prev, newPrevalence) {
+  if (isSurprise(prev, newPrevalence)) {
+    const deviation = Math.min(prev.deviation + Math.abs(newPrevalence - prev.rating), 0.35);
+    const w2 = Math.min(deviation * 2, 0.5);
+    return { rating: prev.rating * (1 - w2) + newPrevalence * w2, deviation };
+  }
+  const w = Math.min(prev.deviation * 2, 0.5);
+  return {
+    rating: prev.rating * (1 - w) + newPrevalence * w,
+    deviation: Math.max(prev.deviation * 0.85, 0.02)
+  };
+}
+var MONTH_MS = 30 * 24 * 3600000;
+var AGING_PER_MONTH = 0.05;
+var DEVIATION_CAP = 0.5;
+function effectiveDeviation(deviation, seenAtIso, nowMs = Date.now()) {
+  const months = Math.max(0, (nowMs - Date.parse(seenAtIso)) / MONTH_MS);
+  if (!Number.isFinite(months))
+    return DEVIATION_CAP;
+  return Math.min(deviation + AGING_PER_MONTH * months, DEVIATION_CAP);
+}
+function liveTier(rating, effDeviation, total) {
+  if (rating >= 0.95 && effDeviation <= 0.19 && total >= 30)
+    return "закон";
+  if (rating >= 0.7 && effDeviation <= 0.32 && total >= 3)
+    return "привычка";
+  if (rating >= 0.55)
+    return "гипотеза";
+  return "нет консенсуса";
+}
+
+// src/core/schedule.ts
+var RETENTION_THRESHOLD = 0.9;
+var DECAY = -0.5;
+var FACTOR = 19 / 81;
+function initialStability(source) {
+  if (source.startsWith("llm:corrections:"))
+    return 7;
+  if (source.startsWith("llm:"))
+    return 14;
+  return null;
+}
+function retrievability(stabilityDays, seenAtIso, nowMs = Date.now()) {
+  const days = (nowMs - Date.parse(seenAtIso)) / 86400000;
+  if (!Number.isFinite(days) || days <= 0)
+    return 1;
+  return Math.pow(1 + FACTOR * (days / Math.max(stabilityDays, 0.1)), DECAY);
+}
+function confirmStability(stabilityDays, r) {
+  const growth = 1.6 + 1.4 * (1 - Math.min(Math.max(r, 0), 1));
+  return Math.min(stabilityDays * growth, 365);
+}
+function isDue(stabilityDays, seenAtIso, nowMs = Date.now()) {
+  if (stabilityDays === null)
+    return false;
+  return retrievability(stabilityDays, seenAtIso, nowMs) < RETENTION_THRESHOLD;
+}
+
+// src/core/store.ts
+function factBasis(fact) {
+  const pct = Math.round(fact.prevalence * 100);
+  if (typeof fact.source === "string" && fact.source.startsWith("llm:")) {
+    return t(`выведено по ${fact.total} образцам (уверенность ${pct}%, не измерено)`, `inferred from ${fact.total} samples (confidence ${pct}%, not measured)`);
+  }
+  if (fact.positive === fact.total && fact.total > 0) {
+    return t(`ни одного случая обратного на ${fact.total} наблюдений`, `no counterexample in ${fact.total} observations`);
+  }
+  return `${fact.positive} ${t("из", "of")} ${fact.total} (${pct}%)`;
+}
+function keyOf(fact) {
+  const subject = fact.statement.split("—")[0].trim();
+  return `${fact.area}|${subject}`;
+}
+
+class FactStore {
+  db;
+  constructor(db) {
+    this.db = db;
+    try {
+      db.run(`CREATE TABLE IF NOT EXISTS fact_journal(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          key TEXT NOT NULL,
+          area TEXT NOT NULL,
+          statement TEXT NOT NULL,
+          tier TEXT NOT NULL,
+          prevalence REAL NOT NULL,
+          positive INTEGER NOT NULL,
+          total INTEGER NOT NULL,
+          source TEXT NOT NULL,
+          asserted_at TEXT NOT NULL,
+          seen_at TEXT NOT NULL,
+          superseded_by INTEGER
+        )`);
+      db.run("CREATE INDEX IF NOT EXISTS idx_fact_key ON fact_journal(key)");
+      const cols = db.query("PRAGMA table_info(fact_journal)").all().map((c) => c.name);
+      if (!cols.includes("rating")) {
+        db.run("ALTER TABLE fact_journal ADD COLUMN rating REAL");
+        db.run("ALTER TABLE fact_journal ADD COLUMN deviation REAL");
+        db.run("ALTER TABLE fact_journal ADD COLUMN confirmations INTEGER NOT NULL DEFAULT 0");
+      }
+      const legacy = db.query("SELECT id, source, prevalence, total FROM fact_journal WHERE rating IS NULL").all();
+      if (legacy.length > 0) {
+        const upd = db.query("UPDATE fact_journal SET rating=?, deviation=? WHERE id=?");
+        for (const r of legacy) {
+          const init = initRating(r.source, r.prevalence, r.total);
+          upd.run(init.rating, init.deviation, r.id);
+        }
+      }
+      if (!cols.includes("stability")) {
+        db.run("ALTER TABLE fact_journal ADD COLUMN stability REAL");
+        const llm = db.query("SELECT id, source FROM fact_journal WHERE source LIKE 'llm:%'").all();
+        const upd = db.query("UPDATE fact_journal SET stability=? WHERE id=?");
+        for (const r of llm)
+          upd.run(initialStability(r.source), r.id);
+      }
+    } catch {}
+  }
+  active(nowMs = Date.now(), withMuted = false) {
+    let rows = this.db.query("SELECT * FROM fact_journal WHERE superseded_by IS NULL ORDER BY area, statement").all();
+    if (!withMuted) {
+      const muted = mutedKeys(this.db);
+      if (muted.size > 0)
+        rows = rows.filter((r) => !muted.has(r.key));
+    }
+    for (const r of rows) {
+      if (typeof r.rating === "number" && typeof r.deviation === "number") {
+        r.tier = liveTier(r.rating, effectiveDeviation(r.deviation, r.seen_at, nowMs), r.total);
+      }
+    }
+    return rows;
+  }
+  journalSize() {
+    return this.db.query("SELECT COUNT(*) AS n FROM fact_journal").get().n;
+  }
+  assertAll(facts, source, now = new Date().toISOString()) {
+    let born = 0;
+    let updated = 0;
+    let superseded = 0;
+    for (const f of facts) {
+      const key = keyOf(f);
+      const current2 = this.db.query("SELECT * FROM fact_journal WHERE key=? AND superseded_by IS NULL").get(key);
+      if (!current2) {
+        this.insert(f, key, source, now);
+        born++;
+        continue;
+      }
+      if (current2.statement === f.statement) {
+        const prev = {
+          rating: current2.rating ?? initRating(current2.source, current2.prevalence, current2.total).rating,
+          deviation: current2.deviation ?? initRating(current2.source, current2.prevalence, current2.total).deviation
+        };
+        const next = confirmRating(prev, f.prevalence);
+        const prevStability = current2.stability ?? initialStability(current2.source);
+        const nextStability = prevStability === null ? null : isSurprise(prev, f.prevalence) ? prevStability : confirmStability(prevStability, retrievability(prevStability, current2.seen_at, Date.parse(now)));
+        this.db.query("UPDATE fact_journal SET prevalence=?, positive=?, total=?, seen_at=?, rating=?, deviation=?, stability=?, confirmations=confirmations+1 WHERE id=?").run(f.prevalence, f.positive, f.total, now, next.rating, next.deviation, nextStability, current2.id);
+        updated++;
+        continue;
+      }
+      const newId = this.insert(f, key, source, now);
+      this.db.query("UPDATE fact_journal SET superseded_by=? WHERE id=?").run(newId, current2.id);
+      superseded++;
+    }
+    return { born, updated, superseded };
+  }
+  insert(f, key, source, now) {
+    const init = initRating(source, f.prevalence, f.total);
+    const res = this.db.query(`INSERT INTO fact_journal(key, area, statement, tier, prevalence, positive, total, source, asserted_at, seen_at, superseded_by, rating, deviation, confirmations, stability)
+         VALUES(?,?,?,?,?,?,?,?,?,?,NULL,?,?,0,?)`).run(key, f.area, f.statement, f.tier, f.prevalence, f.positive, f.total, source, now, now, init.rating, init.deviation, initialStability(source));
+    return Number(res.lastInsertRowid);
+  }
+  dueForReview(nowMs = Date.now()) {
+    const rows = this.db.query("SELECT * FROM fact_journal WHERE superseded_by IS NULL AND source LIKE 'llm:%' AND stability IS NOT NULL").all();
+    return rows.filter((r) => isDue(r.stability, r.seen_at, nowMs));
+  }
+  touchAll(now = new Date().toISOString()) {
+    this.db.query("UPDATE fact_journal SET seen_at=? WHERE superseded_by IS NULL AND source NOT LIKE 'llm:%'").run(now);
+  }
+  retractMissingBySource(source, presentKeys) {
+    const rows = this.db.query("SELECT id, key FROM fact_journal WHERE superseded_by IS NULL AND source=?").all(source);
+    let retracted = 0;
+    const upd = this.db.query("UPDATE fact_journal SET superseded_by=0 WHERE id=?");
+    for (const r of rows) {
+      if (presentKeys.has(r.key))
+        continue;
+      upd.run(r.id);
+      retracted++;
+    }
+    return retracted;
+  }
+  history(key) {
+    return this.db.query("SELECT * FROM fact_journal WHERE key=? ORDER BY id DESC").all(key);
+  }
+}
+
+// src/gardener/truth.ts
+import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
+import { join as join5 } from "node:path";
+var tableExists = (db, name) => {
+  try {
+    return db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?").get(name).n > 0;
+  } catch {
+    return false;
+  }
+};
+var deadOf = (db, table, column, root) => {
+  if (!tableExists(db, table))
+    return [];
+  try {
+    const rows = db.query(`SELECT ${column} AS f FROM ${table}`).all();
+    return rows.filter((r) => typeof r.f === "string" && !existsSync3(join5(root, r.f))).map((r) => r.f);
+  } catch {
+    return [];
+  }
+};
+function deadLessonZones(db, root) {
+  if (!tableExists(db, "lessons"))
+    return [];
+  try {
+    const rows = db.query("SELECT DISTINCT zone FROM lessons").all();
+    return rows.filter((r) => r.zone && r.zone !== "(корень)" && !existsSync3(join5(root, r.zone))).map((r) => r.zone);
+  } catch {
+    return [];
+  }
+}
+function staleSummaryLines(summary, activeStatements) {
+  const out = [];
+  let inFactSection = false;
+  for (const raw of summary.split(`
+`)) {
+    const line = raw.trim();
+    if (line.startsWith("#")) {
+      inFactSection = /(Законы стиля|Преобладающий стиль|Профиль качества)/i.test(line);
+      continue;
+    }
+    if (!inFactSection || !line.startsWith("- "))
+      continue;
+    const body = line.slice(2).trim();
+    if (!activeStatements.some((s) => body.startsWith(s)))
+      out.push(body.slice(0, 120));
+  }
+  return out;
+}
+function auditTruth(db, root, dataDir) {
+  const issues = [];
+  const push2 = (kind, dead, healable = true) => {
+    if (dead.length > 0) {
+      issues.push({ kind, detail: dead.slice(0, 3).join(", ") + (dead.length > 3 ? ", …" : ""), count: dead.length, healable });
+    }
+  };
+  push2("узлы графа без файла", deadOf(db, "graph_nodes", "file", root));
+  push2("сущности контент-графа без файла", deadOf(db, "entity_nodes", "file", root));
+  push2("роли удалённых файлов", deadOf(db, "node_summary", "file", root));
+  push2("тепло удалённых файлов", deadOf(db, "node_heat", "file", root));
+  push2("уроки по несуществующим зонам", deadLessonZones(db, root));
+  try {
+    const summary = readFileSync4(join5(dataDir, "SUMMARY.md"), "utf8");
+    const active = new FactStore(db).active().map((f) => f.statement);
+    const stale = staleSummaryLines(summary, active);
+    if (stale.length > 0) {
+      issues.push({
+        kind: "строки сводки без активного факта",
+        detail: stale.slice(0, 2).join(" · "),
+        count: stale.length,
+        healable: false
+      });
+    }
+  } catch {}
+  return issues;
+}
+function healProjections(db, root) {
+  const report = { removed: 0, tables: [] };
+  const clean = (table, column, dead) => {
+    if (dead.length === 0)
+      return;
+    try {
+      const del = db.query(`DELETE FROM ${table} WHERE ${column} = ?`);
+      for (const f of dead)
+        del.run(f);
+      report.removed += dead.length;
+      report.tables.push(table);
+    } catch {}
+  };
+  clean("graph_nodes", "file", deadOf(db, "graph_nodes", "file", root));
+  clean("entity_nodes", "file", deadOf(db, "entity_nodes", "file", root));
+  clean("node_summary", "file", deadOf(db, "node_summary", "file", root));
+  clean("node_heat", "file", deadOf(db, "node_heat", "file", root));
+  clean("lessons", "zone", deadLessonZones(db, root));
+  if (tableExists(db, "graph_edges") && tableExists(db, "graph_nodes")) {
+    try {
+      const before = db.query("SELECT COUNT(*) n FROM graph_edges").get().n;
+      db.run("DELETE FROM graph_edges WHERE from_file NOT IN (SELECT file FROM graph_nodes) OR to_file NOT IN (SELECT file FROM graph_nodes)");
+      const after = db.query("SELECT COUNT(*) n FROM graph_edges").get().n;
+      if (before > after) {
+        report.removed += before - after;
+        report.tables.push("graph_edges");
+      }
+    } catch {}
+  }
+  return report;
+}
+function renderTruth(issues) {
+  if (issues.length === 0)
+    return " Само-образ      паспорт честен: подаётся только живое";
+  const lines = [" Само-образ — паспорт подаёт то, чего нет:"];
+  for (const i of issues) {
+    lines.push(`   ${i.kind}: ${i.count} · ${i.detail}${i.healable ? "" : " (пересборка уже назначена фоном)"}`);
+  }
+  return lines.join(`
+`);
+}
+
+// src/gardener/drift.ts
+init_i18n();
+var num = (db, sql) => {
+  try {
+    const r = db.query(sql).get();
+    return r && r.v != null ? r.v : 0;
+  } catch {
+    return 0;
+  }
+};
+var hasTable2 = (db, name) => db.query("SELECT COUNT(*) v FROM sqlite_master WHERE type='table' AND name=?").get(name).v > 0;
+function computeHealth(db) {
+  const lawCount = num(db, "SELECT COUNT(*) v FROM fact_journal WHERE superseded_by IS NULL AND tier='закон'");
+  const lawPrevalence = num(db, "SELECT AVG(prevalence) v FROM fact_journal WHERE superseded_by IS NULL AND tier='закон'");
+  const activeFacts = num(db, "SELECT COUNT(*) v FROM fact_journal WHERE superseded_by IS NULL");
+  const graphNodes = hasTable2(db, "graph_nodes") ? num(db, "SELECT COUNT(*) v FROM graph_nodes") : 0;
+  const graphEdges = hasTable2(db, "graph_edges") ? num(db, "SELECT COUNT(*) v FROM graph_edges") : 0;
+  const orphans = hasTable2(db, "entity_nodes") ? num(db, "SELECT COUNT(*) v FROM entity_nodes WHERE in_deg=0 AND is_hub=0") : 0;
+  const broken = hasTable2(db, "entity_broken") ? num(db, "SELECT COUNT(*) v FROM entity_broken") : 0;
+  const gateCatches = hasTable2(db, "gate_log") ? num(db, "SELECT COUNT(*) v FROM gate_log") : 0;
+  return {
+    lawCount,
+    lawPrevalence,
+    activeFacts,
+    graphNodes,
+    graphEdges,
+    density: graphNodes > 0 ? graphEdges / graphNodes : 0,
+    orphans,
+    broken,
+    gateCatches
+  };
+}
+function ensureSnapshots(db) {
+  db.run("CREATE TABLE IF NOT EXISTS health_snapshot(commit_hash TEXT PRIMARY KEY, ts TEXT NOT NULL, metrics TEXT NOT NULL)");
+}
+function captureHealth(db, commit, now) {
+  if (!commit || commit === "no-git")
+    return;
+  try {
+    ensureSnapshots(db);
+    const m = computeHealth(db);
+    db.query("INSERT INTO health_snapshot(commit_hash, ts, metrics) VALUES(?,?,?) ON CONFLICT(commit_hash) DO UPDATE SET ts=excluded.ts, metrics=excluded.metrics").run(commit, now, JSON.stringify(m));
+  } catch {}
+}
+function computeDrift(db, baseWindow = 8) {
+  try {
+    if (!hasTable2(db, "health_snapshot"))
+      return null;
+    const rows = db.query("SELECT metrics FROM health_snapshot ORDER BY ts DESC").all();
+    if (rows.length < 2)
+      return null;
+    const latest = JSON.parse(rows[0].metrics);
+    const baseIdx = Math.min(baseWindow, rows.length - 1);
+    const base = JSON.parse(rows[baseIdx].metrics);
+    return { span: baseIdx, latest, base };
+  } catch {
+    return null;
+  }
+}
+function renderDrift(d) {
+  if (!d)
+    return "";
+  const worse = [];
+  const prevDrop = d.base.lawPrevalence - d.latest.lawPrevalence;
+  if (prevDrop >= 0.03)
+    worse.push(t(`конвенции −${Math.round(prevDrop * 100)}% (уползание от своей нормы)`, `conventions −${Math.round(prevDrop * 100)}% (drifting from the project's own norm)`));
+  if (d.latest.orphans - d.base.orphans >= 3)
+    worse.push(t(`сироты +${d.latest.orphans - d.base.orphans}`, `orphans +${d.latest.orphans - d.base.orphans}`));
+  if (d.latest.broken - d.base.broken >= 1)
+    worse.push(t(`битые ссылки +${d.latest.broken - d.base.broken}`, `broken links +${d.latest.broken - d.base.broken}`));
+  if (d.base.density > 0 && d.latest.density - d.base.density >= 0.5)
+    worse.push(t(`плотность графа +${(d.latest.density - d.base.density).toFixed(1)}/узел (оплотнение)`, `graph density +${(d.latest.density - d.base.density).toFixed(1)}/node (tightening)`));
+  if (d.latest.gateCatches - d.base.gateCatches >= 10)
+    worse.push(t(`гейт-поимки +${d.latest.gateCatches - d.base.gateCatches}`, `gate catches +${d.latest.gateCatches - d.base.gateCatches}`));
+  if (worse.length === 0)
+    return "";
+  return t(` Уползание (за ${d.span} замеров, только ухудшения): ${worse.join(" · ")}`, ` Drift (over ${d.span} snapshots, regressions only): ${worse.join(" · ")}`);
+}
+var FIX_SUBJECT = /^fix(\(|!|:)|^revert|откат/i;
+function computeHotspots(commits, sizeByFile, k = 8) {
+  const fixFreq = new Map;
+  for (const c of commits) {
+    if (!FIX_SUBJECT.test(c.subject.trim()))
+      continue;
+    for (const f of new Set(c.files))
+      fixFreq.set(f, (fixFreq.get(f) ?? 0) + 1);
+  }
+  return [...fixFreq.entries()].filter((e) => e[1] >= 2 && sizeByFile.has(e[0])).map((e) => ({ file: e[0], fixes: e[1], size: sizeByFile.get(e[0]), score: e[1] * sizeByFile.get(e[0]) })).sort((a, b) => b.score - a.score).slice(0, k);
+}
+function renderDriftReport(health, drift, hotspots) {
+  const L3 = [t("Symbiont · здоровье проекта и куда оно движется", "Symbiont · project health and where it is heading"), ""];
+  L3.push(t(" Здоровье сейчас", " Health right now"));
+  L3.push(t(`   законов ${health.lawCount} · ср.распространённость ${Math.round(health.lawPrevalence * 100)}% · активных фактов ${health.activeFacts}`, `   laws ${health.lawCount} · avg prevalence ${Math.round(health.lawPrevalence * 100)}% · active facts ${health.activeFacts}`));
+  L3.push(t(`   граф ${health.graphNodes} узлов / ${health.graphEdges} рёбер (плотность ${health.density.toFixed(2)}/узел)`, `   graph ${health.graphNodes} nodes / ${health.graphEdges} edges (density ${health.density.toFixed(2)}/node)`));
+  if (health.orphans > 0 || health.broken > 0)
+    L3.push(t(`   контент: сирот ${health.orphans} · битых ссылок ${health.broken}`, `   content: orphans ${health.orphans} · broken links ${health.broken}`));
+  L3.push("");
+  const dl = renderDrift(drift);
+  L3.push(t(" Тренд (против прошлых замеров)", " Trend (against previous snapshots)"));
+  L3.push(dl ? "  " + dl.trim() : drift ? t("   стабильно или лучше — уползания нет", "   stable or better — no drift") : t("   снимков мало — тренд появится за несколько коммитов", "   too few snapshots — the trend appears after a few commits"));
+  L3.push("");
+  L3.push(t(" Где чаще всего чинят (частота починок × размер файла — там копится беспорядок; кандидаты на рефакторинг)", " Most-repaired places (fix frequency × file size — where mess accumulates; refactoring candidates)"));
+  if (hotspots.length === 0)
+    L3.push(t("   выраженных зон нет — история починок ровная", "   no pronounced areas — the repair history is even"));
+  else
+    for (const h of hotspots)
+      L3.push(t(`   ${h.file} · фиксов ${h.fixes} · ${h.size} строк`, `   ${h.file} · fixes ${h.fixes} · ${h.size} lines`));
+  return L3.join(`
+`);
+}
+function hotspotsFromGit(projectRoot) {
+  const { spawnSync: spawnSync2 } = __require("node:child_process");
+  const { readFileSync: readFileSync6 } = __require("node:fs");
+  const { join: join7, extname: extname2 } = __require("node:path");
+  const { parseCommitLog: parseCommitLog2 } = (init_constitution_derive(), __toCommonJS(exports_constitution_derive));
+  const { CODE_EXT: CODE_EXT2 } = (init_walk(), __toCommonJS(exports_walk));
+  const r = spawnSync2("git", ["log", "--name-only", "--pretty=format:@%H%x09%s", "-n", "400"], {
+    cwd: projectRoot,
+    encoding: "utf8",
+    timeout: 15000,
+    windowsHide: true,
+    maxBuffer: 32 * 1024 * 1024
+  });
+  if (r.status !== 0 || typeof r.stdout !== "string" || !r.stdout)
+    return [];
+  const commits = parseCommitLog2(r.stdout);
+  const touched = new Set;
+  for (const c of commits)
+    if (FIX_SUBJECT.test(c.subject.trim()))
+      for (const f of c.files)
+        touched.add(f);
+  const sizeByFile = new Map;
+  for (const rel of touched) {
+    if (!CODE_EXT2.has(extname2(rel).toLowerCase()))
+      continue;
+    try {
+      sizeByFile.set(rel, readFileSync6(join7(projectRoot, rel), "utf8").split(`
+`).length);
+    } catch {}
+  }
+  return computeHotspots(commits, sizeByFile);
+}
 
 // src/passport/build.ts
 import { readFileSync as readFileSync10, writeFileSync as writeFileSync3, mkdirSync, existsSync as existsSync6 } from "node:fs";
@@ -4851,6 +4905,9 @@ function renderSummary(projectName, allFacts, blocks = {}) {
       lines.push(factLine(f));
     lines.push("");
   }
+  if ((blocks.muted ?? 0) > 0) {
+    lines.push(t(`_приглушено владельцем как вводящее в заблуждение: ${blocks.muted} — не подаётся и не судится гейтом; список и отмена: /symbiont:mute list_`, `_muted by the owner as misleading: ${blocks.muted} — not delivered and not enforced by the gate; list and undo: /symbiont:mute list_`), "");
+  }
   const mixed = facts.filter((f) => f.tier === "нет консенсуса");
   if (mixed.length > 0) {
     lines.push(`## ${t("Смешанный стиль (единого правила нет)", "Mixed style (no single rule)")}`, "");
@@ -4884,7 +4941,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-bcc76af6826c";
+    return "bundle-dd008e7c13df";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5016,6 +5073,7 @@ function buildPassport(projectRoot, dataDir) {
     ctx.input("maturity");
     return renderSummary(basename(projectRoot), new FactStore(engine.db).active(), {
       graphTop: ctx.get("graph").top,
+      muted: mutedKeys(engine.db).size,
       artifacts: artifactsBlock,
       stance: stanceBlock,
       stack: stackBlock,
@@ -5187,7 +5245,7 @@ ${learnedBlock}` : ""}` : learnedBlock
       superseded: journal.superseded + cj.superseded + gone
     };
   }
-  const journalHash = sha1(JSON.stringify(store.active().map((r) => [r.id, r.tier, r.statement, r.prevalence, r.positive, r.total])));
+  const journalHash = sha1(JSON.stringify(store.active().map((r) => [r.id, r.tier, r.statement, r.prevalence, r.positive, r.total])) + [...mutedKeys(engine.db)].sort().join("|"));
   engine.setInput("journal-active", journalHash);
   const summary = engine.get("summary");
   const graphExecuted = engine.executions("graph") > 0;
@@ -5721,9 +5779,9 @@ function harvestVoiced(db, transcriptPath, sessionId, now) {
   }
   return added;
 }
-var hasTable2 = (db, name) => db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?").get(name).n > 0;
+var hasTable3 = (db, name) => db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?").get(name).n > 0;
 function voicedCandidates(db, minSessions, exclude = []) {
-  if (!hasTable2(db, "voiced_rules") || !hasTable2(db, "voiced_seen"))
+  if (!hasTable3(db, "voiced_rules") || !hasTable3(db, "voiced_seen"))
     return [];
   const known = exclude.map((s) => voicedKey(s).split(" ").filter(Boolean));
   const rows = db.query(`SELECT r.key, r.statement, r.last_at, COUNT(s.session_id) sessions
@@ -6214,4 +6272,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, resolveImport, taskRelevantNeighbors, reachableUndirected, ENTITY_EXT, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, deriveAstFacts, contentVerifierActive, loadEntityResolver, runContentVerifiers, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, slugOf, handleSessionStart };
+export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, slugOf, handleSessionStart };

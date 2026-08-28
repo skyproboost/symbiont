@@ -1,23 +1,23 @@
 import {
   WORKS
-} from "./session-start-xhe8f8p9.js";
+} from "./session-start-sqvstdd4.js";
 import"./session-start-djk6q8qh.js";
-import"./session-start-e86b9xvb.js";
-import"./session-start-jdcnvzam.js";
-import"./session-start-syzex3bk.js";
-import"./session-start-kv9qshcv.js";
+import"./session-start-wcaj7r0y.js";
+import"./session-start-3gtfwp84.js";
+import"./session-start-mhewct36.js";
+import"./session-start-xz0anara.js";
 import"./session-start-psab7pqj.js";
 import"./session-start-8ychq3hk.js";
 import"./session-start-046cybce.js";
 import {
   markVisited
-} from "./session-start-r4k0qmcn.js";
+} from "./session-start-vfx505v5.js";
 import"./session-start-5s7r4262.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-b9p4mzc4.js";
+} from "./session-start-5p4d188q.js";
 import {
   buildPassport,
   initLang,
@@ -27,7 +27,7 @@ import {
   runtimeBlocker,
   slugOf,
   t
-} from "./session-start-ywbay0qy.js";
+} from "./session-start-99y99kna.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/init.ts

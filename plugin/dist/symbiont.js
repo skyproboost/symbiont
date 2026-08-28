@@ -2,7 +2,10 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-jdcnvzam.js";
+} from "./session-start-3gtfwp84.js";
+import {
+  citedStats
+} from "./session-start-bjm447q5.js";
 import {
   readGateMode
 } from "./session-start-yvd28w11.js";
@@ -11,13 +14,14 @@ import {
   countLessons,
   summaryFor,
   summaryStats
-} from "./session-start-r4k0qmcn.js";
+} from "./session-start-vfx505v5.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-b9p4mzc4.js";
+} from "./session-start-5p4d188q.js";
 import {
+  FactStore,
   REPORTED_WORKS,
   auditTruth,
   computeDrift,
@@ -41,20 +45,54 @@ import {
   slugOf,
   statement,
   t,
-  tier
-} from "./session-start-ywbay0qy.js";
+  tier,
+  zoneOfArea
+} from "./session-start-99y99kna.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
 
 // src/cli/symbiont.ts
-import { join as join2, basename } from "node:path";
-import { existsSync as existsSync2, writeFileSync } from "node:fs";
+import { join as join3, basename } from "node:path";
+import { existsSync as existsSync3, writeFileSync } from "node:fs";
 
 // src/cli/reports.ts
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 init_i18n();
+
+// src/gardener/review.ts
+init_i18n();
+var REVIEW_MIN_SHOWN = 5;
+var REVIEW_MAX = 5;
+function reviewQueue(db, minShown = REVIEW_MIN_SHOWN) {
+  try {
+    const rows = db.query(`SELECT file, COUNT(*) shown FROM jit_log
+         WHERE file NOT LIKE '#%' AND withheld=0
+         GROUP BY file HAVING SUM(used)=0 AND SUM(cited)=0 AND COUNT(*)>=?
+         ORDER BY shown DESC, file LIMIT ?`).all(minShown, REVIEW_MAX);
+    if (rows.length === 0)
+      return [];
+    let silenced = new Set;
+    try {
+      silenced = new Set(db.query("SELECT file FROM brief_silence").all().map((r) => r.file));
+    } catch {}
+    return rows.map((r) => ({ file: r.file, shown: r.shown, silenced: silenced.has(r.file) }));
+  } catch {
+    return [];
+  }
+}
+function renderReviewQueue(rows) {
+  if (rows.length === 0)
+    return [];
+  const L = [t(" Очередь ревизии подачи (подавалось часто, не пригодилось ни разу: ни правки, ни упоминания)", " Feed review queue (surfaced often, never paid off: neither edited nor mentioned)")];
+  for (const r of rows) {
+    L.push(`   ${r.file.padEnd(40)}×${r.shown}${r.silenced ? t("  · сейчас молчит", "  · silenced now") : ""}`);
+  }
+  return L;
+}
+
+// src/cli/reports.ts
 var ago = (iso) => {
   const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
   if (!Number.isFinite(mins) || mins < 0)
@@ -129,9 +167,14 @@ function buildStatusReport(dataDir) {
     try {
       const surfaced = one(db, "SELECT COUNT(*) n FROM jit_log WHERE file NOT LIKE '#%'")?.n ?? 0;
       const used = one(db, "SELECT COUNT(*) n FROM jit_log WHERE file NOT LIKE '#%' AND used=1")?.n ?? 0;
-      if (surfaced > 0)
-        L.push(`   ${pad(t("окупаемость", "payback"), 15)} ${t("подано файлов", "files surfaced")} ${surfaced} · ${t("пригодилось", "used")} ${used} (${Math.round(used / surfaced * 100)}%)`);
+      if (surfaced > 0) {
+        const c = citedStats(db);
+        const citedPart = c ? ` · ${t("названо в ответах", "named in replies")} ${c.cited}${c.lift === null ? "" : t(` (лифт ${c.lift >= 0 ? "+" : ""}${c.lift}пп)`, ` (lift ${c.lift >= 0 ? "+" : ""}${c.lift}pp)`)}` : "";
+        L.push(`   ${pad(t("окупаемость", "payback"), 15)} ${t("подано файлов", "files surfaced")} ${surfaced} · ${t("пригодилось", "used")} ${used} (${Math.round(used / surfaced * 100)}%)${citedPart}`);
+      }
     } catch {}
+    for (const line of renderReviewQueue(reviewQueue(db)))
+      L.push(line);
     try {
       const meta = one(db, "SELECT value FROM learn_meta WHERE key='auto_learn'");
       if (meta) {
@@ -298,6 +341,48 @@ function buildMapReport(dataDir, zone) {
   } finally {
     db.close();
   }
+}
+
+// src/gardener/stale.ts
+import { existsSync as existsSync2 } from "node:fs";
+import { join as join2 } from "node:path";
+init_i18n();
+var STALE_DAYS = 90;
+var SHOW_MAX = 4;
+function staleFacts(db, root, nowMs = Date.now()) {
+  const store = new FactStore(db);
+  const active = store.active(nowMs);
+  const groups = [];
+  const push = (kind, facts) => {
+    if (facts.length > 0)
+      groups.push({ kind, facts });
+  };
+  push(t("законы зон, которых нет на диске", "zone laws whose zone is gone from disk"), active.filter((f) => {
+    const zone = zoneOfArea(f.area);
+    return zone !== null && !existsSync2(join2(root, zone));
+  }));
+  const due = new Set(store.dueForReview(nowMs).map((f) => f.id));
+  push(t("правила модели с истёкшим сроком перепроверки", "model rules past their re-check date"), active.filter((f) => due.has(f.id)));
+  const cutoff = nowMs - STALE_DAYS * 24 * 3600000;
+  push(t(`правила модели, не подтверждавшиеся дольше ${STALE_DAYS} дней`, `model rules unconfirmed for over ${STALE_DAYS} days`), active.filter((f) => f.source.startsWith("llm:") && !due.has(f.id) && Date.parse(f.seen_at) < cutoff));
+  return groups;
+}
+function renderStale(groups) {
+  const L = [t(" Устаревание (кандидаты на вытеснение; отзовёт пересборка или перепроверка)", " Staleness (candidates for supersession; a rebuild or re-check retires them)")];
+  if (groups.length === 0) {
+    L.push(t("   кандидатов нет — у каждого активного факта основание на месте", "   no candidates — every active fact still stands on its ground"));
+    return L.join(`
+`);
+  }
+  for (const g of groups) {
+    L.push(`   ${g.kind}: ${g.facts.length}`);
+    for (const f of g.facts.slice(0, SHOW_MAX))
+      L.push(`     · ${statement(f.statement).split("—")[0].trim()} (${f.key})`);
+    if (g.facts.length > SHOW_MAX)
+      L.push(t(`     … ещё ${g.facts.length - SHOW_MAX}`, `     … ${g.facts.length - SHOW_MAX} more`));
+  }
+  return L.join(`
+`);
 }
 
 // src/cli/graph-html.ts
@@ -767,9 +852,9 @@ function openInBrowser(file) {
   }
 }
 var root = process.cwd();
-var res = resolveDataRoot(join2(import.meta.dirname, "..", "..", ".data"));
+var res = resolveDataRoot(join3(import.meta.dirname, "..", "..", ".data"));
 migrateLegacyPassports(res);
-var dataDir = join2(res.root, slugOf(root));
+var dataDir = join3(res.root, slugOf(root));
 var arg = stripDataFlag(process.argv.slice(2)).join(" ").trim();
 initLang(dataDir, root);
 var blocked = runtimeBlocker();
@@ -782,7 +867,7 @@ if (LANG_WORDS.test(arg)) {
   console.log(t("Symbiont: язык подачи теперь отдельной командой — /symbiont:lang (без аргумента покажет текущий).", "Symbiont: the output language now has its own command — /symbiont:lang (no argument shows the current one)."));
   process.exit(0);
 }
-if (!existsSync2(join2(dataDir, "passport.db"))) {
+if (!existsSync3(join3(dataDir, "passport.db"))) {
   console.log(t("Symbiont: паспорт ещё не построен — соберётся сам при старте сессии в этом проекте.", "Symbiont: no passport yet — it builds itself when a session starts in this project."));
   process.exit(0);
 }
@@ -791,7 +876,7 @@ var GRAPH_WORDS = /^(граф|карта|graph|map|html)(?:\s+(.+))?$/i;
 var graphArg = arg.match(GRAPH_WORDS);
 if (graphArg) {
   const zone = (graphArg[2] ?? "").trim().replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+$/, "") || null;
-  const db = openDb(join2(dataDir, "passport.db"), { readonly: true });
+  const db = openDb(join3(dataDir, "passport.db"), { readonly: true });
   try {
     const one2 = (sql) => {
       try {
@@ -814,7 +899,7 @@ if (graphArg) {
       "поимок гейта": String(one2("SELECT COUNT(*) n FROM gate_log"))
     };
     const html = renderGraphHtml(collectGraphData(db, zone ? `${basename(root)} · ${zone}` : basename(root), stats, zone));
-    const out = join2(dataDir, zone ? `graph-${zone.replaceAll("/", "-")}.html` : "graph.html");
+    const out = join3(dataDir, zone ? `graph-${zone.replaceAll("/", "-")}.html` : "graph.html");
     writeFileSync(out, html, "utf8");
     console.log(t(`Symbiont · интерактивная карта${zone ? ` каталога ${zone}` : ""}: ${nodes} узлов`, `Symbiont · interactive map${zone ? ` of ${zone}` : ""}: ${nodes} nodes`));
     console.log(`
@@ -832,12 +917,14 @@ if (arg && !HEALTH_WORDS.test(arg)) {
   console.log(buildMapReport(dataDir, arg));
   process.exit(0);
 }
-var db = openDb(join2(dataDir, "passport.db"), { readonly: true });
+var db = openDb(join3(dataDir, "passport.db"), { readonly: true });
 try {
   if (HEALTH_WORDS.test(arg)) {
     console.log(renderDriftReport(computeHealth(db), computeDrift(db), hotspotsFromGit(root)));
     console.log(`
 ` + renderTruth(auditTruth(db, root, dataDir)));
+    console.log(`
+` + renderStale(staleFacts(db, root)));
     console.log(`
 ` + t("_куда всё ползёт относительно прошлых замеров; выправляется фоном само, команда лишь показывает_", "_where things are drifting relative to earlier snapshots; the background fixes it by itself, the command only shows_"));
   } else {

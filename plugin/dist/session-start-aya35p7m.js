@@ -2,7 +2,7 @@ import {
   contentHashOf,
   markVisited,
   summaryFor
-} from "./session-start-r4k0qmcn.js";
+} from "./session-start-vfx505v5.js";
 import {
   init_i18n,
   noteSurfaced,
@@ -13,7 +13,7 @@ import {
   renderConfigInfluence,
   shouldWithhold,
   t
-} from "./session-start-ywbay0qy.js";
+} from "./session-start-99y99kna.js";
 
 // src/hooks/node-brief.ts
 init_i18n();
@@ -28,6 +28,8 @@ function ensureFeedLog(db) {
     db.run("ALTER TABLE jit_log ADD COLUMN kind TEXT NOT NULL DEFAULT 'graph'");
   if (!cols.includes("withheld"))
     db.run("ALTER TABLE jit_log ADD COLUMN withheld INTEGER NOT NULL DEFAULT 0");
+  if (!cols.includes("cited"))
+    db.run("ALTER TABLE jit_log ADD COLUMN cited INTEGER NOT NULL DEFAULT 0");
 }
 function claimNode(db, sessionId, file, kind = "graph") {
   if (kind === "graph" && briefSilenced(db, sessionId, file))
@@ -56,9 +58,9 @@ function briefSilenced(db, sessionId, file) {
       db.query("DELETE FROM brief_silence WHERE file=?").run(file);
       return false;
     }
-    const recent = db.query(`SELECT j.used FROM jit_log j LEFT JOIN sessions s ON s.session_id = j.session_id
+    const recent = db.query(`SELECT j.used, j.cited FROM jit_log j LEFT JOIN sessions s ON s.session_id = j.session_id
          WHERE j.file=? AND j.kind='graph' AND j.session_id<>? ORDER BY s.started_at DESC LIMIT ?`).all(file, sessionId, SILENCE_AFTER);
-    if (recent.length < SILENCE_AFTER || recent.some((r) => r.used === 1))
+    if (recent.length < SILENCE_AFTER || recent.some((r) => r.used === 1 || r.cited === 1))
       return false;
     db.query("INSERT OR REPLACE INTO brief_silence(file, since_ordinal) VALUES(?,?)").run(file, ordinal);
     return true;

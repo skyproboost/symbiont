@@ -45,6 +45,7 @@ export const ENTRY_SOURCES: string[] = [
   'src/cli/elevate.ts',
   'src/cli/lang.ts',
   'src/cli/export.ts',
+  'src/cli/mute.ts',
   'src/bundle/smoke.ts',
 ]
 

@@ -19,6 +19,7 @@ import { openDb } from '../core/db'
 import { sha1 } from '../core/salsa'
 import { resolveIndexed, outlineView, tokensOf } from '../layer1/symbols'
 import { FactStore, factBasis, type FactRow } from '../core/store'
+import { mutedKeys } from '../gardener/labels'
 import { statement, tier, area as areaName, areaKey, areaList, t } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
 
@@ -179,7 +180,9 @@ export function callTool(name: string, args: Record<string, unknown>, dataDir: s
   try {
     const store = new FactStore(db)
     if (name === 'passport_conventions') {
-      let facts = store.active()
+      // Журнал целиком, приглушённое — с пометкой: MCP показывает, а не подаёт
+      const muted = mutedKeys(db)
+      let facts = store.active(Date.now(), true)
       // Область принимается и по-русски (ключ журнала), и на языке подачи —
       // иначе список областей в описании нельзя было бы использовать как есть
       const asked = typeof args.area === 'string' ? args.area.trim() : ''
@@ -192,7 +195,7 @@ export function callTool(name: string, args: Record<string, unknown>, dataDir: s
       }
       return [
         t('Легенда: ключ · факт · ярус · распространённость · дата замера', 'Legend: key · fact · tier · prevalence · measurement date'),
-        ...facts.map(factLine),
+        ...facts.map((f) => (muted.has(f.key) ? `${factLine(f)} · ${t('⊘ приглушён владельцем — не подаётся, не судится', '⊘ muted by the owner — not delivered, not enforced')}` : factLine(f))),
       ].join('\n')
     }
     if (name === 'passport_history') {

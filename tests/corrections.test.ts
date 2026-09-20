@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { openDb } from '../src/core/db'
-import { handleSessionStart, slugOf } from '../src/hooks/session-start-core'
+import { handleSessionStart, slugOf, detectCorrections } from '../src/hooks/session-start-core'
 import { handleStop } from '../src/hooks/stop-core'
 
 describe('поправки владельца: модель написала → человек исправил', () => {
@@ -63,5 +63,64 @@ describe('поправки владельца: модель написала →
     rmrf(proj, { recursive: true, force: true })
     rmrf(dataRoot, { recursive: true, force: true })
     expect(true).toBe(true)
+  })
+})
+
+describe('поправка и потребление — одной парой', () => {
+  const proj2 = mkdtempSync(join(tmpdir(), 'symbiont-atomic-'))
+  const g2 = (...args: string[]) =>
+    spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: proj2, encoding: 'utf8' })
+  g2('init', '-b', 'main')
+  writeFileSync(join(proj2, 'a.js'), 'var data = 1;\n')
+  g2('add', '.')
+  g2('commit', '-m', 'base')
+
+  const dataRoot2 = mkdtempSync(join(tmpdir(), 'symbiont-atomic-data-'))
+  const db2 = () => join(dataRoot2, slugOf(proj2), 'passport.db')
+
+  /** База, у которой ломается ровно потребление — имитация краха между записями. */
+  function withFailingConsume(db: ReturnType<typeof openDb>) {
+    return {
+      query(sql: string) {
+        const st = db.query(sql)
+        if (!sql.startsWith('DELETE FROM model_state')) return st
+        return { ...st, run: () => { throw new Error('крах между вставкой и потреблением') } } as typeof st
+      },
+      run: (sql: string, ...p: unknown[]) => db.run(sql, ...(p as never[])),
+      close: () => db.close(),
+    } as unknown as ReturnType<typeof openDb>
+  }
+
+  it('крах между записями не оставляет ни поправки, ни потреблённого состояния', () => {
+    handleSessionStart({ cwd: proj2, source: 'startup', session_id: 'a1' }, dataRoot2)
+    writeFileSync(join(proj2, 'a.js'), 'var data = 2;\n')
+    handleStop({ cwd: proj2, session_id: 'a1' }, dataRoot2)
+    writeFileSync(join(proj2, 'a.js'), 'var oData = 2;\n') // правка владельца
+
+    const db = openDb(db2())
+    const found = detectCorrections(withFailingConsume(db), proj2, 'a2')
+
+    const corr = (db.query('SELECT COUNT(*) n FROM corrections').get() as { n: number }).n
+    const state = (db.query("SELECT COUNT(*) n FROM model_state WHERE session_id='a1'").get() as { n: number }).n
+    db.close()
+
+    expect(found).toBe(0) // пара не легла — поправка не засчитана
+    expect(corr, 'вставка обязана откатиться вместе с потреблением').toBe(0)
+    expect(state, 'состояние осталось — следующий старт разберёт его заново').toBeGreaterThan(0)
+  })
+
+  it('после неудачи следующий проход доводит поправку до конца', () => {
+    const db = openDb(db2())
+    const found = detectCorrections(db, proj2, 'a3') // уже без подставы
+    const corr = db.query('SELECT file, from_session FROM corrections').all() as Array<{ file: string; from_session: string }>
+    const state = (db.query("SELECT COUNT(*) n FROM model_state WHERE session_id='a1'").get() as { n: number }).n
+    db.close()
+
+    expect(found).toBe(1)
+    expect(corr).toHaveLength(1) // ровно одна, а не две
+    expect(corr[0]?.file).toBe('a.js')
+    expect(state).toBe(0)
+
+    rmrf(proj2); rmrf(dataRoot2)
   })
 })

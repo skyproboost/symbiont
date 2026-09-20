@@ -4961,7 +4961,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-9940f3eb8694";
+    return "bundle-e633ffc86509";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -6055,6 +6055,28 @@ function renderDiagnosis(silent) {
 
 // src/hooks/session-start-core.ts
 init_i18n();
+function writePair(db, body) {
+  try {
+    db.run("BEGIN IMMEDIATE");
+  } catch {
+    try {
+      body();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    body();
+    db.run("COMMIT");
+    return true;
+  } catch {
+    try {
+      db.run("ROLLBACK");
+    } catch {}
+    return false;
+  }
+}
 function detectCorrections(db, cwd, currentSid) {
   const hasState = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='model_state'").get().n > 0;
   if (!hasState)
@@ -6069,14 +6091,20 @@ function detectCorrections(db, cwd, currentSid) {
       consume.run(r.session_id, r.file);
       continue;
     }
+    let corrected = false;
     try {
       const nowContent = snapshotContent(readFileSync14(join15(cwd, r.file), "utf8"));
-      if (sha1(nowContent) !== r.hash) {
-        insert.run(r.file, r.content, r.session_id, new Date().toISOString());
-        found++;
-      }
+      corrected = sha1(nowContent) !== r.hash;
     } catch {}
-    consume.run(r.session_id, r.file);
+    if (!writePair(db, () => {
+      if (corrected)
+        insert.run(r.file, r.content, r.session_id, new Date().toISOString());
+      consume.run(r.session_id, r.file);
+    })) {
+      continue;
+    }
+    if (corrected)
+      found++;
   }
   purgeSecretCarriers(db);
   return found;

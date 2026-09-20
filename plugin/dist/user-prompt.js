@@ -2,7 +2,7 @@ import {
   claimNode,
   ensureFeedLog,
   nodeBrief
-} from "./session-start-akmqtagv.js";
+} from "./session-start-2mykvys9.js";
 import {
   communityLabels,
   delegationView
@@ -10,7 +10,7 @@ import {
 import {
   lessonsForZones,
   zoneOf
-} from "./session-start-p74083vy.js";
+} from "./session-start-x7c2eqea.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -19,7 +19,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-ba11y9ey.js";
+} from "./session-start-0j9vg9e7.js";
 import {
   FactStore,
   beat,
@@ -36,7 +36,7 @@ import {
   statement,
   t,
   taskRelevantNeighbors
-} from "./session-start-vjwzy6gb.js";
+} from "./session-start-96amykqb.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/user-prompt.ts

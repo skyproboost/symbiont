@@ -25,11 +25,47 @@ import { t, statement, initLang } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
 
 /**
+ * Две записи как одна: либо обе, либо ни одной.
+ *
+ * Первая транзакция в проекте, поэтому она узкая и полностью отказоустойчивая.
+ * `BEGIN IMMEDIATE` — чтобы конфликт за запись обнаружился сразу, а не на
+ * COMMIT; откат в catch — чтобы упавшая пара не оставила базу в открытой
+ * транзакции, из которой следующий вызов уже не выйдет. Возвращает, легла ли
+ * пара: решение, что делать дальше, принадлежит вызывающему.
+ */
+function writePair(db: Database, body: () => void): boolean {
+  try {
+    db.run('BEGIN IMMEDIATE')
+  } catch {
+    // База занята или драйвер не дал начать — работаем без атомарности, как
+    // раньше: потерять поправку хуже, чем принять узкое окно дубля
+    try {
+      body()
+      return true
+    } catch {
+      return false
+    }
+  }
+  try {
+    body()
+    db.run('COMMIT')
+    return true
+  } catch {
+    try {
+      db.run('ROLLBACK')
+    } catch {
+      /* откатывать уже нечего */
+    }
+    return false
+  }
+}
+
+/**
  * Детекция поправок владельца: файлы, которые человек изменил ПОСЛЕ последнего
  * хода модели (между сессиями). Дифф «модель → человек» — главное сырьё петли
  * самообучения. Обработанные состояния потребляются (идемпотентность).
  */
-function detectCorrections(db: Database, cwd: string, currentSid: string): number {
+export function detectCorrections(db: Database, cwd: string, currentSid: string): number {
   const hasState =
     (db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='model_state'").get() as { n: number }).n > 0
   if (!hasState) return 0
@@ -53,16 +89,32 @@ function detectCorrections(db: Database, cwd: string, currentSid: string): numbe
       consume.run(r.session_id, r.file)
       continue
     }
+    // Сравнение — ДО транзакции: чтение файла с диска под открытой записью
+    // держало бы блокировку базы всё время ввода-вывода, а решать оно ничего
+    // не решает — только отвечает, поправка это или нет.
+    let corrected = false
     try {
       const nowContent = snapshotContent(readFileSync(join(cwd, r.file), 'utf8'))
-      if (sha1(nowContent) !== r.hash) {
-        insert.run(r.file, r.content, r.session_id, new Date().toISOString())
-        found++
-      }
+      corrected = sha1(nowContent) !== r.hash
     } catch {
       /* файл исчез — не поправка, просто потребляем */
     }
-    consume.run(r.session_id, r.file)
+
+    // Вставка и потребление — одной парой. Раздельными вызовами краш между ними
+    // оставлял строку в model_state, и следующий SessionStart вставлял ТУ ЖЕ
+    // поправку второй раз: реконсиляция, на которую опирается crash-only модель,
+    // сама не была идемпотентной. Транзакция на пару, а не на весь цикл —
+    // блокировка держится ровно столько, сколько идут две записи.
+    if (!writePair(db, () => {
+      if (corrected) insert.run(r.file, r.content, r.session_id, new Date().toISOString())
+      consume.run(r.session_id, r.file)
+    })) {
+      // Пара не легла — строка осталась в model_state и будет разобрана
+      // следующим стартом. Падать нельзя: сессия открывается ради подачи,
+      // а не ради петли самообучения.
+      continue
+    }
+    if (corrected) found++
   }
   purgeSecretCarriers(db)
   return found

@@ -1,7 +1,7 @@
 import {
   silentSpawnOptions,
   slugOf
-} from "./session-start-vjwzy6gb.js";
+} from "./session-start-96amykqb.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/detach.ts

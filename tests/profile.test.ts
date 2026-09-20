@@ -132,3 +132,71 @@ describe('профиль в конвейере паспорта', () => {
     rmrf(dataDir)
   })
 })
+
+describe('доки, перечисляющие оси как предмет, не читаются как обещания', () => {
+  /** Проект-инструмент: его доки НАЗЫВАЮТ оси, потому что он их и аудирует. */
+  function toolProject(): string {
+    const root = mkdtempSync(join(tmpdir(), 'symbiont-tool-'))
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ dependencies: {} }))
+    writeFileSync(
+      join(root, 'CONCEPT.md'),
+      [
+        'Инструмент аудита качества. Оси, по которым он судит чужие проекты:',
+        'производительность, SEO и sitemap, доступность и a11y, наблюдаемость и логирование,',
+        'приватность и персональные данные (GDPR), совместимость и браузеры,',
+        'целостность данных и миграции, корректность и тесты.',
+      ].join('\n'),
+    )
+    writeFileSync(join(root, 'cli.ts'), 'export const run = () => 1\n')
+    return root
+  }
+
+  it('вместо вороха ложных заявок — одна честная строка', () => {
+    const root = toolProject()
+    const facts = profileFacts(probeProfile(root, ['package.json', 'CONCEPT.md', 'cli.ts']))
+
+    expect(facts.some((f) => f.statement.includes('перечисляют оси качества как предмет'))).toBe(true)
+    expect(
+      facts.filter((f) => f.statement.includes('заявлена в доках, в коде проекта не обнаружена')),
+      'заявки без кода не должны выводиться как обещания',
+    ).toHaveLength(0)
+
+    rmrf(root)
+  })
+
+  it('ось с настоящими уликами переживает отсев', () => {
+    const root = toolProject()
+    mkdirSync(join(root, '.github', 'workflows'), { recursive: true })
+    writeFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'x')
+    const facts = profileFacts(probeProfile(root, ['package.json', 'CONCEPT.md', 'cli.ts']))
+
+    // поставляемость подтверждена файлом CI, а не только упоминанием в доках
+    expect(facts.some((f) => f.statement.startsWith('поставляемость — ось качества здесь'))).toBe(true)
+    rmrf(root)
+  })
+
+  it('обычный проект, обещающий пару осей, ведёт себя как прежде', () => {
+    const root = mkdtempSync(join(tmpdir(), 'symbiont-normal-'))
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ dependencies: {} }))
+    writeFileSync(join(root, 'README.md'), 'Магазин. SEO для нас критичен: sitemap обязателен.')
+    writeFileSync(join(root, 'app.ts'), 'export const x = 1\n')
+
+    const facts = profileFacts(probeProfile(root, ['package.json', 'README.md', 'app.ts']))
+
+    expect(facts.some((f) => f.statement.includes('перечисляют оси качества как предмет'))).toBe(false)
+    expect(facts.some((f) => f.statement.includes('заявлена в доках, в коде проекта не обнаружена'))).toBe(true)
+
+    rmrf(root)
+  })
+
+  it('проект без доков порога не достигает', () => {
+    const root = mkdtempSync(join(tmpdir(), 'symbiont-nodocs-'))
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ dependencies: {} }))
+    writeFileSync(join(root, 'app.ts'), 'export const x = 1\n')
+
+    const facts = profileFacts(probeProfile(root, ['package.json', 'app.ts']))
+    expect(facts.some((f) => f.statement.includes('перечисляют оси качества как предмет'))).toBe(false)
+
+    rmrf(root)
+  })
+})

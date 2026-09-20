@@ -2277,8 +2277,22 @@ function probeProfile(root, relPaths) {
   probes.push({ axis: "безопасность", evidence: layers });
   return probes;
 }
+function docsAreTaxonomy(probes) {
+  const docsOnly = probes.filter((p) => p.evidence.length === 1 && p.evidence[0] === "заявлено в доках");
+  return docsOnly.length * 2 > DETECTORS.length;
+}
 function profileFacts(probes) {
-  return probes.map((p) => {
+  const taxonomy = docsAreTaxonomy(probes);
+  const kept = taxonomy ? probes.filter((p) => !(p.evidence.length === 1 && p.evidence[0] === "заявлено в доках")) : probes;
+  const note = taxonomy ? [{
+    area: "профиль качества",
+    statement: "доки перечисляют оси качества как предмет — заявки без кода за обещания не считаны",
+    positive: 1,
+    total: 1,
+    prevalence: 1,
+    tier: "гипотеза"
+  }] : [];
+  return [...note, ...kept.map((p) => {
     const n = p.evidence.length;
     if (p.axis === "безопасность") {
       return {
@@ -2299,7 +2313,7 @@ function profileFacts(probes) {
       prevalence: 1,
       tier: n >= 2 ? "привычка" : "гипотеза"
     };
-  });
+  })];
 }
 
 // src/core/statements.ts
@@ -4961,7 +4975,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-e633ffc86509";
+    return "bundle-0f4597bfe50e";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {

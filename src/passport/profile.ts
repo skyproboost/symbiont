@@ -158,9 +158,48 @@ export function probeProfile(root: string, relPaths: string[]): ProfileProbe[] {
   return probes
 }
 
+/**
+ * Доки ПЕРЕЧИСЛЯЮТ оси качества, а не обещают их.
+ *
+ * Детектор читает упоминание оси в доках как заявку проекта. Для инструмента,
+ * чей ПРЕДМЕТ — качество, это систематически ложно: его CONCEPT/README обязаны
+ * называть оси, потому что он их и аудирует. На собственном паспорте Symbiont
+ * так родилось семь строк «заявлена в доках, в коде не обнаружена» из девяти
+ * возможных — включая SEO и доступность у CLI-плагина без единой веб-страницы.
+ * Они занимали бюджет сводки каждую сессию и служили аудиту приманкой.
+ *
+ * Признак — доля ТАКСОНОМИИ, а не абсолютное число: когда заявки без кода
+ * покрывают больше половины всех осей, документ обсуждает качество как предмет.
+ * Проект, обещающий одну-две оси, порога не достигает и ведёт себя как прежде.
+ * Тот же класс, что уже чинился фильтром источника в voiced.ts: собственный
+ * текст инструмента возвращался к нему как чужое свидетельство.
+ */
+function docsAreTaxonomy(probes: ProfileProbe[]): boolean {
+  const docsOnly = probes.filter((p) => p.evidence.length === 1 && p.evidence[0] === 'заявлено в доках')
+  return docsOnly.length * 2 > DETECTORS.length
+}
+
 /** Пробы → факты журнала (area «профиль качества», ключ стабилен по оси). */
 export function profileFacts(probes: ProfileProbe[]): Fact[] {
-  return probes.map((p) => {
+  const taxonomy = docsAreTaxonomy(probes)
+  const kept = taxonomy
+    ? probes.filter((p) => !(p.evidence.length === 1 && p.evidence[0] === 'заявлено в доках'))
+    : probes
+
+  // Молчание здесь было бы решением системы о самой себе — оно названо вслух,
+  // одной честной строкой вместо семи ложных.
+  const note: Fact[] = taxonomy
+    ? [{
+        area: 'профиль качества',
+        statement: 'доки перечисляют оси качества как предмет — заявки без кода за обещания не считаны',
+        positive: 1,
+        total: 1,
+        prevalence: 1,
+        tier: 'гипотеза',
+      }]
+    : []
+
+  return [...note, ...kept.map((p) => {
     const n = p.evidence.length
     if (p.axis === 'безопасность') {
       return {
@@ -191,5 +230,5 @@ export function profileFacts(probes: ProfileProbe[]): Fact[] {
       prevalence: 1,
       tier: n >= 2 ? 'привычка' : 'гипотеза',
     }
-  })
+  })]
 }

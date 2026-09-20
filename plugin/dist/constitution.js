@@ -1,7 +1,7 @@
 import {
   migrateLegacyPassports,
   resolveDataRoot
-} from "./session-start-0j9vg9e7.js";
+} from "./session-start-gffsd4s1.js";
 import {
   initLang,
   init_i18n,
@@ -11,7 +11,7 @@ import {
   slugOf,
   t,
   upsertConstitution
-} from "./session-start-96amykqb.js";
+} from "./session-start-qbns6ty2.js";
 import"./session-start-70d7ckvt.js";
 
 // src/cli/constitution.ts

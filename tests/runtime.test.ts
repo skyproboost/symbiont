@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'bun:test'
 import { inspectRuntime, renderRuntimeWarning, silentSpawnOptions, fileOpener, loadSqliteDriver } from '../src/core/runtime'
+import { setLang } from '../src/core/i18n'
 
 // Наличие драйвера — свойство ЧУЖОЙ машины, поэтому в тестах оно подставляется:
 // иначе проверка описывала бы ту машину, на которой сейчас идёт прогон.
@@ -46,7 +47,7 @@ describe('опознание рантайма', () => {
 
   it('рантайм не опознан — тоже сказано вслух', () => {
     const r = inspectRuntime({}, withoutDriver)
-    expect(r.runtime).toBe('неизвестно')
+    expect(r.runtime).toBe('unknown')
     expect(renderRuntimeWarning(r)).toContain('не опознан')
   })
 
@@ -74,5 +75,36 @@ describe('плагин не показывает окон', () => {
 
   it('оболочка не используется нигде — shell порождает консоль', () => {
     for (const p of ['win32', 'darwin', 'linux']) expect(fileOpener(p).usesShell).toBe(false)
+  })
+})
+
+describe('окружение говорит на языке владельца', () => {
+  it('англоязычному владельцу не приходит кириллицы ни в одной строке', () => {
+    setLang('en')
+    try {
+      const noStorage = inspectRuntime({ node: '20.0.0' }, withoutDriver)
+      const unknown = inspectRuntime({}, withoutDriver)
+
+      for (const p of [...noStorage.problems, ...unknown.problems]) {
+        expect(p, `«${p}» — кириллица в английской подаче`).not.toMatch(/[а-яА-ЯёЁ]/)
+      }
+      const warning = renderRuntimeWarning(noStorage)
+      expect(warning).not.toBe('')
+      expect(warning, `«${warning}» — кириллица в английской подаче`).not.toMatch(/[а-яА-ЯёЁ]/)
+    } finally {
+      setLang('ru')
+    }
+  })
+
+  it('русскоязычному владельцу приходит по-русски', () => {
+    setLang('ru')
+    const r = inspectRuntime({}, withoutDriver)
+    expect(renderRuntimeWarning(r)).toMatch(/[а-яА-ЯёЁ]/)
+  })
+
+  it('значение рантайма — английский идентификатор, а не слово подачи', () => {
+    // 'неизвестно' в типе было русским литералом в КОДЕ против конвенции
+    // «код и идентификаторы — английские»; русская форма рождается на показе
+    expect(inspectRuntime({}, withoutDriver).runtime).toBe('unknown')
   })
 })

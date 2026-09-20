@@ -2,7 +2,7 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-a2ktcn8m.js";
+} from "./session-start-7hrgffrk.js";
 import {
   citedStats
 } from "./session-start-bjm447q5.js";
@@ -14,12 +14,12 @@ import {
   countLessons,
   summaryFor,
   summaryStats
-} from "./session-start-ze4m0brx.js";
+} from "./session-start-p74083vy.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-qd3znkxx.js";
+} from "./session-start-ba11y9ey.js";
 import {
   FactStore,
   REPORTED_WORKS,
@@ -47,7 +47,7 @@ import {
   t,
   tier,
   zoneOfArea
-} from "./session-start-36cgk13y.js";
+} from "./session-start-vjwzy6gb.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -113,7 +113,7 @@ var pad = (s, w) => s.length >= w ? s.slice(0, w - 1) + "…" : s.padEnd(w);
 var num = (n, w) => String(n).padStart(w);
 function runtimeLine() {
   const r = inspectRuntime();
-  const where = r.runtime === "неизвестно" ? t("рантайм не опознан", "runtime not recognised") : `${r.runtime} ${r.version}`;
+  const where = r.runtime === "unknown" ? t("рантайм не опознан", "runtime not recognised") : `${r.runtime} ${r.version}`;
   const verdict = r.hasStorage ? t("хранилище встроено — годится", "storage built in — supported") : t("встроенного хранилища нет — нужен Node 22.13+ или Bun", "no built-in storage — Node 22.13+ or Bun required");
   return ` ${pad(t("Окружение", "Runtime"), 16)} ${where} · ${verdict}`;
 }

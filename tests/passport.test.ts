@@ -144,3 +144,53 @@ describe('профиль качества: заявленное отличает
     expect(facts[0].statement).not.toContain('74')
   })
 })
+
+describe('смешанный стиль называет ОБА полюса', () => {
+  it('строка несёт вторую формулировку, а не только долю', () => {
+    const facts: Fact[] = [
+      {
+        area: 'сравнения',
+        statement: 'сравнение — строгое (=== / !==)',
+        positive: 50,
+        total: 100,
+        prevalence: 0.5,
+        tier: 'нет консенсуса',
+      },
+    ]
+    const md = renderSummary('demo', facts)
+    // «сравнение: 50% / 50%» читается только тем, кто помнит устройство оси
+    expect(md).toContain('строгое (=== / !==) 50%')
+    expect(md).toContain('нестрогое (== / !=) 50%')
+  })
+
+  it('доли не равны — каждая стоит при своём полюсе', () => {
+    const facts: Fact[] = [
+      {
+        area: 'сравнения',
+        statement: 'сравнение — строгое (=== / !==)',
+        positive: 54,
+        total: 100,
+        prevalence: 0.54,
+        tier: 'нет консенсуса',
+      },
+    ]
+    const md = renderSummary('demo', facts)
+    expect(md).toContain('строгое (=== / !==) 54%')
+    expect(md).toContain('нестрогое (== / !=) 46%')
+  })
+
+  it('ось неизвестна — прежняя форма, а не поломка', () => {
+    const facts: Fact[] = [
+      {
+        area: 'выдумка',
+        statement: 'такой оси нет — и не было',
+        positive: 50,
+        total: 100,
+        prevalence: 0.5,
+        tier: 'нет консенсуса',
+      },
+    ]
+    const md = renderSummary('demo', facts)
+    expect(md).toContain('такой оси нет: 50% / 50%')
+  })
+})

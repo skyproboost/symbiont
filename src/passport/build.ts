@@ -16,6 +16,7 @@ import { mutedKeys } from '../gardener/labels'
 import { walkFiles, codeFiles, CODE_EXT } from '../miner/walk'
 import { analyzeFile, aggregate } from '../miner/analyze'
 import { deriveFacts, deriveZoneFacts, zoneOfArea, type Fact } from '../miner/facts'
+import { oppositeLabel } from '../miner/packs'
 import { buildEdges, nodeStats, type NodeStat } from '../graph/graph'
 import { buildEntityGraph, renderEntityBlock, ENTITY_EXT, type EntityGraph } from '../graph/entities'
 import { probeProfile, profileFacts, readConceptText } from './profile'
@@ -139,7 +140,21 @@ export function renderSummary(projectName: string, allFacts: Array<Fact & { sour
   const mixed = facts.filter((f) => f.tier === 'нет консенсуса')
   if (mixed.length > 0) {
     lines.push(`## ${t('Смешанный стиль (единого правила нет)', 'Mixed style (no single rule)')}`, '')
-    for (const f of mixed) lines.push(`- ${statement(f.statement).split('—')[0].trim()}: ${Math.round(f.prevalence * 100)}% / ${100 - Math.round(f.prevalence * 100)}%`)
+    // Оба полюса названы поимённо: «X: 50% / 50%» не говорит, чему противостоят
+    // вторые 50%, и читается только тем, кто помнит устройство оси. Общая голова
+    // выносится вперёд, различающие хвосты идут при своих долях.
+    for (const f of mixed) {
+      const share = Math.round(f.prevalence * 100)
+      const winner = statement(f.statement)
+      const other = oppositeLabel(f.statement)
+      const head = winner.split('—')[0].trim()
+      if (!other) {
+        lines.push(`- ${head}: ${share}% / ${100 - share}%`)
+        continue
+      }
+      const tail = (s: string): string => (s.includes('—') ? s.split('—').slice(1).join('—').trim() : s)
+      lines.push(`- ${head}: ${tail(winner)} ${share}% / ${tail(statement(other))} ${100 - share}%`)
+    }
     lines.push('')
   }
   if (artifactsBlock) lines.push(artifactsBlock, '')

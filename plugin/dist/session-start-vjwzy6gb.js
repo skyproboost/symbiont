@@ -713,27 +713,27 @@ function inspectRuntime(env = {
   if (env.node) {
     const hasStorage = hasDriver("node");
     if (!hasStorage) {
-      problems.push(`Node ${env.node}: встроенного хранилища нет (нужен Node ${NODE_SQLITE_MIN}+ или bun) — паспорт сохранять негде`);
+      problems.push(t(`Node ${env.node}: встроенного хранилища нет (нужен Node ${NODE_SQLITE_MIN}+ или bun) — паспорт сохранять негде`, `Node ${env.node}: no built-in storage (needs Node ${NODE_SQLITE_MIN}+ or bun) — there is nowhere to keep the passport`));
     }
     return { runtime: "node", version: env.node, hasStorage, problems };
   }
-  problems.push("рантайм не опознан: ни bun, ни node не обнаружены");
-  return { runtime: "неизвестно", version: "", hasStorage: false, problems };
+  problems.push(t("рантайм не опознан: ни bun, ни node не обнаружены", "runtime not recognised: neither bun nor node was found"));
+  return { runtime: "unknown", version: "", hasStorage: false, problems };
 }
 function renderRuntimeWarning(r) {
   if (r.problems.length === 0)
     return "";
   return [
-    "- ⚠ Symbiont не может работать в этом окружении:",
+    t("- ⚠ Symbiont не может работать в этом окружении:", "- ⚠ Symbiont cannot work in this environment:"),
     ...r.problems.map((p) => `  ${p}`),
-    "  Плагин ничего не сломает, но паспорт проекта собран не будет."
+    t("  Плагин ничего не сломает, но паспорт проекта собран не будет.", "  The plugin will break nothing, but the project passport will not be built.")
   ].join(`
 `);
 }
 function runtimeBlocker(report = inspectRuntime()) {
   if (report.hasStorage)
     return null;
-  const have = report.runtime === "неизвестно" ? t("ни Node, ни Bun не обнаружены", "neither Node nor Bun was found") : `${report.runtime} ${report.version}`;
+  const have = report.runtime === "unknown" ? t("ни Node, ни Bun не обнаружены", "neither Node nor Bun was found") : `${report.runtime} ${report.version}`;
   return [
     t("Symbiont: это окружение не поддерживается — работа не начата.", "Symbiont: this environment is not supported — no work was started."),
     t(`  на машине: ${have}`, `  on this machine: ${have}`),
@@ -1037,6 +1037,15 @@ function addAxes(into, from) {
     } else
       into[id] = { a: c.a, b: c.b };
   }
+}
+function oppositeLabel(label) {
+  for (const axis of AXES) {
+    if (axis.labelA === label)
+      return axis.labelB;
+    if (axis.labelB === label)
+      return axis.labelA;
+  }
+  return null;
 }
 
 // src/miner/analyze.ts
@@ -4518,6 +4527,7 @@ function revisionsBlock(items) {
   return lines.join(`
 `);
 }
+var SUMMARY_BUDGET = 4000;
 
 // src/miner/noncode.ts
 import { inflateRawSync } from "node:zlib";
@@ -4911,8 +4921,18 @@ function renderSummary(projectName, allFacts, blocks = {}) {
   const mixed = facts.filter((f) => f.tier === "нет консенсуса");
   if (mixed.length > 0) {
     lines.push(`## ${t("Смешанный стиль (единого правила нет)", "Mixed style (no single rule)")}`, "");
-    for (const f of mixed)
-      lines.push(`- ${statement(f.statement).split("—")[0].trim()}: ${Math.round(f.prevalence * 100)}% / ${100 - Math.round(f.prevalence * 100)}%`);
+    for (const f of mixed) {
+      const share = Math.round(f.prevalence * 100);
+      const winner = statement(f.statement);
+      const other = oppositeLabel(f.statement);
+      const head = winner.split("—")[0].trim();
+      if (!other) {
+        lines.push(`- ${head}: ${share}% / ${100 - share}%`);
+        continue;
+      }
+      const tail = (s) => s.includes("—") ? s.split("—").slice(1).join("—").trim() : s;
+      lines.push(`- ${head}: ${tail(winner)} ${share}% / ${tail(statement(other))} ${100 - share}%`);
+    }
     lines.push("");
   }
   if (artifactsBlock)
@@ -4941,7 +4961,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-2627a3835404";
+    return "bundle-9940f3eb8694";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -6292,4 +6312,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, slugOf, handleSessionStart };
+export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, fitToBudget, slugOf, handleSessionStart };

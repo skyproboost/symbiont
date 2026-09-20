@@ -11,7 +11,7 @@
  *
  * Ничего не применяет. Fail-open парс: мусор = ноль предложений, не мусор.
  */
-import { documentsBlock, jsonOnly } from '../layer2/prompt'
+import { documentsBlock, jsonOnly, SUMMARY_BUDGET } from '../layer2/prompt'
 import { challengeProposals } from './challenge'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -22,8 +22,9 @@ import { artifactProfile, activeAxes, type ArtifactClass } from '../passport/art
 import type { LlmCaller } from '../layer2/llm'
 import { walkFiles } from '../miner/walk'
 import { isNonCodeMinable, extractContent } from '../miner/noncode'
-import { detectStack } from '../passport/stack'
+import { detectStack, fileDomains } from '../passport/stack'
 import { playbooksFor } from '../domains/playbooks'
+import { fitToBudget } from '../hooks/session-start-core'
 import { relative, basename } from 'node:path'
 
 export type Scope = 'локальное' | 'модуль' | 'архитектура' | 'концепция'
@@ -54,6 +55,12 @@ export interface ElevateContext {
   stack: { frameworks: string[]; infra: string[]; domains: string[]; otherDeps: string[]; evidence?: Record<string, string> }
   /** Что владелец уже решил по прошлым предложениям; пусто — памяти ещё нет */
   verdictsBlock: string
+  /** Где лежит полная сводка — маркер остатка при укладке в бюджет промпта */
+  summaryPath: string
+  /** Сколько файлов проекта относится к направлению — масса, а не факт наличия */
+  domainMass: Record<string, number>
+  /** Всего файлов в обходе — знаменатель доли направления */
+  totalFiles: number
 }
 
 const SAMPLE_FILES = 8
@@ -75,6 +82,13 @@ export function buildContext(projectRoot: string, dataDir: string, presentOverri
   // рубрика молча схлопывалась до кода. Тот же счёт по тем же данным — дешевле
   // и не зависит от того, на каком языке паспорт показали человеку.
   const walked = walkSafe(projectRoot)
+  // Масса направления считается тем же обходом, что и состав: направление
+  // «обнаружено» и направление «весит» — разные вещи, и плейбук стоит бюджета
+  // только во втором случае.
+  const domainMass: Record<string, number> = {}
+  for (const f of walked) {
+    for (const d of fileDomains(f.path)) domainMass[d] = (domainMass[d] ?? 0) + 1
+  }
   const profile = artifactProfile(walked.map((f) => ({ name: basename(f.path), ext: f.ext })))
   const classes = presentOverride ?? (profile.present.length > 0 ? profile.present : (['код'] as ArtifactClass[]))
   const rubric = axesForArtifacts(classes)
@@ -112,7 +126,35 @@ export function buildContext(projectRoot: string, dataDir: string, presentOverri
   const stack = detectStack(projectRoot, walked.map((f) => relative(projectRoot, f.path).replaceAll('\\', '/')))
   const playbooks = playbooksFor(stack).map((p) => ({ domain: p.domain, checklist: p.checklist, thresholds: p.thresholds, pitfalls: p.pitfalls }))
 
-  return { summary, activeAxes: axesActive, rubric, samples, playbooks, stack, verdictsBlock }
+  return {
+    summary,
+    activeAxes: axesActive,
+    rubric,
+    samples,
+    playbooks,
+    stack,
+    verdictsBlock,
+    summaryPath: join(dataDir, 'SUMMARY.md'),
+    domainMass,
+    totalFiles: walked.length,
+  }
+}
+
+/**
+ * Весит ли направление столько, чтобы его плейбук занимал бюджет промпта.
+ *
+ * Порог по образцу присутствия языка (miner/facts.ts): направление, под которым
+ * лежит пара файлов, называется в стеке, но не тянет в аудит полный чек-лист
+ * своего домена — иначе Core Web Vitals обсуждаются в CLI-плагине с тремя
+ * файлами разметки, отнимая внимание у осей, под которыми лежит вся масса.
+ * Достаточно ОДНОГО из двух условий, как и у языков.
+ */
+const MIN_DOMAIN_SHARE = 0.05
+const MIN_DOMAIN_FILES = 30
+
+export function domainHasMass(files: number, totalFiles: number): boolean {
+  if (files >= MIN_DOMAIN_FILES) return true
+  return totalFiles > 0 && files / totalFiles >= MIN_DOMAIN_SHARE
 }
 
 /** Обход проекта; недоступный корень — не повод ронять аудит. */
@@ -153,16 +195,22 @@ export function buildElevatePrompt(ctx: ElevateContext): string {
     .map((a) => `- ${a.axis}${a.iso ? ` [ISO ${a.iso}]` : ''}: ${a.lens}. Смотреть: ${a.checks.join('; ')}.${a.thresholds ? ` Пороги: ${a.thresholds.join('; ')}.` : ''}`)
     .join('\n')
   const principles = DESIGN_PRINCIPLES.map((p) => `- ${p.rule}`).join('\n')
-  const playbookBlock = ctx.playbooks.length > 0
+  // Плейбук занимает бюджет только там, где под направлением лежит материал.
+  // Лёгкое направление не замалчивается — оно называется строкой, иначе аудитор
+  // решит, что его не обнаружили вовсе.
+  const heavy = ctx.playbooks.filter((p) => domainHasMass(ctx.domainMass[p.domain] ?? 0, ctx.totalFiles))
+  const light = ctx.playbooks.filter((p) => !heavy.includes(p))
+  const playbookBlock = heavy.length > 0 || light.length > 0
     ? [
         '',
         '## Доменная экспертиза активных направлений (топ-уровень; заземлено на стандарты)',
-        ...ctx.playbooks.flatMap((p) => [
+        ...heavy.flatMap((p) => [
           `### ${p.domain}`,
           `эталон: ${p.checklist.slice(0, 8).join('; ')}`,
           p.thresholds && p.thresholds.length ? `пороги: ${p.thresholds.join(' · ')}` : '',
           `частые провалы: ${p.pitfalls.join('; ')}`,
         ]).filter(Boolean),
+        ...light.map((p) => `### ${p.domain}\nнаправление обнаружено, масса мала (${ctx.domainMass[p.domain] ?? 0} из ${ctx.totalFiles} файлов) — плейбук не активирован`),
       ].join('\n')
     : ''
   const st = ctx.stack
@@ -181,7 +229,10 @@ export function buildElevatePrompt(ctx: ElevateContext): string {
     'ВАЖНО: НЕ используй инструменты и НЕ читай файлы — весь нужный контекст (паспорт, оси, фрагменты) уже приведён ниже. Ответь напрямую JSON-ом за один ход.',
     '',
     '## Паспорт проекта (уже выведен системой)',
-    ctx.summary.slice(0, 4000),
+    // Не срез по символу: он приходился на середину строки, и аудитор рассуждал
+    // над обрезанным профилем качества, не зная об этом. Та же дисциплина, что
+    // у подачи в сессию, — поштучно по секциям и с явным остатком.
+    fitToBudget(ctx.summary, SUMMARY_BUDGET, ctx.summaryPath),
     '',
     stackLine ? `## Обнаруженный стек\n${stackLine}` : '',
     'Для технологий/направлений стека, по которым НИЖЕ нет готового плейбука, применяй СВОЮ актуальную (2026) экспертизу топ-уровня по этой конкретной технологии — не ограничивайся приведёнными плейбуками.',

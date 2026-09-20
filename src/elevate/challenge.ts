@@ -25,7 +25,8 @@
  * есть: потерять верную находку из-за недоступности проверяющего хуже, чем
  * показать её непроверенной. Ровно так же ведёт себя `--ground`.
  */
-import { documentsBlock, jsonOnly } from '../layer2/prompt'
+import { documentsBlock, jsonOnly, SUMMARY_BUDGET } from '../layer2/prompt'
+import { fitToBudget } from '../hooks/session-start-core'
 import type { LlmCaller } from '../layer2/llm'
 import type { ElevateContext, Proposal } from './engine'
 
@@ -89,7 +90,10 @@ export function buildChallengePrompt(proposals: Proposal[], ctx: ElevateContext)
     'ВАЖНО: НЕ используй инструменты и НЕ читай файлы — весь доступный контекст приведён ниже. Ответь напрямую JSON-ом за один ход.',
     '',
     '## Паспорт проекта (выведен системой из кода)',
-    ctx.summary.slice(0, 4000),
+    // Тот же бюджет и та же укладка, что у аудитора: срез по символу дал бы
+    // проверяющему обрезанный паспорт, то есть снова меньше материала, чем было
+    // у обвинителя
+    fitToBudget(ctx.summary, SUMMARY_BUDGET, ctx.summaryPath),
     '',
     stackLine ? `## Обнаруженный стек\n${stackLine}` : '',
     axesBlock ? `\n## Оси, по которым сделаны находки\n${axesBlock}` : '',

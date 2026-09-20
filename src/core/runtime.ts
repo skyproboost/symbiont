@@ -24,7 +24,7 @@ import { t } from './i18n'
 
 export interface RuntimeReport {
   /** на чём мы сейчас исполняемся */
-  runtime: 'bun' | 'node' | 'неизвестно'
+  runtime: 'bun' | 'node' | 'unknown'
   version: string
   /** есть ли встроенное хранилище — без него паспорт хранить негде */
   hasStorage: boolean
@@ -68,14 +68,14 @@ export function inspectRuntime(
     const hasStorage = hasDriver('node')
     if (!hasStorage) {
       problems.push(
-        `Node ${env.node}: встроенного хранилища нет (нужен Node ${NODE_SQLITE_MIN}+ или bun) — паспорт сохранять негде`,
+        t(`Node ${env.node}: встроенного хранилища нет (нужен Node ${NODE_SQLITE_MIN}+ или bun) — паспорт сохранять негде`, `Node ${env.node}: no built-in storage (needs Node ${NODE_SQLITE_MIN}+ or bun) — there is nowhere to keep the passport`),
       )
     }
     return { runtime: 'node', version: env.node, hasStorage, problems }
   }
 
-  problems.push('рантайм не опознан: ни bun, ни node не обнаружены')
-  return { runtime: 'неизвестно', version: '', hasStorage: false, problems }
+  problems.push(t('рантайм не опознан: ни bun, ни node не обнаружены', 'runtime not recognised: neither bun nor node was found'))
+  return { runtime: 'unknown', version: '', hasStorage: false, problems }
 }
 
 /**
@@ -85,9 +85,9 @@ export function inspectRuntime(
 export function renderRuntimeWarning(r: RuntimeReport): string {
   if (r.problems.length === 0) return ''
   return [
-    '- ⚠ Symbiont не может работать в этом окружении:',
+    t('- ⚠ Symbiont не может работать в этом окружении:', '- ⚠ Symbiont cannot work in this environment:'),
     ...r.problems.map((p) => `  ${p}`),
-    '  Плагин ничего не сломает, но паспорт проекта собран не будет.',
+    t('  Плагин ничего не сломает, но паспорт проекта собран не будет.', '  The plugin will break nothing, but the project passport will not be built.'),
   ].join('\n')
 }
 
@@ -108,7 +108,7 @@ export function renderRuntimeWarning(r: RuntimeReport): string {
 export function runtimeBlocker(report: RuntimeReport = inspectRuntime()): string | null {
   if (report.hasStorage) return null
   const have =
-    report.runtime === 'неизвестно'
+    report.runtime === 'unknown'
       ? t('ни Node, ни Bun не обнаружены', 'neither Node nor Bun was found')
       : `${report.runtime} ${report.version}`
   return [

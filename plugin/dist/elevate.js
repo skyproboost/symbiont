@@ -5,8 +5,8 @@ import {
 import {
   callClaudeDetailed,
   callClaudeWithTools
-} from "./session-start-7h2ftnn6.js";
-import"./session-start-a2ktcn8m.js";
+} from "./session-start-3fanrc7e.js";
+import"./session-start-7hrgffrk.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -16,14 +16,17 @@ import {
   renderRootNotice,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-qd3znkxx.js";
+} from "./session-start-ba11y9ey.js";
 import {
+  SUMMARY_BUDGET,
   activeAxes,
   artifactProfile,
   codeFiles,
   detectStack,
   documentsBlock,
   extractContent,
+  fileDomains,
+  fitToBudget,
   initLang,
   init_i18n,
   init_walk,
@@ -34,7 +37,7 @@ import {
   slugOf,
   t,
   walkFiles
-} from "./session-start-36cgk13y.js";
+} from "./session-start-vjwzy6gb.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -67,7 +70,7 @@ function buildChallengePrompt(proposals, ctx) {
     "ВАЖНО: НЕ используй инструменты и НЕ читай файлы — весь доступный контекст приведён ниже. Ответь напрямую JSON-ом за один ход.",
     "",
     "## Паспорт проекта (выведен системой из кода)",
-    ctx.summary.slice(0, 4000),
+    fitToBudget(ctx.summary, SUMMARY_BUDGET, ctx.summaryPath),
     "",
     stackLine ? `## Обнаруженный стек
 ${stackLine}` : "",
@@ -247,6 +250,11 @@ function buildContext(projectRoot, dataDir, presentOverride) {
     summary = readFileSync(join(dataDir, "SUMMARY.md"), "utf8");
   } catch {}
   const walked = walkSafe(projectRoot);
+  const domainMass = {};
+  for (const f of walked) {
+    for (const d of fileDomains(f.path))
+      domainMass[d] = (domainMass[d] ?? 0) + 1;
+  }
   const profile = artifactProfile(walked.map((f) => ({ name: basename(f.path), ext: f.ext })));
   const classes = presentOverride ?? (profile.present.length > 0 ? profile.present : ["код"]);
   const rubric = axesForArtifacts(classes);
@@ -276,7 +284,25 @@ function buildContext(projectRoot, dataDir, presentOverride) {
   }
   const stack = detectStack(projectRoot, walked.map((f) => relative(projectRoot, f.path).replaceAll("\\", "/")));
   const playbooks = playbooksFor(stack).map((p) => ({ domain: p.domain, checklist: p.checklist, thresholds: p.thresholds, pitfalls: p.pitfalls }));
-  return { summary, activeAxes: axesActive, rubric, samples, playbooks, stack, verdictsBlock };
+  return {
+    summary,
+    activeAxes: axesActive,
+    rubric,
+    samples,
+    playbooks,
+    stack,
+    verdictsBlock,
+    summaryPath: join(dataDir, "SUMMARY.md"),
+    domainMass,
+    totalFiles: walked.length
+  };
+}
+var MIN_DOMAIN_SHARE = 0.05;
+var MIN_DOMAIN_FILES = 30;
+function domainHasMass(files, totalFiles) {
+  if (files >= MIN_DOMAIN_FILES)
+    return true;
+  return totalFiles > 0 && files / totalFiles >= MIN_DOMAIN_SHARE;
 }
 function walkSafe(projectRoot) {
   try {
@@ -310,15 +336,19 @@ function buildElevatePrompt(ctx) {
 `);
   const principles = DESIGN_PRINCIPLES.map((p) => `- ${p.rule}`).join(`
 `);
-  const playbookBlock = ctx.playbooks.length > 0 ? [
+  const heavy = ctx.playbooks.filter((p) => domainHasMass(ctx.domainMass[p.domain] ?? 0, ctx.totalFiles));
+  const light = ctx.playbooks.filter((p) => !heavy.includes(p));
+  const playbookBlock = heavy.length > 0 || light.length > 0 ? [
     "",
     "## Доменная экспертиза активных направлений (топ-уровень; заземлено на стандарты)",
-    ...ctx.playbooks.flatMap((p) => [
+    ...heavy.flatMap((p) => [
       `### ${p.domain}`,
       `эталон: ${p.checklist.slice(0, 8).join("; ")}`,
       p.thresholds && p.thresholds.length ? `пороги: ${p.thresholds.join(" · ")}` : "",
       `частые провалы: ${p.pitfalls.join("; ")}`
-    ]).filter(Boolean)
+    ]).filter(Boolean),
+    ...light.map((p) => `### ${p.domain}
+направление обнаружено, масса мала (${ctx.domainMass[p.domain] ?? 0} из ${ctx.totalFiles} файлов) — плейбук не активирован`)
   ].join(`
 `) : "";
   const st = ctx.stack;
@@ -334,7 +364,7 @@ function buildElevatePrompt(ctx) {
     "ВАЖНО: НЕ используй инструменты и НЕ читай файлы — весь нужный контекст (паспорт, оси, фрагменты) уже приведён ниже. Ответь напрямую JSON-ом за один ход.",
     "",
     "## Паспорт проекта (уже выведен системой)",
-    ctx.summary.slice(0, 4000),
+    fitToBudget(ctx.summary, SUMMARY_BUDGET, ctx.summaryPath),
     "",
     stackLine ? `## Обнаруженный стек
 ${stackLine}` : "",

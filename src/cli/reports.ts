@@ -57,7 +57,7 @@ const num = (n: number, w: number): string => String(n).padStart(w)
  */
 export function runtimeLine(): string {
   const r = inspectRuntime()
-  const where = r.runtime === 'неизвестно' ? t('рантайм не опознан', 'runtime not recognised') : `${r.runtime} ${r.version}`
+  const where = r.runtime === 'unknown' ? t('рантайм не опознан', 'runtime not recognised') : `${r.runtime} ${r.version}`
   const verdict = r.hasStorage
     ? t('хранилище встроено — годится', 'storage built in — supported')
     : t('встроенного хранилища нет — нужен Node 22.13+ или Bun', 'no built-in storage — Node 22.13+ or Bun required')

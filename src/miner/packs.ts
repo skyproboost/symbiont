@@ -270,3 +270,20 @@ export function addAxes(into: AxisCounts, from: AxisCounts): void {
     } else into[id] = { a: c.a, b: c.b }
   }
 }
+
+/**
+ * Второй полюс оси по её первому.
+ *
+ * Факт хранит ОДИН ярлык — тот, что победил (`c.a >= c.b ? labelA : labelB`).
+ * Для яруса «нет консенсуса» этого мало: строка «filter/map/reduce: 50% / 50%»
+ * не говорит, чему противостоят вторые 50%, и читается только тем, кто знает
+ * устройство майнера. Обе формулировки уже существуют парой — достаточно найти
+ * ось по любой из них.
+ */
+export function oppositeLabel(label: string): string | null {
+  for (const axis of AXES) {
+    if (axis.labelA === label) return axis.labelB
+    if (axis.labelB === label) return axis.labelA
+  }
+  return null
+}

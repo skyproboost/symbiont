@@ -39,7 +39,7 @@ describe('сообщение о неподходящем окружении', ()
 
   it('рантайм не опознан — тоже объясняется, а не молчит', () => {
     setLang('ru')
-    const msg = runtimeBlocker({ runtime: 'неизвестно', version: '', hasStorage: false, problems: ['x'] }) ?? ''
+    const msg = runtimeBlocker({ runtime: 'unknown', version: '', hasStorage: false, problems: ['x'] }) ?? ''
     expect(msg).toContain('ни Node, ни Bun')
   })
 

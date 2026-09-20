@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb } from '../src/core/db'
-import { buildContext, buildElevatePrompt, parseProposals, runElevate, renderProposals } from '../src/elevate/engine'
+import { buildContext, buildElevatePrompt, parseProposals, runElevate, renderProposals, domainHasMass } from '../src/elevate/engine'
 import { recordVerdict, readVerdicts, renderVerdictsForPrompt, renderVerdicts } from '../src/elevate/verdicts'
 
 const SUMMARY_MIXED = `# Паспорт проекта «x»
@@ -201,5 +201,89 @@ describe('память аудита о решениях владельца', () 
     const db = openDb(':memory:')
     expect(readVerdicts(db)).toEqual([])
     db.close()
+  })
+})
+
+describe('паспорт укладывается в промпт по строкам, а не срезом', () => {
+  const longSummary = () => {
+    const lines = ['# Паспорт проекта «x»', '', '## Состав проекта (из чего сделан)', '']
+    for (let i = 0; i < 60; i++) lines.push(`- наблюдение ${i} — довольно длинная строка про устройство проекта и его конвенции`)
+    lines.push('', '## Профиль качества', '')
+    for (let i = 0; i < 60; i++) lines.push(`- ось качества ${i} — что она значит здесь и почему она активна именно в этом проекте`)
+    lines.push('', '- активные оси качества: безопасность, корректность, находимость/SEO')
+    return lines.join('\n')
+  }
+
+  it('не обрывает строку посередине', () => {
+    const { proj, dataDir } = world(longSummary())
+    const prompt = buildElevatePrompt(buildContext(proj, dataDir))
+
+    // граница секции паспорта в промпте — следующий заголовок верхнего уровня
+    const body = prompt.slice(prompt.indexOf('## Паспорт проекта'))
+    const passport = body.slice(0, body.indexOf('\n## Обнаруженный стек') + 1 || undefined)
+    for (const line of passport.split('\n')) {
+      if (!line.startsWith('- наблюдение') && !line.startsWith('- ось качества')) continue
+      expect(line, `оборванная строка: «${line}»`).toMatch(/(конвенции|проекте)$/)
+    }
+
+    rmrf(proj); rmrf(dataDir)
+  })
+
+  it('называет, сколько строк осталось за кадром', () => {
+    const { proj, dataDir } = world(longSummary())
+    const prompt = buildElevatePrompt(buildContext(proj, dataDir))
+    expect(prompt).toMatch(/ещё \d+|\d+ more/)
+    rmrf(proj); rmrf(dataDir)
+  })
+
+  it('короткий паспорт проходит целиком и без маркеров', () => {
+    const { proj, dataDir } = world()
+    const prompt = buildElevatePrompt(buildContext(proj, dataDir))
+    expect(prompt).toContain('активные оси качества')
+    expect(prompt).not.toMatch(/обрезано; полная версия|truncated; full version/)
+    rmrf(proj); rmrf(dataDir)
+  })
+
+  it('контекст несёт путь к полной сводке — иначе маркеру некуда указать', () => {
+    const { proj, dataDir } = world()
+    expect(buildContext(proj, dataDir).summaryPath).toContain('SUMMARY.md')
+    rmrf(proj); rmrf(dataDir)
+  })
+})
+
+describe('плейбук направления входит в промпт по массе, а не по наличию', () => {
+  it('порог — как у присутствия языка: хватает одного из двух условий', () => {
+    expect(domainHasMass(30, 10_000)).toBe(true) // абсолютное число
+    expect(domainHasMass(5, 100)).toBe(true) // доля 5%
+    expect(domainHasMass(29, 10_000)).toBe(false) // ни числа, ни доли
+    expect(domainHasMass(4, 100)).toBe(false)
+  })
+
+  it('пустой проект не делит на ноль', () => {
+    expect(domainHasMass(0, 0)).toBe(false)
+  })
+
+  it('лёгкое направление названо, но чек-лист не развёрнут', () => {
+    const ctx = {
+      ...buildContext(...(() => { const w = world(); return [w.proj, w.dataDir] as const })()),
+      playbooks: [{ domain: 'фронтенд', checklist: ['LCP p75', 'INP p75'], thresholds: ['CLS < 0.1'], pitfalls: ['гидрация'] }],
+      domainMass: { фронтенд: 2 },
+      totalFiles: 400,
+    }
+    const prompt = buildElevatePrompt(ctx)
+    expect(prompt).toContain('масса мала (2 из 400 файлов)')
+    expect(prompt).not.toContain('LCP p75')
+  })
+
+  it('тяжёлое направление разворачивается полностью', () => {
+    const ctx = {
+      ...buildContext(...(() => { const w = world(); return [w.proj, w.dataDir] as const })()),
+      playbooks: [{ domain: 'фронтенд', checklist: ['LCP p75', 'INP p75'], thresholds: ['CLS < 0.1'], pitfalls: ['гидрация'] }],
+      domainMass: { фронтенд: 200 },
+      totalFiles: 400,
+    }
+    const prompt = buildElevatePrompt(ctx)
+    expect(prompt).toContain('LCP p75')
+    expect(prompt).not.toContain('масса мала')
   })
 })

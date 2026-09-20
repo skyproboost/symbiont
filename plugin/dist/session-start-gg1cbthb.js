@@ -2,7 +2,7 @@ import {
   digestForFile,
   readGrounding,
   renderCorrection
-} from "./session-start-xz0anara.js";
+} from "./session-start-54w8t7d2.js";
 import {
   indexedHash,
   readOutline
@@ -17,10 +17,10 @@ import {
   markUsed,
   nodeBrief,
   outlineKey
-} from "./session-start-aya35p7m.js";
+} from "./session-start-dnp48yng.js";
 import {
   zoneOf
-} from "./session-start-vfx505v5.js";
+} from "./session-start-qzttkf2t.js";
 import {
   EDIT_TOUCH_WEIGHT,
   FactStore,
@@ -48,7 +48,7 @@ import {
   t,
   zoneAncestors,
   zoneOfArea
-} from "./session-start-99y99kna.js";
+} from "./session-start-7vrrdvrv.js";
 
 // src/hooks/post-tool-core.ts
 init_i18n();

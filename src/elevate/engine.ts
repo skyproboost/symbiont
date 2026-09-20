@@ -3,14 +3,16 @@
  *
  * Собирает контекст (паспорт: состав артефактов + активные оси + профиль +
  * конституция + выборка самых связных файлов) + применимые оси рубрики +
- * принципы «от обратного» → один LLM-проход, выдающий РАНЖИРОВАННЫЕ
- * предложения по возвышению до топ-1. Встроенная состязательная самопроверка:
- * каждое предложение обязано пройти попытку опровержения (дефолт концепта —
- * симулированная проверка в размышлении дешевле реальной панели).
+ * принципы «от обратного» → LLM-проход, выдающий РАНЖИРОВАННЫЕ предложения по
+ * возвышению до топ-1. Затем находки уходят во второй, НЕЗАЯКОРЕННЫЙ вызов
+ * (`challenge.ts`): он судит их, не видя рассуждения первого прохода. Прежняя
+ * самопроверка внутри одного промпта осталась — она отсеивает явный брак
+ * дешевле, — но последнее слово за проверяющим, которому не с чем соглашаться.
  *
  * Ничего не применяет. Fail-open парс: мусор = ноль предложений, не мусор.
  */
 import { documentsBlock, jsonOnly } from '../layer2/prompt'
+import { challengeProposals } from './challenge'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDb } from '../core/db'
@@ -203,6 +205,16 @@ export function buildElevatePrompt(ctx: ElevateContext): string {
   ].join('\n')
 }
 
+/**
+ * Ранжирование: уверенность × вес охвата (радиус влияния — прокси через scope).
+ * Вынесено, потому что порядок пересчитывается и после незаякоренной проверки:
+ * два места, считающие ранг по-своему, разъехались бы молча.
+ */
+export function rankProposals(list: Proposal[]): Proposal[] {
+  const scopeWeight: Record<Scope, number> = { концепция: 1.3, архитектура: 1.2, модуль: 1.05, локальное: 1 }
+  return [...list].sort((a, b) => b.confidence * scopeWeight[b.scope] - a.confidence * scopeWeight[a.scope])
+}
+
 /** Строгий разбор: мусор = пустой список. Отсев по порогу уверенности и провалу опровержения. */
 export function parseProposals(text: string, threshold = DEFAULT_THRESHOLD): Proposal[] {
   try {
@@ -235,9 +247,7 @@ export function parseProposals(text: string, threshold = DEFAULT_THRESHOLD): Pro
         survivesRefutation: true,
       })
     }
-    // Ранжирование: уверенность × вес охвата (радиус влияния — прокси через scope)
-    const scopeWeight: Record<Scope, number> = { концепция: 1.3, архитектура: 1.2, модуль: 1.05, локальное: 1 }
-    return out.sort((a, b) => b.confidence * scopeWeight[b.scope] - a.confidence * scopeWeight[a.scope])
+    return rankProposals(out)
   } catch {
     return []
   }
@@ -247,11 +257,27 @@ export interface ElevateResult {
   model: string | null
   proposals: Proposal[]
   axesConsidered: string[]
+  /** Незаякоренная проверка состоялась (а не деградировала в no-op) */
+  challenged: boolean
+  /** Сколько находок проверяющий снял */
+  challengeCut: number
 }
 
-export function runElevate(projectRoot: string, dataDir: string, caller: LlmCaller, threshold = DEFAULT_THRESHOLD): ElevateResult {
+export interface ElevateOptions {
+  /** Выключает второй проход — для тестов первого прохода и для отладки промпта */
+  challenge?: boolean
+}
+
+export function runElevate(
+  projectRoot: string,
+  dataDir: string,
+  caller: LlmCaller,
+  threshold = DEFAULT_THRESHOLD,
+  options: ElevateOptions = {}
+): ElevateResult {
   const ctx = buildContext(projectRoot, dataDir)
-  if (ctx.rubric.length === 0) return { model: null, proposals: [], axesConsidered: [] }
+  const empty = { challenged: false, challengeCut: 0 }
+  if (ctx.rubric.length === 0) return { model: null, proposals: [], axesConsidered: [], ...empty }
   const res = caller(buildElevatePrompt(ctx))
   // сырой ответ на диск — вскрываемость отфильтрованного нуля
   try {
@@ -260,16 +286,33 @@ export function runElevate(projectRoot: string, dataDir: string, caller: LlmCall
   } catch {
     /* диагностика необязательна */
   }
-  if (!res) return { model: null, proposals: [], axesConsidered: ctx.rubric.map((a) => a.axis) }
-  return { model: res.model, proposals: parseProposals(res.text, threshold), axesConsidered: ctx.rubric.map((a) => a.axis) }
+  const axesConsidered = ctx.rubric.map((a) => a.axis)
+  if (!res) return { model: null, proposals: [], axesConsidered, ...empty }
+
+  const first = parseProposals(res.text, threshold)
+  if (options.challenge === false) return { model: res.model, proposals: first, axesConsidered, ...empty }
+
+  // Второй вызов судит находки, не видя рассуждения, которым они получены:
+  // самопроверка внутри одного контекста подтверждает связность, а не истину.
+  const checked = challengeProposals(first, ctx, caller, threshold, dataDir)
+  return {
+    model: res.model,
+    proposals: rankProposals(checked.proposals),
+    axesConsidered,
+    challenged: checked.applied,
+    challengeCut: checked.cut,
+  }
 }
 
 export function renderProposals(r: ElevateResult): string {
   if (!r.model) return 'Symbiont · возвышение: модели цепочки недоступны или паспорт не построен.'
+  // Снятое проверяющим называется вслух: иначе «предложений нет» неотличимо от
+  // «аудит ничего не нашёл», и владелец не знает, что находки были и не прошли.
+  const cutNote = r.challengeCut > 0 ? ` · независимая проверка сняла ${r.challengeCut}` : ''
   if (r.proposals.length === 0) {
-    return `Symbiont · возвышение · оси рассмотрены: ${r.axesConsidered.join(', ')}.\nПредложений выше порога уверенности нет — по рассмотренным зонам проект здоров (это достойный результат, не пустой).`
+    return `Symbiont · возвышение · оси рассмотрены: ${r.axesConsidered.join(', ')}${cutNote}.\nПредложений выше порога уверенности нет — по рассмотренным зонам проект здоров (это достойный результат, не пустой).`
   }
-  const L = [`Symbiont · возвышение · ${r.proposals.length} предложений (модель ${r.model}), ранжировано по влиянию:`, '']
+  const L = [`Symbiont · возвышение · ${r.proposals.length} предложений (модель ${r.model})${cutNote}, ранжировано по влиянию:`, '']
   let i = 1
   for (const p of r.proposals) {
     L.push(`${i}. [${p.axis} · ${p.scope} · уверенность ${p.confidence} · усилие ${p.effort} · риск ${p.risk}]`)

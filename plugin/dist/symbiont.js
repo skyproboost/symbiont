@@ -2,7 +2,7 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-3gtfwp84.js";
+} from "./session-start-hm4ztb67.js";
 import {
   citedStats
 } from "./session-start-bjm447q5.js";
@@ -14,12 +14,12 @@ import {
   countLessons,
   summaryFor,
   summaryStats
-} from "./session-start-vfx505v5.js";
+} from "./session-start-qzttkf2t.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-5p4d188q.js";
+} from "./session-start-2ys55pp8.js";
 import {
   FactStore,
   REPORTED_WORKS,
@@ -47,7 +47,7 @@ import {
   t,
   tier,
   zoneOfArea
-} from "./session-start-99y99kna.js";
+} from "./session-start-7vrrdvrv.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";

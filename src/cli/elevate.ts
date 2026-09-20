@@ -1,6 +1,7 @@
 /**
  * CLI /sym-elevate: глубокий аудит возвышения проекта.
- * Явный дорогой проход (один LLM-вызов по цепочке фолбэков). Ничего не применяет.
+ * Явный дорогой проход по цепочке фолбэков — аудит, затем независимая проверка
+ * его находок вторым вызовом (см. elevate/challenge.ts). Ничего не применяет.
  *
  * Два режима записи решения владельца — без них аудит безпамятен и предлагает
  * отклонённое снова каждый прогон (см. elevate/verdicts.ts):
@@ -101,14 +102,16 @@ if (verb === 'решения') {
   // порог уверенности можно задать аргументом: /sym-elevate 80
   const threshold = Number(args.find((a) => /^\d+$/.test(a))) || 70
 
-  console.log(t('Symbiont · возвышение · глубокий аудит проекта (один LLM-проход)…', 'Symbiont · elevation · deep project audit (a single LLM pass)…'))
+  console.log(t('Symbiont · возвышение · глубокий аудит проекта (проход аудита + независимая проверка находок)…', 'Symbiont · elevation · deep project audit (an audit pass plus an independent check of its findings)…'))
   const rootNotice = renderRootNotice(res)
   if (rootNotice) console.log(rootNotice)
   const t0 = performance.now()
   let attempts: LlmAttempt[] = []
   const r = runElevate(root, dataDir, (prompt) => {
     const o = callClaudeDetailed(prompt, { intent: 'deep', dataDir }) // критичный проход — сильнейшая модель первой
-    attempts = o.tried
+    // накопление, а не присваивание: проходов теперь два, и пробы второго
+    // затирали бы пробы первого — владелец видел бы половину картины
+    attempts = attempts.concat(o.tried)
     return o.result
   }, threshold)
   const sec = Math.round((performance.now() - t0) / 1000)

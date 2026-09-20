@@ -5,8 +5,8 @@ import {
 import {
   callClaudeDetailed,
   callClaudeWithTools
-} from "./session-start-wcaj7r0y.js";
-import"./session-start-3gtfwp84.js";
+} from "./session-start-m9rykj2g.js";
+import"./session-start-hm4ztb67.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -16,7 +16,7 @@ import {
   renderRootNotice,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-5p4d188q.js";
+} from "./session-start-2ys55pp8.js";
 import {
   activeAxes,
   artifactProfile,
@@ -34,7 +34,7 @@ import {
   slugOf,
   t,
   walkFiles
-} from "./session-start-99y99kna.js";
+} from "./session-start-7vrrdvrv.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -42,6 +42,127 @@ import {
 // src/cli/elevate.ts
 import { join as join3 } from "node:path";
 import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
+
+// src/elevate/challenge.ts
+function buildChallengePrompt(proposals, ctx) {
+  const st = ctx.stack;
+  const stackLine = [
+    st.frameworks.length ? `фреймворки: ${st.frameworks.join(", ")}` : "",
+    st.infra.length ? `инфра: ${st.infra.join(", ")}` : "",
+    st.domains.length ? `направления: ${st.domains.join(", ")}` : ""
+  ].filter(Boolean).join(" · ");
+  const findings = proposals.map((p, i) => [
+    `${i + 1}. ось: ${p.axis} · охват: ${p.scope}`,
+    `   наблюдение: ${p.observation}`,
+    `   предложение: ${p.proposal}`
+  ].join(`
+`)).join(`
+`);
+  const usedAxes = new Set(proposals.map((p) => p.axis));
+  const axesBlock = ctx.rubric.filter((a) => usedAxes.has(a.axis)).map((a) => `- ${a.axis} — ${a.lens}`).join(`
+`);
+  return [
+    "Ты — независимый проверяющий. Ниже — находки аудита этого проекта, сделанные ДРУГИМ аудитором, рассуждения которого тебе не показаны и не будут показаны.",
+    "Материал у тебя тот же, что был у него: паспорт, стек, оси и фрагменты файлов. Не показан только ход его мысли — суждение выноси своё.",
+    "ВАЖНО: НЕ используй инструменты и НЕ читай файлы — весь доступный контекст приведён ниже. Ответь напрямую JSON-ом за один ход.",
+    "",
+    "## Паспорт проекта (выведен системой из кода)",
+    ctx.summary.slice(0, 4000),
+    "",
+    stackLine ? `## Обнаруженный стек
+${stackLine}` : "",
+    axesBlock ? `
+## Оси, по которым сделаны находки
+${axesBlock}` : "",
+    "",
+    "## Фрагменты самых связных файлов",
+    documentsBlock(ctx.samples),
+    "",
+    "## Находки на проверку",
+    findings,
+    "",
+    "## Как судить",
+    "- «снять» — если находка ссылается на код, которого в приведённых фрагментах нет (материал у аудитора был тот же, значит подробность выдумана); если причина кода правдоподобно иная (намеренное решение, легаси-зона, внешнее требование); если это общая best-practice, а не свойство ЭТОГО проекта.",
+    "- «оставить» — если находка следует из заземления и остаётся верной при попытке объяснить код иначе.",
+    "- Согласие по умолчанию — брак работы. Если оснований судить не хватает, это «снять», а не «оставить»: ложная уверенность дороже пропуска.",
+    "- Своя уверенность обязательна и должна быть калиброванной: не переноси чужую.",
+    "",
+    jsonOnly('[{"n":1,"verdict":"оставить|снять","confidence":0-100,"why":"на чём основано суждение"}]')
+  ].filter((line) => line !== "").join(`
+`);
+}
+function parseChallengeVerdicts(text, count) {
+  try {
+    const start = text.indexOf("[");
+    const end = text.lastIndexOf("]");
+    if (start === -1 || end <= start)
+      return [];
+    const arr = JSON.parse(text.slice(start, end + 1));
+    if (!Array.isArray(arr))
+      return [];
+    const out = [];
+    const seen = new Set;
+    for (const r of arr) {
+      const n = typeof r?.n === "number" ? Math.round(r.n) : NaN;
+      if (!Number.isFinite(n) || n < 1 || n > count || seen.has(n))
+        continue;
+      if (r?.verdict !== "оставить" && r?.verdict !== "снять")
+        continue;
+      seen.add(n);
+      const confidence = typeof r.confidence === "number" && r.confidence >= 0 && r.confidence <= 100 ? Math.round(r.confidence) : undefined;
+      out.push({ n, verdict: r.verdict, confidence, why: typeof r.why === "string" ? r.why : "" });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+function applyChallenge(proposals, rows, threshold) {
+  if (rows.length === 0)
+    return { proposals, cut: 0, applied: false };
+  const byIndex = new Map(rows.map((r) => [r.n, r]));
+  const kept = [];
+  let cut = 0;
+  for (let i = 0;i < proposals.length; i++) {
+    const source = proposals[i];
+    const row = byIndex.get(i + 1);
+    if (!row) {
+      kept.push(source);
+      continue;
+    }
+    if (row.verdict === "снять") {
+      cut++;
+      continue;
+    }
+    const confidence = row.confidence ?? source.confidence;
+    if (confidence < threshold) {
+      cut++;
+      continue;
+    }
+    kept.push({ ...source, confidence });
+  }
+  return { proposals: kept, cut, applied: true };
+}
+function challengeProposals(proposals, ctx, caller, threshold, dataDir) {
+  if (proposals.length === 0)
+    return { proposals, cut: 0, applied: false };
+  let res;
+  try {
+    res = caller(buildChallengePrompt(proposals, ctx));
+  } catch {
+    return { proposals, cut: 0, applied: false };
+  }
+  if (dataDir) {
+    try {
+      const { writeFileSync } = __require("node:fs");
+      const { join } = __require("node:path");
+      writeFileSync(join(dataDir, "elevate-challenge-last.json"), JSON.stringify({ at: new Date().toISOString(), judged: proposals.length, raw: res }, null, 1), "utf8");
+    } catch {}
+  }
+  if (!res)
+    return { proposals, cut: 0, applied: false };
+  return applyChallenge(proposals, parseChallengeVerdicts(res.text, proposals.length), threshold);
+}
 
 // src/elevate/engine.ts
 import { existsSync, readFileSync } from "node:fs";
@@ -238,6 +359,10 @@ ${stackLine}` : "",
   ].join(`
 `);
 }
+function rankProposals(list) {
+  const scopeWeight = { концепция: 1.3, архитектура: 1.2, модуль: 1.05, локальное: 1 };
+  return [...list].sort((a, b) => b.confidence * scopeWeight[b.scope] - a.confidence * scopeWeight[a.scope]);
+}
 function parseProposals(text, threshold = DEFAULT_THRESHOLD) {
   try {
     const start = text.indexOf("[");
@@ -267,33 +392,45 @@ function parseProposals(text, threshold = DEFAULT_THRESHOLD) {
         survivesRefutation: true
       });
     }
-    const scopeWeight = { концепция: 1.3, архитектура: 1.2, модуль: 1.05, локальное: 1 };
-    return out.sort((a, b) => b.confidence * scopeWeight[b.scope] - a.confidence * scopeWeight[a.scope]);
+    return rankProposals(out);
   } catch {
     return [];
   }
 }
-function runElevate(projectRoot, dataDir, caller, threshold = DEFAULT_THRESHOLD) {
+function runElevate(projectRoot, dataDir, caller, threshold = DEFAULT_THRESHOLD, options = {}) {
   const ctx = buildContext(projectRoot, dataDir);
+  const empty = { challenged: false, challengeCut: 0 };
   if (ctx.rubric.length === 0)
-    return { model: null, proposals: [], axesConsidered: [] };
+    return { model: null, proposals: [], axesConsidered: [], ...empty };
   const res = caller(buildElevatePrompt(ctx));
   try {
     const { writeFileSync } = __require("node:fs");
     writeFileSync(join(dataDir, "elevate-last.json"), JSON.stringify({ at: new Date().toISOString(), raw: res }, null, 1), "utf8");
   } catch {}
+  const axesConsidered = ctx.rubric.map((a) => a.axis);
   if (!res)
-    return { model: null, proposals: [], axesConsidered: ctx.rubric.map((a) => a.axis) };
-  return { model: res.model, proposals: parseProposals(res.text, threshold), axesConsidered: ctx.rubric.map((a) => a.axis) };
+    return { model: null, proposals: [], axesConsidered, ...empty };
+  const first = parseProposals(res.text, threshold);
+  if (options.challenge === false)
+    return { model: res.model, proposals: first, axesConsidered, ...empty };
+  const checked = challengeProposals(first, ctx, caller, threshold, dataDir);
+  return {
+    model: res.model,
+    proposals: rankProposals(checked.proposals),
+    axesConsidered,
+    challenged: checked.applied,
+    challengeCut: checked.cut
+  };
 }
 function renderProposals(r) {
   if (!r.model)
     return "Symbiont · возвышение: модели цепочки недоступны или паспорт не построен.";
+  const cutNote = r.challengeCut > 0 ? ` · независимая проверка сняла ${r.challengeCut}` : "";
   if (r.proposals.length === 0) {
-    return `Symbiont · возвышение · оси рассмотрены: ${r.axesConsidered.join(", ")}.
+    return `Symbiont · возвышение · оси рассмотрены: ${r.axesConsidered.join(", ")}${cutNote}.
 Предложений выше порога уверенности нет — по рассмотренным зонам проект здоров (это достойный результат, не пустой).`;
   }
-  const L = [`Symbiont · возвышение · ${r.proposals.length} предложений (модель ${r.model}), ранжировано по влиянию:`, ""];
+  const L = [`Symbiont · возвышение · ${r.proposals.length} предложений (модель ${r.model})${cutNote}, ранжировано по влиянию:`, ""];
   let i = 1;
   for (const p of r.proposals) {
     L.push(`${i}. [${p.axis} · ${p.scope} · уверенность ${p.confidence} · усилие ${p.effort} · риск ${p.risk}]`);
@@ -443,7 +580,7 @@ if (verb === "решения") {
   }
 } else {
   const threshold = Number(args.find((a) => /^\d+$/.test(a))) || 70;
-  console.log(t("Symbiont · возвышение · глубокий аудит проекта (один LLM-проход)…", "Symbiont · elevation · deep project audit (a single LLM pass)…"));
+  console.log(t("Symbiont · возвышение · глубокий аудит проекта (проход аудита + независимая проверка находок)…", "Symbiont · elevation · deep project audit (an audit pass plus an independent check of its findings)…"));
   const rootNotice = renderRootNotice(res);
   if (rootNotice)
     console.log(rootNotice);
@@ -451,7 +588,7 @@ if (verb === "решения") {
   let attempts = [];
   const r = runElevate(root, dataDir, (prompt) => {
     const o = callClaudeDetailed(prompt, { intent: "deep", dataDir });
-    attempts = o.tried;
+    attempts = attempts.concat(o.tried);
     return o.result;
   }, threshold);
   const sec = Math.round((performance.now() - t0) / 1000);

@@ -16,6 +16,7 @@ import { reconstructEntry } from './entry'
 import { beat } from './heartbeat'
 import { silentChannels, readBeats, renderDiagnosis } from './diagnose'
 import { sha1 } from '../core/salsa'
+import { isSecretCarrier } from '../env/config-graph'
 import { renderBackground, renderGardenerSilence, REPORTED_WORKS } from '../gardener/scheduler'
 import { mutedKinds } from '../gardener/utility'
 import { voicedCandidates, renderVoiced, VOICED_MIN_SESSIONS } from '../gardener/voiced'
@@ -44,6 +45,14 @@ function detectCorrections(db: Database, cwd: string, currentSid: string): numbe
   )
   const consume = db.query('DELETE FROM model_state WHERE session_id=? AND file=?')
   for (const r of rows) {
+    // Второй рубеж того же инварианта. Новые записи сюда уже не доходят (их
+    // отсекает stop-core), но строка могла остаться от прежней версии — а здесь
+    // файл читается заново и его содержимое уходит в corrections, откуда в
+    // промпт садовника. Потребляем без чтения и без вставки.
+    if (isSecretCarrier(r.file)) {
+      consume.run(r.session_id, r.file)
+      continue
+    }
     try {
       const nowContent = snapshotContent(readFileSync(join(cwd, r.file), 'utf8'))
       if (sha1(nowContent) !== r.hash) {
@@ -55,7 +64,31 @@ function detectCorrections(db: Database, cwd: string, currentSid: string): numbe
     }
     consume.run(r.session_id, r.file)
   }
+  purgeSecretCarriers(db)
   return found
+}
+
+/**
+ * Вычистка уже накопленного — по образцу инварианта «накопленное чистится
+ * первым обращением». Отсечь новое недостаточно: содержимое носителя секретов,
+ * осевшее до этой версии, дошло бы до модели при следующем же проходе садовника.
+ * Регэксп носителя живёт в JS, а не в SQL, поэтому сначала отбираются имена, и
+ * удаление идёт по отобранным.
+ */
+export function purgeSecretCarriers(db: Database): number {
+  let removed = 0
+  for (const table of ['corrections', 'model_state']) {
+    const exists =
+      (db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?").get(table) as { n: number }).n > 0
+    if (!exists) continue
+    const files = (db.query(`SELECT DISTINCT file FROM ${table}`).all() as Array<{ file: string }>)
+      .map((r) => r.file)
+      .filter(isSecretCarrier)
+    if (files.length === 0) continue
+    const del = db.query(`DELETE FROM ${table} WHERE file=?`)
+    for (const file of files) removed += Number(del.run(file).changes)
+  }
+  return removed
 }
 
 const CONTEXT_CHAR_BUDGET = 8000

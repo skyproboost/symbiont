@@ -4941,7 +4941,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-75e528ff59f4";
+    return "bundle-2627a3835404";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -6045,6 +6045,10 @@ function detectCorrections(db, cwd, currentSid) {
   const insert = db.query("INSERT INTO corrections(file, before_content, from_session, detected_at) VALUES(?,?,?,?)");
   const consume = db.query("DELETE FROM model_state WHERE session_id=? AND file=?");
   for (const r of rows) {
+    if (isSecretCarrier(r.file)) {
+      consume.run(r.session_id, r.file);
+      continue;
+    }
     try {
       const nowContent = snapshotContent(readFileSync14(join15(cwd, r.file), "utf8"));
       if (sha1(nowContent) !== r.hash) {
@@ -6054,7 +6058,23 @@ function detectCorrections(db, cwd, currentSid) {
     } catch {}
     consume.run(r.session_id, r.file);
   }
+  purgeSecretCarriers(db);
   return found;
+}
+function purgeSecretCarriers(db) {
+  let removed = 0;
+  for (const table of ["corrections", "model_state"]) {
+    const exists = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?").get(table).n > 0;
+    if (!exists)
+      continue;
+    const files = db.query(`SELECT DISTINCT file FROM ${table}`).all().map((r) => r.file).filter(isSecretCarrier);
+    if (files.length === 0)
+      continue;
+    const del = db.query(`DELETE FROM ${table} WHERE file=?`);
+    for (const file of files)
+      removed += Number(del.run(file).changes);
+  }
+  return removed;
 }
 var CONTEXT_CHAR_BUDGET = 8000;
 var MIN_SECTION_ITEMS = 3;

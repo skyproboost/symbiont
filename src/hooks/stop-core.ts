@@ -21,7 +21,7 @@ import { detectFocusDrift, renderFocus } from '../gates/focus'
 import { measure, measureBefore, compareBudgets, renderBudgets } from '../gates/budget'
 import { checkContract } from '../env/contract'
 import { readPolicies } from '../env/policies'
-import { isConfigFile } from '../env/config-graph'
+import { isConfigFile, isSecretCarrier } from '../env/config-graph'
 import { readRules } from '../env/rules'
 import { ENTITY_EXT } from '../graph/entities'
 import { inDerivedZone } from '../miner/walk'
@@ -135,7 +135,14 @@ function dirtyGatedFiles(cwd: string): string[] {
         return r.stdout
           .split('\n')
           .map((l) => l.slice(3).trim())
-          .filter((f) => f && GATED_EXT.has(extname(f).toLowerCase()) && !inDerivedZone(f))
+          // Носитель секретов не проходит дальше НИ ОДНИМ путём. Список
+          // расширений его не отсекает: `.yarnrc.yml` и `*secrets*.yaml`
+          // кончаются на .yml, а .yml гейтуется. Отсюда файл ушёл бы в
+          // readFileSync ниже, оттуда целиком в model_state.content, оттуда на
+          // следующем старте в corrections.before_content и в промпт садовника —
+          // то есть плагин открыл бы файл, который владелец не открывал. Ровно
+          // об этой утечке сообщили снаружи (см. env/config-graph.ts).
+          .filter((f) => f && GATED_EXT.has(extname(f).toLowerCase()) && !inDerivedZone(f) && !isSecretCarrier(f))
           .slice(0, MAX_FILES)
       }
     } catch {

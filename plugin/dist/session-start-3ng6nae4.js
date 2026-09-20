@@ -2,7 +2,7 @@ import {
   digestForFile,
   readGrounding,
   renderCorrection
-} from "./session-start-54w8t7d2.js";
+} from "./session-start-cs6cc11x.js";
 import {
   indexedHash,
   readOutline
@@ -17,10 +17,10 @@ import {
   markUsed,
   nodeBrief,
   outlineKey
-} from "./session-start-dnp48yng.js";
+} from "./session-start-qarpsrzj.js";
 import {
   zoneOf
-} from "./session-start-qzttkf2t.js";
+} from "./session-start-ze4m0brx.js";
 import {
   EDIT_TOUCH_WEIGHT,
   FactStore,
@@ -34,6 +34,7 @@ import {
   fileDomains,
   initLang,
   init_i18n,
+  isSecretCarrier,
   loadEntityResolver,
   openDb,
   readZoneProfiles,
@@ -48,7 +49,7 @@ import {
   t,
   zoneAncestors,
   zoneOfArea
-} from "./session-start-7vrrdvrv.js";
+} from "./session-start-36cgk13y.js";
 
 // src/hooks/post-tool-core.ts
 init_i18n();
@@ -286,6 +287,8 @@ function handlePostTool(input, dataRoot) {
       return {};
     const rel = toRelNode(cwd, filePath);
     if (!rel)
+      return {};
+    if (isSecretCarrier(rel))
       return {};
     const db = openDb(dbPath);
     try {

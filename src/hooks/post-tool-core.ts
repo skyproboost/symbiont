@@ -20,6 +20,7 @@ import { openDb, type Database } from '../core/db'
 import { FactStore } from '../core/store'
 import { checkAgainstLaws, lawsForFile } from '../gates/checks'
 import { runContentVerifiers, contentVerifierActive, loadEntityResolver } from '../verifiers/content'
+import { isSecretCarrier } from '../env/config-graph'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
 import { ensureFeedLog, markUsed, outlineKey } from './node-brief'
@@ -112,6 +113,11 @@ export function handlePostTool(input: PostToolInput, dataRoot: string): PostTool
 
     const rel = toRelNode(cwd, filePath)
     if (!rel) return {}
+    // «Не открывается ни одним проходом» — значит и этим. Ниже файл читался бы
+    // целиком ради гейта формы, а нарушение цитирует строку — то есть содержимое
+    // носителя секретов дошло бы до модели в тексте претензии. Выход до записи
+    // авторства: правка секрета не наша работа и в петлю не попадает.
+    if (isSecretCarrier(rel)) return {}
 
     const db = openDb(dbPath)
     try {

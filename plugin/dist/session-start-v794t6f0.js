@@ -5131,7 +5131,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-fe3b141f24cc";
+    return "bundle-165f730b8014";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5705,6 +5705,16 @@ async function runWorks(works, ctx, options = {}) {
   }
   return report;
 }
+var OPPORTUNITY_AGE_MS = 3600000;
+function hadOpportunity(db, sinceIso, nowMs) {
+  try {
+    const before = new Date(nowMs - OPPORTUNITY_AGE_MS).toISOString();
+    const row = sinceIso ? db.query("SELECT COUNT(*) n FROM sessions WHERE started_at > ? AND started_at < ?").get(sinceIso, before) : db.query("SELECT COUNT(*) n FROM sessions WHERE started_at < ?").get(before);
+    return (row?.n ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
 function renderGardenerSilence(db, nowMs, quietDays = 7) {
   try {
     const born = db.query("SELECT MIN(asserted_at) AS at FROM fact_journal").get()?.at;
@@ -5715,6 +5725,8 @@ function renderGardenerSilence(db, nowMs, quietDays = 7) {
       return "";
     ensureMeta(db);
     const last = db.query(`SELECT MAX(at) AS at FROM ${META_TABLE}`).get()?.at;
+    if (!hadOpportunity(db, last ?? null, nowMs))
+      return "";
     if (!last) {
       return t("- ⚠ фоновое обслуживание ни разу не отрабатывало: паспорт не углубляется (проверьте рантайм и learn.json)", "- ⚠ background maintenance has never run: the passport is not deepening (check the runtime and learn.json)");
     }

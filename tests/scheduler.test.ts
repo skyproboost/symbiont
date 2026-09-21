@@ -242,23 +242,50 @@ describe('молчание фона — тоже событие', () => {
     db.close()
   })
 
+  /** Журнал сессий: у фона была возможность, только если после его работы открывали проект. */
+  const sessionsAt = (db: Database, ...daysAgo: number[]): void => {
+    db.run('CREATE TABLE IF NOT EXISTS sessions(session_id TEXT PRIMARY KEY, started_at TEXT NOT NULL)')
+    for (const d of daysAgo) db.run('INSERT INTO sessions(session_id, started_at) VALUES(?,?)', `s-${d}`, new Date(T0 - d * 86_400_000).toISOString())
+  }
+
   it('зрелый проект без единого следа работы — тревога названа вслух', () => {
     const db = openDb(':memory:')
     db.run('CREATE TABLE fact_journal(asserted_at TEXT)')
     db.run("INSERT INTO fact_journal(asserted_at) VALUES(?)", new Date(T0 - 30 * 86_400_000).toISOString())
+    sessionsAt(db, 30, 5)
     const line = renderGardenerSilence(db, T0)
     expect(line).toContain('ни разу не отрабатывало')
     expect(line).toContain('learn.json')
     db.close()
   })
 
-  it('фон замолчал надолго — сказано, сколько дней', () => {
+  it('фон замолчал надолго при живых сессиях — сказано, сколько дней', () => {
     const db = openDb(':memory:')
     db.run('CREATE TABLE fact_journal(asserted_at TEXT)')
     db.run("INSERT INTO fact_journal(asserted_at) VALUES(?)", new Date(T0 - 30 * 86_400_000).toISOString())
     recordRun(db, 'drift', true, 'ок', new Date(T0 - 12 * 86_400_000).toISOString())
+    sessionsAt(db, 13, 4) // после последней работы фона проект открывали — возможность была
     expect(renderGardenerSilence(db, T0)).toContain('молчит 12д')
     db.close()
+  })
+
+  it('проект просто не открывали — это не отказ фона: демонов нет, будить его было некому', () => {
+    // Наблюдалось вживую: владелец вернулся через 24 дня, сводка сказала «молчит
+    // 24д: проверьте рантайм», а через три минуты тот же фон отработал
+    const db = openDb(':memory:')
+    db.run('CREATE TABLE fact_journal(asserted_at TEXT)')
+    db.run("INSERT INTO fact_journal(asserted_at) VALUES(?)", new Date(T0 - 60 * 86_400_000).toISOString())
+    recordRun(db, 'drift', true, 'ок', new Date(T0 - 24 * 86_400_000).toISOString())
+    sessionsAt(db, 24.1) // та сессия, внутри которой фон работал в последний раз
+    db.run('INSERT INTO sessions(session_id, started_at) VALUES(?,?)', 'current', new Date(T0 - 60_000).toISOString()) // текущая, только что открытая
+    expect(renderGardenerSilence(db, T0)).toBe('')
+    // журнала сессий нет вовсе — возможность не доказана, тревоги нет
+    const bare = openDb(':memory:')
+    bare.run('CREATE TABLE fact_journal(asserted_at TEXT)')
+    bare.run("INSERT INTO fact_journal(asserted_at) VALUES(?)", new Date(T0 - 60 * 86_400_000).toISOString())
+    expect(renderGardenerSilence(bare, T0)).toBe('')
+    db.close()
+    bare.close()
   })
 
   it('работающий фон молчания не объявляет', () => {

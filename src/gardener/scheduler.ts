@@ -228,6 +228,28 @@ export async function runWorks(works: Work[], ctx: WorkContext, options: RunOpti
   return report
 }
 
+/** Столько должна прожить сессия, чтобы считаться упущенной возможностью фона. */
+const OPPORTUNITY_AGE_MS = 3_600_000
+
+/**
+ * Была ли у фона возможность: сессия, начавшаяся после его последней работы и
+ * успевшая состариться на час (отцепленный процесс стартует в первые минуты
+ * сессии; текущая, только что открытая, возможностью ещё не была).
+ */
+function hadOpportunity(db: Database, sinceIso: string | null, nowMs: number): boolean {
+  try {
+    const before = new Date(nowMs - OPPORTUNITY_AGE_MS).toISOString()
+    const row = (
+      sinceIso
+        ? db.query('SELECT COUNT(*) n FROM sessions WHERE started_at > ? AND started_at < ?').get(sinceIso, before)
+        : db.query('SELECT COUNT(*) n FROM sessions WHERE started_at < ?').get(before)
+    ) as { n: number } | null
+    return (row?.n ?? 0) > 0
+  } catch {
+    return false // журнала сессий нет — возможность не доказана, а тревога без доказательства хуже тишины
+  }
+}
+
 /**
  * Молчание фона — тоже событие, и худшее из возможных. renderBackground
  * показывает только то, что отработало: если отцепленный процесс вообще не
@@ -237,7 +259,14 @@ export async function runWorks(works: Work[], ctx: WorkContext, options: RunOpti
  *
  * Условие срабатывания намеренно узкое: паспорт уже не молод (иначе первая
  * сессия проекта, где фон ещё не успел отработать, получала бы ложную тревогу),
- * а следов работы нет дольше quietDays.
+ * следов работы нет дольше quietDays — И у фона была возможность отработать.
+ *
+ * Последнее — про саму природу плагина: демонов нет, фон просыпается только от
+ * хука. Проект, который месяц не открывали, месяц и не будил фон — это не
+ * отказ, а отсутствие событий. Без этой проверки владелец, вернувшись после
+ * паузы, видел «молчит 24д: проверьте рантайм» — а через три минуты тот же фон
+ * отрабатывал как ни в чём не бывало (наблюдалось вживую). Тревога, которая
+ * ложна после каждого отпуска, учит не читать тревоги.
  */
 export function renderGardenerSilence(db: Database, nowMs: number, quietDays = 7): string {
   try {
@@ -248,6 +277,7 @@ export function renderGardenerSilence(db: Database, nowMs: number, quietDays = 7
 
     ensureMeta(db)
     const last = (db.query(`SELECT MAX(at) AS at FROM ${META_TABLE}`).get() as { at: string | null } | null)?.at
+    if (!hadOpportunity(db, last ?? null, nowMs)) return ''
     if (!last) {
       return t(
         '- ⚠ фоновое обслуживание ни разу не отрабатывало: паспорт не углубляется (проверьте рантайм и learn.json)',

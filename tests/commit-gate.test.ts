@@ -5,7 +5,7 @@
  */
 import { rmrf } from './_helpers'
 import { describe, it, expect } from 'bun:test'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -66,6 +66,24 @@ describe('что такое коммит', () => {
       expect(isCommitCommand(c)).toBe(true)
     }
     for (const c of ['git commit --dry-run', 'git log --grep=commit', 'echo "git committed"', 'git commit-graph write', 'git status', 'bun test']) expect(isCommitCommand(c)).toBe(false)
+  })
+})
+
+describe('манифест хуков', () => {
+  it('на каждую оболочку два условия: шаблон сверяется с НАЧАЛОМ подкоманды, и флаги git его ломают', () => {
+    // Замер живой пробой на платформе: `…(git commit *)` ловит `git commit …` и
+    // составные команды, но НЕ `git -C путь commit …`; `…(git * commit *)` — наоборот.
+    // Каждая форма, которую ловит манифест, обязана признаваться и самим гейтом.
+    const manifest = JSON.parse(readFileSync(join(import.meta.dir, '..', 'hooks', 'hooks.json'), 'utf8')) as {
+      hooks: { PreToolUse: Array<{ matcher: string; hooks: Array<{ if?: string }> }> }
+    }
+    for (const shell of ['Bash', 'PowerShell']) {
+      const group = manifest.hooks.PreToolUse.find((g) => g.matcher === shell)
+      expect(group?.hooks.map((h) => h.if)).toEqual([`${shell}(git commit *)`, `${shell}(git * commit *)`])
+    }
+    for (const c of ['git commit -m x', 'git -C . commit --allow-empty -m x', 'git -c user.name=t commit -m x']) expect(isCommitCommand(c)).toBe(true)
+    // второй шаблон шире гейта (`git log --grep commit x` под него подходит) — гейт такое отсекает сам
+    expect(isCommitCommand('git log --grep commit x')).toBe(false)
   })
 })
 

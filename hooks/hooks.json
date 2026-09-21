@@ -119,6 +119,18 @@
               "${CLAUDE_PLUGIN_DATA}"
             ],
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "if": "Bash(git * commit *)",
+            "command": "bun",
+            "args": [
+              "run",
+              "${CLAUDE_PLUGIN_ROOT}/src/hooks/pre-tool.ts",
+              "--data",
+              "${CLAUDE_PLUGIN_DATA}"
+            ],
+            "timeout": 10
           }
         ]
       },
@@ -128,6 +140,18 @@
           {
             "type": "command",
             "if": "PowerShell(git commit *)",
+            "command": "bun",
+            "args": [
+              "run",
+              "${CLAUDE_PLUGIN_ROOT}/src/hooks/pre-tool.ts",
+              "--data",
+              "${CLAUDE_PLUGIN_DATA}"
+            ],
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(git * commit *)",
             "command": "bun",
             "args": [
               "run",

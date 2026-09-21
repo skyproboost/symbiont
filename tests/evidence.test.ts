@@ -24,6 +24,16 @@ describe('распознавание проверки', () => {
     }
     for (const c of ['npm run build', 'git status', 'node server.js', 'ls -la']) expect(isCheckCommand(c)).toBe(false)
   })
+
+  it('разведка со словом раннера — не проверка; настоящий прогон в составной команде — проверка', () => {
+    // чтение старого лога, теста и диффа ничего не запускает — и не сертифицирует
+    for (const c of ['grep -E "FAIL |AssertionError|expected .* to be" .data/vitest-oak3.log', 'cat tests/a.test.ts', 'git diff tests/', 'ls tests | head', 'sed -n 1,40p tests/a.test.ts', 'Get-Content tests/a.test.ts | Select-String expect']) {
+      expect(isCheckCommand(c)).toBe(false)
+    }
+    for (const c of ['cd "D:/proj" && bun test 2>&1 | tail -5', 'NODE_ENV=test npx vitest run', 'timeout 120 npx eslint src; echo done', 'bash -c "bun test"', '(cd pkg && go test ./...)', 'git status; bun run scripts/canary.ts']) {
+      expect(isCheckCommand(c)).toBe(true)
+    }
+  })
 })
 
 describe('разбор транскрипта', () => {

@@ -86,6 +86,10 @@ payments/refund.ts · вход:9 исход:4
 
 **Не даёт ослабить защиту молча.** Если правка снимает валидацию, аутентификацию, проверку прав или security-заголовки — об этом сказано вслух прямо сейчас, а не на ревью через неделю.
 
+**Смотрит на состояние в момент коммита.** Конец хода — поздно: модель часто коммитит посреди него. Поэтому прямо перед `git commit` Symbiont называет, что в этот коммит идёт код, правленный после последней проверки, что последняя проверка упала, или что файл, который в истории проекта почти всегда меняется вместе с правленым, на этот раз не тронут. На остальные команды оболочки он не просыпается вовсе. По умолчанию ничего не держит; в режиме блокировки откладывает коммит один раз — повтор проходит.
+
+**Замечает, чем тесты сделали зелёными.** Тесты упали, потом прошли — а между прогонами правился только старый тест, код не трогали. Или из существовавшего теста пропали проверки, появился `skip`, набор сузили до `only`, тест-файл удалён. Symbiont называет это фактом в конце хода и никогда не блокирует: это может быть и осознанная смена контракта — тогда её стоит назвать вам вслух. Тесты, написанные в этой же сессии, он не трогает: их доводят до зелёного по определению.
+
 **Сам выбирает модель под вашу подписку.** Для собственного анализа Symbiont держит очередь моделей и не пинит версии: вышла новая — берёт её. Если модель вам недоступна или её лимит исчерпан, она уходит в хвост очереди и возвращается, когда лимит сбросится. Вы этого не видите и ничего не настраиваете.
 
 **Знает, что дорого, а что бесплатно.** Правила, карта связей, проверки и подсказки считаются на вашей машине, офлайн и даром. Модель он зовёт только когда это оправдано — в фоне и по вашей команде.
@@ -335,6 +339,10 @@ All of this happens on its own — no commands, no configuration.
 **It keeps the work in focus.** Towards the end of a turn it checks whether the work has sprawled: edits reaching beyond what was asked, checks disappearing from the diff, an unrequested refactor starting. All computed from the link map and the diff — without a single token. And it says so as a fact, not a veto: you may well have widened the task on purpose.
 
 **It won't let protection be weakened silently.** If a change removes validation, authentication, a permission check or security headers, that is said out loud right then — not at review a week later.
+
+**It looks at the state at the moment of a commit.** The end of a turn is too late: the model often commits in the middle of it. So right before `git commit` Symbiont says that this commit carries code edited after the last check, that the last check failed, or that a file which in this project's history almost always changes together with the edited one was left untouched this time. It does not wake up for any other shell command. By default it holds nothing back; in blocking mode it defers the commit once — repeating the command goes through.
+
+**It notices how the tests were made green.** The tests failed, then passed — and between the two runs only an old test was edited while the code stayed untouched. Or an existing test lost checks, gained a `skip`, the suite was narrowed with `only`, a test file was deleted. Symbiont states this as a fact at the end of the turn and never blocks: it may well be a deliberate contract change — in which case it is worth saying so to you out loud. Tests written in the same session are left alone: bringing those to green is the whole point.
 
 **It picks the model for your subscription.** For its own analysis Symbiont keeps a queue of models and pins no versions: when a newer one ships, it takes it. If a model isn't available to you or its limit is spent, it moves to the back of the queue and returns when the limit resets. You never see this and configure nothing.
 

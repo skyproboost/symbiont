@@ -358,7 +358,7 @@ function matchSignal(sig, opts) {
     return true;
   return false;
 }
-var SIGNALS;
+var SIGNALS, TEST_CLASS_FILE, isTestPath = (rel) => SIGNALS.testing.paths.test(rel) || TEST_CLASS_FILE.test(rel);
 var init_signals = __esm(() => {
   SIGNALS = {
     db: {
@@ -382,7 +382,7 @@ var init_signals = __esm(() => {
       docs: /(фронтенд|frontend|интерфейс|ui|ux|верстк)/i
     },
     testing: {
-      paths: /(\.test\.|\.spec\.|_test\.|(^|\/)(tests?|__tests__|e2e|spec)\/)/i,
+      paths: /(\.test\.|\.spec\.|_test\.|_spec\.|(^|\/)(tests?|__tests__|e2e|spec)\/|(^|\/)test_[^/]+\.py$)/i,
       deps: /^(jest|vitest|mocha|pytest|playwright|cypress|@testing-library\/.+|rspec|minitest|phpunit|pest|testify|junit|junit-jupiter)$/,
       docs: /(?<![\p{L}\d])(тест|test coverage|покрыти)/iu
     },
@@ -416,6 +416,7 @@ var init_signals = __esm(() => {
       docs: /(безопасн|уязвим|security|owasp|csp|xss|инъекци)/i
     }
   };
+  TEST_CLASS_FILE = /[a-z0-9]Tests?\.(php|java|kt|cs|swift|scala)$/;
 });
 
 // src/passport/constitution-derive.ts
@@ -571,7 +572,7 @@ __export(exports_walk, {
   CODE_EXT: () => CODE_EXT
 });
 import { readdirSync, readFileSync as readFileSync5, statSync } from "node:fs";
-import { extname, join as join6 } from "node:path";
+import { extname as extname2, join as join6 } from "node:path";
 function inDerivedZone(rel) {
   return rel.split("/").some((seg) => SKIP_DIRS.has(seg));
 }
@@ -620,7 +621,7 @@ function walkFiles(root) {
         continue;
       }
       const p = join6(dir, e.name);
-      const ext = extname(e.name).toLowerCase();
+      const ext = extname2(e.name).toLowerCase();
       let size = 0;
       let mtimeMs = 0;
       if (CODE_EXT.has(ext)) {
@@ -949,6 +950,9 @@ var HASH_COMMENT = new Set([".py", ".pyi", ".php", ".phtml", ".inc", ".rb", ".ra
 var PHP_EXT = new Set([".php", ".phtml", ".inc"]);
 function codeOnly(source, ext) {
   return splitCode(source, ext).code;
+}
+function codeOnlyLine(line, ext) {
+  return PHP_EXT.has(ext) ? codeOnly(`<?php ${line}`, ext) : codeOnly(line, ext);
 }
 function splitCode(source, ext) {
   const php = PHP_EXT.has(ext);
@@ -2032,6 +2036,158 @@ function runContentVerifiers(rel, content, ext, ctx = {}) {
   return [...checkAlphabetPurity(content), ...checkContentLinks(rel, content, ext, ctx.resolve)];
 }
 
+// src/verifiers/test-guard.ts
+init_i18n();
+import { extname } from "node:path";
+init_signals();
+var TEST_LAWS = {
+  bent: pair("страж тестов: тест правился между упавшим и прошедшим прогоном, код не менялся", "test guard: a test was edited between a failing and a passing run while the code stayed untouched"),
+  assertions: pair("страж тестов: в существовавшем тесте стало меньше утверждений", "test guard: an existing test lost assertions"),
+  cases: pair("страж тестов: из существовавшего теста убраны случаи", "test guard: test cases were removed from an existing test"),
+  skipped: pair("страж тестов: в существовавший тест добавлен пропуск", "test guard: a skip marker was added to an existing test"),
+  narrowed: pair("страж тестов: набор сужен до избранных тестов", "test guard: the suite was narrowed to selected tests"),
+  deleted: pair("страж тестов: тест-файл удалён", "test guard: a test file was deleted")
+};
+var COMMENT_LINE = /^\s*(\/\*|\*|--\s|<!--)/;
+var ASSERT_FORMS = [
+  /(?<![.\w$])(expect|should|assertThat|verify|assert\w*!?|XCTAssert\w*)\s*\(/,
+  /(\$this->|self\.|self::|static::)assert\w*\s*\(/,
+  /\b(Assert|Assertions|assert)\.\w+\s*\(/,
+  /^\s*assert\s+[^\s(]/,
+  /\bt\.(Error|Errorf|Fatal|Fatalf)\s*\(/,
+  /\.should\b/
+];
+var CASE_FORMS = [
+  /(?<![.\w$])(it|test|describe|context|specify|scenario|xit|xtest|xdescribe|xcontext|fit|fdescribe|fcontext)(\.\w+)*\s*\(/,
+  /^\s*(async\s+)?def\s+test\w*\s*\(/,
+  /^\s*func\s+(Test|Benchmark|Fuzz)\w*\s*\(/,
+  /\bfunction\s+test\w*\s*\(/,
+  /@(Test|ParameterizedTest)\b|\[(Test|Fact|Theory|TestMethod|TestCase)\b|#\[(tokio::)?test\]/,
+  /^\s*(it|describe|context|specify|scenario)\s+['"]/
+];
+var SKIP_FORMS = [
+  /\b(it|test|describe|context|suite)\.(skip|todo|skipIf|failing|fixme)\b/,
+  /(?<![.\w$])(xit|xtest|xdescribe|xcontext|xspecify)\b/,
+  /@pytest\.mark\.(skip|skipif|xfail)\b|@unittest\.(skip\w*|expectedFailure)\b|\bpytest\.(skip|xfail)\s*\(|\.skipTest\s*\(/,
+  /\bmarkTest(Skipped|Incomplete)\s*\(/,
+  /@(Ignore|Disabled)\b|\[Ignore\b|\bSkip\s*=\s*"/,
+  /\bt\.Skip(f|Now)?\s*\(/,
+  /#\[ignore\b/,
+  /^\s*(skip|pending)\s+['"(]/
+];
+var ONLY_FORMS = [/\b(it|test|describe|context|suite)\.only\b/, /(?<![.\w$])(fit|fdescribe|fcontext)\s*\(/, /^\s*(fit|fdescribe|fcontext)\s+['"]/];
+var matchesAny = (forms, line) => forms.some((re) => re.test(line.code));
+function sides(diff, ext) {
+  const added = [];
+  const removed = [];
+  for (const line of diff.split(`
+`)) {
+    if (line.startsWith("+++") || line.startsWith("---"))
+      continue;
+    if (!line.startsWith("+") && !line.startsWith("-"))
+      continue;
+    const body = line.slice(1);
+    if (COMMENT_LINE.test(body))
+      continue;
+    const code = codeOnlyLine(body, ext).trim();
+    if (!code)
+      continue;
+    const entry = { text: body.trim(), code };
+    if (line.startsWith("+"))
+      added.push(entry);
+    else
+      removed.push(entry);
+  }
+  return { added, removed };
+}
+function count2(lines, forms) {
+  const hits = lines.filter((l) => matchesAny(forms, l));
+  return { n: hits.length, sample: (hits[0]?.text ?? "").slice(0, 60) };
+}
+function lossOf(own, elsewhereAdded, forms) {
+  const removed = own.removed.filter((l) => matchesAny(forms, l));
+  let moved = 0;
+  for (const line of removed) {
+    const left = elsewhereAdded.get(line.text) ?? 0;
+    if (left > 0) {
+      elsewhereAdded.set(line.text, left - 1);
+      moved++;
+    }
+  }
+  return Math.max(0, removed.length - moved - count2(own.added, forms).n);
+}
+function guardTests(input) {
+  const out = [];
+  const push2 = (kind, file, detail) => {
+    if (out.some((f) => f.kind === kind && f.file === file))
+      return;
+    out.push({ kind, file, law: TEST_LAWS[kind], detail });
+  };
+  const existing = new Map;
+  for (const entry of input.existing)
+    existing.set(entry[0], sides(entry[1], extname(entry[0]).toLowerCase()));
+  const fresh = new Map;
+  for (const entry of input.fresh)
+    fresh.set(entry[0], sides(entry[1], extname(entry[0]).toLowerCase()));
+  for (const ep of input.history.episodes) {
+    if (ep.edited.length === 0 || !ep.edited.every(isTestPath))
+      continue;
+    for (const file of ep.edited) {
+      if (input.history.created.has(file) || fresh.has(file))
+        continue;
+      const own = existing.get(file);
+      if (!own)
+        continue;
+      const lost = ep.removed.get(file) ?? null;
+      const hit = lost === null ? own.removed : own.removed.filter((l) => lost.includes(l.text));
+      if (hit.length === 0)
+        continue;
+      const touched = hit.some((l) => matchesAny(ASSERT_FORMS, l));
+      push2("bent", file, t(`правился между упавшим и прошедшим прогоном, код при этом не менялся${touched ? " · строки утверждений изменены" : ""}`, `edited between a failing and a passing run while the code stayed untouched${touched ? " · assertion lines changed" : ""}`));
+    }
+  }
+  for (const [file, own] of existing) {
+    const elsewhere = new Map;
+    for (const [other, s] of [...existing, ...fresh]) {
+      if (other === file)
+        continue;
+      for (const line of s.added)
+        elsewhere.set(line.text, (elsewhere.get(line.text) ?? 0) + 1);
+    }
+    const lostAsserts = lossOf(own, new Map(elsewhere), ASSERT_FORMS);
+    if (lostAsserts > 0)
+      push2("assertions", file, t(`утверждений стало меньше на ${lostAsserts}`, `${lostAsserts} fewer assertions`));
+    const lostCases = lossOf(own, new Map(elsewhere), CASE_FORMS);
+    if (lostCases > 0)
+      push2("cases", file, t(`тестовых случаев стало меньше на ${lostCases}`, `${lostCases} fewer test cases`));
+    const skipsAdded = count2(own.added, SKIP_FORMS);
+    if (skipsAdded.n > count2(own.removed, SKIP_FORMS).n)
+      push2("skipped", file, t(`добавлен пропуск: ${skipsAdded.sample}`, `a skip was added: ${skipsAdded.sample}`));
+  }
+  for (const [file, own] of [...existing, ...fresh]) {
+    const onlyAdded = count2(own.added, ONLY_FORMS);
+    if (onlyAdded.n > count2(own.removed, ONLY_FORMS).n)
+      push2("narrowed", file, t(`добавлено сужение набора: ${onlyAdded.sample}`, `the suite was narrowed: ${onlyAdded.sample}`));
+  }
+  const freshNames = new Set([...fresh.keys()].map((f) => f.split("/").pop()));
+  for (const file of input.deleted) {
+    if (freshNames.has(file.split("/").pop()))
+      continue;
+    push2("deleted", file, t("файл удалён", "the file was deleted"));
+  }
+  return out;
+}
+function renderTestGuard(findings) {
+  if (findings.length === 0)
+    return [];
+  const byFile = new Map;
+  for (const f of findings)
+    byFile.set(f.file, [...byFile.get(f.file) ?? [], f.detail]);
+  const lines = [...byFile].map((entry) => `- ${t("страж тестов", "test guard")}: ${entry[0]} — ${entry[1].join(" · ")}`);
+  lines.push(t("  если контракт изменён намеренно — стоит назвать владельцу, что изменилось в поведении; если нет — вернуть проверку и чинить код", "  if the contract changed on purpose, tell the owner what changed in behaviour; if not, restore the check and fix the code"));
+  return lines;
+}
+
 // src/passport/maturity.ts
 init_i18n();
 var clamp01 = (x) => Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0;
@@ -2807,7 +2963,7 @@ function renderDriftReport(health, drift, hotspots) {
 function hotspotsFromGit(projectRoot) {
   const { spawnSync: spawnSync2 } = __require("node:child_process");
   const { readFileSync: readFileSync6 } = __require("node:fs");
-  const { join: join7, extname: extname2 } = __require("node:path");
+  const { join: join7, extname: extname3 } = __require("node:path");
   const { parseCommitLog: parseCommitLog2 } = (init_constitution_derive(), __toCommonJS(exports_constitution_derive));
   const { CODE_EXT: CODE_EXT2 } = (init_walk(), __toCommonJS(exports_walk));
   const r = spawnSync2("git", ["log", "--name-only", "--pretty=format:@%H%x09%s", "-n", "400"], {
@@ -2827,7 +2983,7 @@ function hotspotsFromGit(projectRoot) {
         touched.add(f);
   const sizeByFile = new Map;
   for (const rel of touched) {
-    if (!CODE_EXT2.has(extname2(rel).toLowerCase()))
+    if (!CODE_EXT2.has(extname3(rel).toLowerCase()))
       continue;
     try {
       sizeByFile.set(rel, readFileSync6(join7(projectRoot, rel), "utf8").split(`
@@ -2844,7 +3000,7 @@ import { spawnSync as spawnSync2 } from "node:child_process";
 
 // src/graph/cochange.ts
 init_walk();
-import { extname as extname2 } from "node:path";
+import { extname as extname3 } from "node:path";
 var CODE_EXT2 = new Set([...CODE_EXT, ".sql"]);
 var MAX_FILES_PER_COMMIT = 30;
 function parseNameOnlyLog(text) {
@@ -2862,7 +3018,7 @@ function parseNameOnlyLog(text) {
     if (!line || current2 === null)
       continue;
     const f = line.replaceAll("\\", "/");
-    if (CODE_EXT2.has(extname2(f).toLowerCase()))
+    if (CODE_EXT2.has(extname3(f).toLowerCase()))
       current2.push(f);
   }
   if (current2 && current2.length > 0)
@@ -3945,7 +4101,7 @@ function migrateRenames(db, current2) {
 
 // src/env/config-graph.ts
 import { readFileSync as readFileSync7 } from "node:fs";
-import { extname as extname3 } from "node:path";
+import { extname as extname4 } from "node:path";
 var CONFIG_EXT = new Set([".json", ".yml", ".yaml", ".toml", ".ini", ".conf", ".env", ".cfg", ".properties"]);
 var CONFIG_NAME = /(^|\/)(\.env[\w.-]*|[\w.-]*\.?config\.[tj]s|nginx[\w.-]*\.conf|docker-compose[\w.-]*\.ya?ml|Dockerfile|\.htaccess|[\w-]*\.tf|Caddyfile|\.npmrc|Procfile)$/i;
 var ENV_TEMPLATES = [".env.example", ".env.sample", ".env.template", ".env.dist"];
@@ -3960,7 +4116,7 @@ function isSecretCarrier(rel) {
 function isConfigFile(rel) {
   if (isSecretCarrier(rel))
     return false;
-  if (CONFIG_EXT.has(extname3(rel).toLowerCase()))
+  if (CONFIG_EXT.has(extname4(rel).toLowerCase()))
     return true;
   return CONFIG_NAME.test(rel.replaceAll("\\", "/"));
 }
@@ -4975,7 +5131,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-0f4597bfe50e";
+    return "bundle-fe3b141f24cc";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -6246,7 +6402,7 @@ function handleSessionStart(input, dataRoot) {
       } catch {}
       const hasGateLog = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='gate_log'").get().n > 0;
       if (hasGateLog) {
-        const top = db.query("SELECT law, COUNT(*) n FROM gate_log GROUP BY law HAVING n >= 3 ORDER BY n DESC LIMIT 1").get();
+        const top = db.query("SELECT law, COUNT(*) n FROM gate_log WHERE file NOT LIKE '#%' AND law NOT LIKE '#%' GROUP BY law HAVING n >= 3 ORDER BY n DESC LIMIT 1").get();
         if (top) {
           gateLine = t(`- гейт чаще всего ловит: «${statement(top.law)}» — ${top.n} поимок (это правило здесь нарушается регулярно)`, `- the gate catches this most often: “${statement(top.law)}” — ${top.n} catches (this rule is broken here regularly)`);
         }
@@ -6354,4 +6510,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, fitToBudget, slugOf, handleSessionStart };
+export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, isTestPath, init_signals, guardTests, renderTestGuard, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, fitToBudget, slugOf, handleSessionStart };

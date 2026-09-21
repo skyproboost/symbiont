@@ -35,6 +35,7 @@ import { outlineView, outlineTokens, heaviestTokens } from '../layer1/symbols'
 import { shouldFeed } from '../gardener/utility'
 import { readOutlineMode } from '../gates/config'
 import { searchChurn } from '../gates/evidence'
+import { handleCommitGate } from './commit-core'
 import type { SymbolRow } from '../layer1/symbols'
 
 /** Вид подачи в телеметрии окупаемости: он копит собственную статистику. */
@@ -63,7 +64,7 @@ export interface PreToolInput {
   /** транскрипт сессии — по нему видна разведка без правки (сигнал делегирования) */
   transcript_path?: string
   tool_name?: string
-  tool_input?: { file_path?: string; notebook_path?: string; offset?: number; limit?: number }
+  tool_input?: { file_path?: string; notebook_path?: string; offset?: number; limit?: number; command?: string }
 }
 
 export interface PreToolOutput {
@@ -125,6 +126,9 @@ export function renderOutlineOffer(file: string, symbols: number, wholeTokens: n
 
 export function handlePreTool(input: PreToolInput, dataRoot: string): PreToolOutput {
   try {
+    // Оболочка приходит сюда только на коммите: условие `if` в hooks.json не
+    // спавнит процесс на прочие команды (см. commit-core.ts)
+    if (input.tool_name === 'Bash' || input.tool_name === 'PowerShell') return handleCommitGate(input, dataRoot)
     if (input.tool_name !== 'Read') return {}
     const filePath = input.tool_input?.file_path ?? input.tool_input?.notebook_path
     if (!filePath) return {}

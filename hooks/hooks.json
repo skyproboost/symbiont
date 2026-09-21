@@ -104,6 +104,40 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "command": "bun",
+            "args": [
+              "run",
+              "${CLAUDE_PLUGIN_ROOT}/src/hooks/pre-tool.ts",
+              "--data",
+              "${CLAUDE_PLUGIN_DATA}"
+            ],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "PowerShell(git commit *)",
+            "command": "bun",
+            "args": [
+              "run",
+              "${CLAUDE_PLUGIN_ROOT}/src/hooks/pre-tool.ts",
+              "--data",
+              "${CLAUDE_PLUGIN_DATA}"
+            ],
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [

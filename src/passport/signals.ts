@@ -98,7 +98,9 @@ export const SIGNALS: Record<string, Signal> = {
   },
   testing: {
     // + Python pytest · Ruby rspec/minitest · PHP phpunit/pest · Go testify · Rust: встроен · Java junit
-    paths: /(\.test\.|\.spec\.|_test\.|(^|\/)(tests?|__tests__|e2e|spec)\/)/i,
+    // Имя файла — вторая половина признака: pytest кладёт `test_x.py` рядом с
+    // кодом, rspec — `x_spec.rb`; каталога tests/ у таких проектов может не быть
+    paths: /(\.test\.|\.spec\.|_test\.|_spec\.|(^|\/)(tests?|__tests__|e2e|spec)\/|(^|\/)test_[^/]+\.py$)/i,
     deps: /^(jest|vitest|mocha|pytest|playwright|cypress|@testing-library\/.+|rspec|minitest|phpunit|pest|testify|junit|junit-jupiter)$/,
     docs: /(?<![\p{L}\d])(тест|test coverage|покрыти)/iu,
   },
@@ -134,6 +136,18 @@ export const SIGNALS: Record<string, Signal> = {
     docs: /(безопасн|уязвим|security|owasp|csp|xss|инъекци)/i,
   },
 }
+
+// xUnit-семейство называет файл по классу: `UserTest.php`, `OrderTests.cs`.
+// Отдельным образцом, потому что он обязан различать регистр, а сигнал путей
+// выше — нет: без различия тестом читались бы `latest.kt` и `contest.php`.
+const TEST_CLASS_FILE = /[a-z0-9]Tests?\.(php|java|kt|cs|swift|scala)$/
+
+/**
+ * Тестовый ли это путь. Живёт здесь, потому что «что такое тесты» определено в
+ * этом файле и больше нигде: страж тестов и ось «тестирование» обязаны отвечать
+ * на вопрос одинаково.
+ */
+export const isTestPath = (rel: string): boolean => SIGNALS.testing.paths!.test(rel) || TEST_CLASS_FILE.test(rel)
 
 /** Проверить сигнал против путей/зависимостей/текста доков. */
 export function matchSignal(sig: Signal, opts: { paths?: string[]; deps?: string[]; docs?: string }): boolean {

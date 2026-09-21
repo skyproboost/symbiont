@@ -326,8 +326,11 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
       const hasGateLog =
         (db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='gate_log'").get() as { n: number }).n > 0
       if (hasGateLog) {
+        // Только нарушения правил. Наблюдения о ходе работы (расфокус, страж
+        // тестов, момент коммита) пишутся в тот же поток под `#`-ключом ради
+        // дедупа и счёта, но «правилом, которое здесь нарушают» не являются
         const top = db
-          .query('SELECT law, COUNT(*) n FROM gate_log GROUP BY law HAVING n >= 3 ORDER BY n DESC LIMIT 1')
+          .query("SELECT law, COUNT(*) n FROM gate_log WHERE file NOT LIKE '#%' AND law NOT LIKE '#%' GROUP BY law HAVING n >= 3 ORDER BY n DESC LIMIT 1")
           .get() as { law: string; n: number } | null
         if (top) {
           gateLine = t(

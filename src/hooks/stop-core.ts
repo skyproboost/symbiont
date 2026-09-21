@@ -26,7 +26,9 @@ import { readRules } from '../env/rules'
 import { ENTITY_EXT } from '../graph/entities'
 import { inDerivedZone } from '../miner/walk'
 import { readGateMode } from '../gates/config'
-import { evidenceFromTranscript } from '../gates/evidence'
+import { evidenceFromTranscript, runHistory } from '../gates/evidence'
+import { renderTestGuard } from '../verifiers/test-guard'
+import { testGuardFindings, type DirtyEntry } from './test-guard-stop'
 import { harvestVoiced } from '../gardener/voiced'
 import { markCited } from '../gardener/cited'
 import { toRelNode } from './post-tool-core'
@@ -124,7 +126,11 @@ function gitTrackedConfigs(cwd: string): string[] {
   }
 }
 
-function dirtyGatedFiles(cwd: string): string[] {
+/**
+ * Грязное дерево — одним запуском git на ход: им пользуются и гейт формы, и
+ * страж тестов, а второй `git status` стоил бы столько же, сколько первый.
+ */
+function dirtyTree(cwd: string): DirtyEntry[] {
   // Ретрай: под параллельной нагрузкой (Windows) git status может транзиентно
   // сбоить/таймаутить — тогда мы «не увидели бы» файлов сессии (пропали бы
   // model_state/гейт/страж). Вторая попытка со свежим спавном обычно проходит.
@@ -134,22 +140,29 @@ function dirtyGatedFiles(cwd: string): string[] {
       if (r.status === 0 && typeof r.stdout === 'string') {
         return r.stdout
           .split('\n')
-          .map((l) => l.slice(3).trim())
-          // Носитель секретов не проходит дальше НИ ОДНИМ путём. Список
-          // расширений его не отсекает: `.yarnrc.yml` и `*secrets*.yaml`
-          // кончаются на .yml, а .yml гейтуется. Отсюда файл ушёл бы в
-          // readFileSync ниже, оттуда целиком в model_state.content, оттуда на
-          // следующем старте в corrections.before_content и в промпт садовника —
-          // то есть плагин открыл бы файл, который владелец не открывал. Ровно
-          // об этой утечке сообщили снаружи (см. env/config-graph.ts).
-          .filter((f) => f && GATED_EXT.has(extname(f).toLowerCase()) && !inDerivedZone(f) && !isSecretCarrier(f))
-          .slice(0, MAX_FILES)
+          .filter((l) => l.length > 3)
+          // Переименование приходит как «старое -> новое»: судится новое имя
+          .map((l) => ({ status: l.slice(0, 2), file: l.slice(3).split(' -> ').pop()!.trim() }))
       }
     } catch {
       /* транзиент — вторая попытка */
     }
   }
   return []
+}
+
+function dirtyGatedFiles(dirty: DirtyEntry[]): string[] {
+  return dirty
+    .map((e) => e.file)
+    // Носитель секретов не проходит дальше НИ ОДНИМ путём. Список
+    // расширений его не отсекает: `.yarnrc.yml` и `*secrets*.yaml`
+    // кончаются на .yml, а .yml гейтуется. Отсюда файл ушёл бы в
+    // readFileSync ниже, оттуда целиком в model_state.content, оттуда на
+    // следующем старте в corrections.before_content и в промпт садовника —
+    // то есть плагин открыл бы файл, который владелец не открывал. Ровно
+    // об этой утечке сообщили снаружи (см. env/config-graph.ts).
+    .filter((f) => f && GATED_EXT.has(extname(f).toLowerCase()) && !inDerivedZone(f) && !isSecretCarrier(f))
+    .slice(0, MAX_FILES)
 }
 
 /** Файлы, изменённые ИМЕННО этой сессией (журнал авторства PostToolUse). */
@@ -236,9 +249,10 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       // ОДНИ (см. gatedFiles ниже): претензия к файлу соседа не имеет адресата.
       const parallel = otherOpenSessions(db, sid)
       const own = ownEditedFiles(db, sid)
+      const dirty = dirtyTree(cwd)
       const sessionFiles: string[] = []
       const contents = new Map<string, string>()
-      for (const rel of dirtyGatedFiles(cwd)) {
+      for (const rel of dirtyGatedFiles(dirty)) {
         const abs = join(cwd, rel)
         try {
           if (statSync(abs).mtimeMs < sessionStartMs) continue // менялся не в этой сессии
@@ -374,6 +388,18 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       // Судятся только подтверждённо свои кодовые файлы и только в проекте, где
       // проверка вообще есть (тестовые файлы в графе). В dry-run — наблюдение,
       // в режиме блокировки — нарушение наравне с законами формы.
+      // Транскрипт — общий источник гейта доказательств, стража тестов и сбора
+      // устных правил: путь даёт хук, а если нет — журнал сессий
+      let transcript: string | null = input.transcript_path ?? null
+      if (!transcript) {
+        try {
+          transcript =
+            (db.query('SELECT transcript_path FROM sessions WHERE session_id=?').get(sid) as { transcript_path: string | null } | null)?.transcript_path ?? null
+        } catch {
+          transcript = null // журнала сессий нет — читать нечего, каналы ниже молчат
+        }
+      }
+
       const evidenceLines: string[] = []
       try {
         const codeOwn = new Set(ownFiles.filter((f) => !ENTITY_EXT.has(extname(f).toLowerCase()) && !isConfigFile(f)))
@@ -381,10 +407,6 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
           codeOwn.size > 0 &&
           (db.query("SELECT COUNT(*) n FROM graph_nodes WHERE file LIKE '%test%' OR file LIKE '%spec%'").get() as { n: number }).n > 0
         if (hasTests) {
-          const transcript =
-            input.transcript_path ??
-            (db.query('SELECT transcript_path FROM sessions WHERE session_id=?').get(sid) as { transcript_path: string | null } | null)?.transcript_path ??
-            null
           const ev = evidenceFromTranscript(transcript, codeOwn, (abs) => toRelNode(cwd, abs))
           if (ev.readable && ev.uncheckedFiles.length > 0) {
             const files = [...ev.uncheckedFiles].sort()
@@ -404,14 +426,27 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
         /* гейт доказательств — обогащение: транскрипт нестабилен, молчание безопасно */
       }
 
+      // Страж тестов: чем проверку сделали зелёной. Наблюдение, не нарушение —
+      // даже в режиме блокировки (обоснование в verifiers/test-guard.ts): в `all`
+      // находки не идут, но в гейт-поток пишутся, чтобы поимки считались. Сбор
+      // сырья (кого судить, против какой базы) — в hooks/test-guard-stop.ts.
+      const testLines: string[] = []
+      const guardedFiles = new Set<string>()
+      try {
+        const history = runHistory(transcript, (abs) => toRelNode(cwd, abs))
+        const findings = testGuardFindings({ cwd, dirty, own, parallel, history, sessionStartMs, sinceIso })
+        for (const f of findings) if (f.kind === 'assertions' || f.kind === 'cases') guardedFiles.add(f.file)
+        // `#`-ключ — конвенция наблюдений в гейт-потоке: поимки считаются по виду
+        // (law), но «нарушаемым правилом» в сводке не становятся
+        testLines.push(...renderTestGuard(findings.filter((f) => Number(dedup.run(sid, `#тесты:${f.file}`, f.law).changes) > 0)))
+      } catch {
+        /* страж тестов — наблюдение: транскрипт нестабилен, git транзиентен; молчание безопасно, гейт формы отработает без него */
+      }
+
       // Устные правила владельца — из того же транскрипта, тем же ходом. Ничего
       // не подаётся здесь: сырьё копится, голос получает только повтор в разных
       // сессиях (см. gardener/voiced.ts), и показывает его SessionStart.
       try {
-        const transcript =
-          input.transcript_path ??
-          (db.query('SELECT transcript_path FROM sessions WHERE session_id=?').get(sid) as { transcript_path: string | null } | null)?.transcript_path ??
-          null
         harvestVoiced(db, transcript, sid, new Date().toISOString())
         // Самоотчёт о поданном — из того же текста: поданный файл, названный
         // в ответе модели, засчитывается третьим сигналом окупаемости
@@ -434,8 +469,12 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
           edges: edges.map((e) => ({ from: e.from_file, to: e.to_file })),
           diffs,
         })
+        // Об убыли проверок в этих файлах уже сказал страж тестов, с числом и
+        // развилкой: вторая строка о том же была бы шумом. Отсев — ДО дедупа,
+        // иначе погашенный сигнал занял бы отметку и не прозвучал бы позже
+        const unsaid = signals.filter((s) => !(s.kind === 'из диффа исчезли проверки' && s.files.length > 0 && s.files.every((f) => guardedFiles.has(f))))
         // Дедуп по виду сигнала на сессию: расползание сообщается один раз
-        const fresh = signals.filter((s) => Number(dedup.run(sid, '#фокус', s.kind).changes) > 0)
+        const fresh = unsaid.filter((s) => Number(dedup.run(sid, '#фокус', s.kind).changes) > 0)
         focusLines.push(...renderFocus(fresh))
       } catch {
         /* страж фокуса — наблюдение, его сбой не касается гейта */
@@ -466,7 +505,7 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       // Наблюдения о ходе работы — один поток: расфокус, бюджеты качества и
       // отчёт о неразобранном при живых соседних сессиях. Раньше бюджеты
       // считались, но терялись в обеих ветках вывода — печатался только расфокус.
-      const observations = [...evidenceLines, ...focusLines, ...budgetLines, parallelLine].filter(Boolean)
+      const observations = [...evidenceLines, ...testLines, ...focusLines, ...budgetLines, parallelLine].filter(Boolean)
 
       // Статистика поимок — всегда (усиливает подачу правила в сводке)
       // Закон показывается через statement(): в журнале он записан по-русски
@@ -483,20 +522,20 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
         released: number
       } | null) ?? { streak: 0, released: 0 }
 
+      // Наблюдения уходят при любом исходе гейта, включая блокировку: их дедуп
+      // уже отмечен этим ходом, и потерянное здесь не прозвучало бы ни разу
+      const observationBlock =
+        observations.length > 0
+          ? `Symbiont · ${t('наблюдение о ходе работы (факт, не требование)', 'an observation about how the work is going (a fact, not a demand)')}:\n${observations.join('\n')}`
+          : ''
+
       if (all.length === 0) {
         // Чистый ход: серия блокировок обнуляется (предохранитель — про ПОДРЯД)
         if (fuse.streak > 0) db.query('UPDATE gate_fuse SET streak=0 WHERE session_id=?').run(sid)
         // Правила не нарушены, но работа могла разъехаться с задачей — это
         // независимое наблюдение, и молчать о нём только потому, что гейт чист,
         // значило бы потерять единственный сигнал расфокуса.
-        if (observations.length > 0) {
-          return {
-            hookSpecificOutput: {
-              hookEventName: 'Stop',
-              additionalContext: `Symbiont · ${t('наблюдение о ходе работы (факт, не требование)', 'an observation about how the work is going (a fact, not a demand)')}:\n${observations.join('\n')}`,
-            },
-          }
-        }
+        if (observationBlock) return { hookSpecificOutput: { hookEventName: 'Stop', additionalContext: observationBlock } }
         return {}
       }
 
@@ -531,7 +570,7 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
               `(form laws + direction verifiers) — bring them in line with the project's conventions and finish the turn:\n` +
               all.map((v) => `- ${v.file} · “${statement(v.law)}” · ${v.detail}`).join('\n') +
               `\nThe rules are derived from this repository (passport_conventions/passport_orphans); if the deviation is deliberate, say so to the owner explicitly.`,
-          ),
+          ) + (observationBlock ? `\n\n${observationBlock}` : ''),
         }
       }
 
@@ -547,14 +586,10 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
                 `The rules are derived from this repository (passport_conventions/passport_orphans).`,
             )
           : ''
-      const focusBlock =
-        observations.length > 0
-          ? `Symbiont · ${t('наблюдение о ходе работы (факт, не требование)', 'an observation about how the work is going (a fact, not a demand)')}:\n${observations.join('\n')}`
-          : ''
       return {
         hookSpecificOutput: {
           hookEventName: 'Stop',
-          additionalContext: [gateBlock, focusBlock].filter(Boolean).join('\n\n'),
+          additionalContext: [gateBlock, observationBlock].filter(Boolean).join('\n\n'),
         },
       }
     } finally {

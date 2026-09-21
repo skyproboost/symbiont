@@ -4,10 +4,11 @@ import {
 import {
   applyRules,
   readRules
-} from "./session-start-vz3x4gs4.js";
+} from "./session-start-f9q9917t.js";
 import {
-  evidenceFromTranscript
-} from "./session-start-k1samhrj.js";
+  evidenceFromTranscript,
+  runHistory
+} from "./session-start-39yre5nk.js";
 import {
   readGateMode
 } from "./session-start-yvd28w11.js";
@@ -15,13 +16,13 @@ import {
   checkAgainstLaws,
   lawsForFile,
   toRelNode
-} from "./session-start-b18jr9rj.js";
-import"./session-start-8ndze40h.js";
+} from "./session-start-7p6dq8x2.js";
+import"./session-start-21v95psk.js";
 import"./session-start-psab7pqj.js";
 import"./session-start-8ychq3hk.js";
-import"./session-start-snws5qzz.js";
+import"./session-start-85cb26mf.js";
 import"./session-start-046cybce.js";
-import"./session-start-h6ym5n73.js";
+import"./session-start-csgqgc86.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -30,7 +31,7 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-gffsd4s1.js";
+} from "./session-start-t78rng83.js";
 import {
   ENTITY_EXT,
   ENV_TEMPLATES,
@@ -38,33 +39,37 @@ import {
   SessionLog,
   beat,
   contentVerifierActive,
+  guardTests,
   harvestVoiced,
   inDerivedZone,
   initLang,
   init_i18n,
+  init_signals,
   init_walk,
   isConfigFile,
   isSecretCarrier,
+  isTestPath,
   loadEntityResolver,
   openDb,
   parseConfigFile,
   reachableUndirected,
+  renderTestGuard,
   runContentVerifiers,
   sha1,
   slugOf,
   snapshotContent,
   statement,
   t
-} from "./session-start-qbns6ty2.js";
+} from "./session-start-35d1d2f1.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/stop.ts
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 
 // src/hooks/stop-core.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2, statSync } from "node:fs";
-import { extname, join as join2 } from "node:path";
-import { spawnSync } from "node:child_process";
+import { existsSync as existsSync2, readFileSync as readFileSync3, statSync as statSync2 } from "node:fs";
+import { extname, join as join3 } from "node:path";
+import { spawnSync as spawnSync2 } from "node:child_process";
 
 // src/verifiers/security.ts
 var REMOVAL_RULES = [
@@ -605,11 +610,88 @@ function checkContract(content, policies, learned = []) {
 
 // src/hooks/stop-core.ts
 init_walk();
+
+// src/hooks/test-guard-stop.ts
+import { readFileSync as readFileSync2, statSync } from "node:fs";
+import { join as join2 } from "node:path";
+import { spawnSync } from "node:child_process";
+init_signals();
+init_walk();
+var MAX_TEST_FILES = 12;
+var MAX_TEST_BYTES = 1e6;
+function sessionBase(cwd, sinceIso) {
+  try {
+    const started = Date.parse(sinceIso);
+    const before = Number.isNaN(started) ? sinceIso : new Date(started - 1000).toISOString();
+    const r = spawnSync("git", ["rev-list", "-1", `--before=${before}`, "HEAD"], { cwd, encoding: "utf8", timeout: 8000, windowsHide: true });
+    const sha = r.status === 0 && typeof r.stdout === "string" ? r.stdout.trim() : "";
+    return sha || null;
+  } catch {
+    return null;
+  }
+}
+function diffAgainst(cwd, base, args) {
+  try {
+    const r = spawnSync("git", ["diff", base, ...args], { cwd, encoding: "utf8", timeout: 12000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 });
+    return r.status === 0 && typeof r.stdout === "string" ? r.stdout : null;
+  } catch {
+    return null;
+  }
+}
+function testGuardFindings(w) {
+  const judged = (f) => isTestPath(f) && !inDerivedZone(f) && !isSecretCarrier(f);
+  const freshOnDisk = (f) => {
+    try {
+      return statSync(join2(w.cwd, f)).mtimeMs >= w.sessionStartMs;
+    } catch {
+      return false;
+    }
+  };
+  const dirtyTests = w.parallel > 0 ? [] : w.dirty.filter((e) => !e.status.includes("D") && judged(e.file) && freshOnDisk(e.file)).map((e) => e.file);
+  const candidates = [...new Set([...[...w.own].filter(judged), ...w.history.episodes.flatMap((ep) => ep.edited).filter(judged), ...dirtyTests])].slice(0, MAX_TEST_FILES);
+  if (candidates.length === 0 && w.history.deletions.length === 0)
+    return [];
+  const base = sessionBase(w.cwd, w.sinceIso) ?? "HEAD";
+  const untracked = w.dirty.filter((e) => e.status === "??").map((e) => e.file);
+  const existing = new Map;
+  const fresh = new Map;
+  for (const rel of candidates) {
+    const diff = diffAgainst(w.cwd, base, ["--", rel]);
+    if (diff === null)
+      continue;
+    if (/^new file mode/m.test(diff))
+      fresh.set(rel, diff);
+    else if (diff.trim() && !/^deleted file mode/m.test(diff))
+      existing.set(rel, diff);
+    else if (!diff.trim() && (w.history.created.has(rel) || untracked.some((u) => u === rel || u.endsWith("/") && rel.startsWith(u)))) {
+      try {
+        const abs = join2(w.cwd, rel);
+        if (statSync(abs).size <= MAX_TEST_BYTES)
+          fresh.set(rel, readFileSync2(abs, "utf8").split(`
+`).map((l) => "+" + l).join(`
+`));
+      } catch {}
+    }
+  }
+  let deleted = [];
+  if (w.history.deletions.length > 0) {
+    const gone = (diffAgainst(w.cwd, base, ["--name-only", "--diff-filter=D"]) ?? "").split(`
+`).map((f) => f.trim()).filter((f) => f && judged(f));
+    const named = (f) => {
+      const dir = f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "";
+      return w.history.deletions.some((cmd) => cmd.includes(f.split("/").pop()) || dir !== "" && cmd.includes(dir));
+    };
+    deleted = gone.filter(named).slice(0, MAX_TEST_FILES);
+  }
+  return guardTests({ existing, fresh, deleted, history: w.history });
+}
+
+// src/hooks/stop-core.ts
 init_i18n();
 var FUSE_LIMIT = 8;
 function fileStamp(cwd, rel) {
   try {
-    const st = statSync(join2(cwd, rel));
+    const st = statSync2(join3(cwd, rel));
     return `${st.size}:${Math.floor(st.mtimeMs)}`;
   } catch {
     return "gone";
@@ -621,7 +703,7 @@ var MAX_FILES = 20;
 function fileDiff(cwd, rel, content) {
   for (let attempt = 0;attempt < 2; attempt++) {
     try {
-      const r = spawnSync("git", ["diff", "HEAD", "--", rel], { cwd, encoding: "utf8", timeout: 12000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 });
+      const r = spawnSync2("git", ["diff", "HEAD", "--", rel], { cwd, encoding: "utf8", timeout: 12000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 });
       if (r.status === 0 && typeof r.stdout === "string") {
         if (r.stdout.trim())
           return r.stdout;
@@ -637,7 +719,7 @@ function fileDiff(cwd, rel, content) {
 }
 function sessionCommits(cwd, sinceIso) {
   try {
-    const r = spawnSync("git", ["log", `--since=${sinceIso}`, "--format=%s", "-n", "10"], { cwd, encoding: "utf8", timeout: 8000, windowsHide: true });
+    const r = spawnSync2("git", ["log", `--since=${sinceIso}`, "--format=%s", "-n", "10"], { cwd, encoding: "utf8", timeout: 8000, windowsHide: true });
     if (r.status !== 0 || typeof r.stdout !== "string")
       return [];
     return r.stdout.split(`
@@ -648,7 +730,7 @@ function sessionCommits(cwd, sinceIso) {
 }
 function gitTrackedConfigs(cwd) {
   try {
-    const r = spawnSync("git", ["ls-files"], { cwd, encoding: "utf8", timeout: 8000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 });
+    const r = spawnSync2("git", ["ls-files"], { cwd, encoding: "utf8", timeout: 8000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 });
     if (r.status !== 0 || typeof r.stdout !== "string")
       return [];
     return r.stdout.split(`
@@ -657,17 +739,20 @@ function gitTrackedConfigs(cwd) {
     return [];
   }
 }
-function dirtyGatedFiles(cwd) {
+function dirtyTree(cwd) {
   for (let attempt = 0;attempt < 2; attempt++) {
     try {
-      const r = spawnSync("git", ["status", "--porcelain"], { cwd, encoding: "utf8", timeout: 12000, windowsHide: true });
+      const r = spawnSync2("git", ["status", "--porcelain"], { cwd, encoding: "utf8", timeout: 12000, windowsHide: true });
       if (r.status === 0 && typeof r.stdout === "string") {
         return r.stdout.split(`
-`).map((l) => l.slice(3).trim()).filter((f) => f && GATED_EXT.has(extname(f).toLowerCase()) && !inDerivedZone(f) && !isSecretCarrier(f)).slice(0, MAX_FILES);
+`).filter((l) => l.length > 3).map((l) => ({ status: l.slice(0, 2), file: l.slice(3).split(" -> ").pop().trim() }));
       }
     } catch {}
   }
   return [];
+}
+function dirtyGatedFiles(dirty) {
+  return dirty.map((e) => e.file).filter((f) => f && GATED_EXT.has(extname(f).toLowerCase()) && !inDerivedZone(f) && !isSecretCarrier(f)).slice(0, MAX_FILES);
 }
 function ownEditedFiles(db, sid) {
   try {
@@ -687,10 +772,10 @@ function otherOpenSessions(db, sid) {
 function handleStop(input, dataRoot) {
   try {
     const cwd = input.cwd ?? process.cwd();
-    const dataDir = join2(dataRoot, slugOf(cwd));
+    const dataDir = join3(dataRoot, slugOf(cwd));
     initLang(dataDir, cwd);
     beat(dataDir, "Stop");
-    const dbPath = join2(dataDir, "passport.db");
+    const dbPath = join3(dataDir, "passport.db");
     if (!existsSync2(dbPath))
       return {};
     const db = openDb(dbPath);
@@ -707,14 +792,15 @@ function handleStop(input, dataRoot) {
       const learnedRules = readRules(db);
       const parallel = otherOpenSessions(db, sid);
       const own = ownEditedFiles(db, sid);
+      const dirty = dirtyTree(cwd);
       const sessionFiles = [];
       const contents = new Map;
-      for (const rel of dirtyGatedFiles(cwd)) {
-        const abs = join2(cwd, rel);
+      for (const rel of dirtyGatedFiles(dirty)) {
+        const abs = join3(cwd, rel);
         try {
-          if (statSync(abs).mtimeMs < sessionStartMs)
+          if (statSync2(abs).mtimeMs < sessionStartMs)
             continue;
-          contents.set(rel, readFileSync2(abs, "utf8"));
+          contents.set(rel, readFileSync3(abs, "utf8"));
           sessionFiles.push(rel);
         } catch {
           continue;
@@ -766,12 +852,19 @@ function handleStop(input, dataRoot) {
           all.push({ file: rel, law: `контракт среды: ${c.kind}`, detail: `${c.requirement} · ${c.policy} · ${c.detail}` });
         }
       }
+      let transcript = input.transcript_path ?? null;
+      if (!transcript) {
+        try {
+          transcript = db.query("SELECT transcript_path FROM sessions WHERE session_id=?").get(sid)?.transcript_path ?? null;
+        } catch {
+          transcript = null;
+        }
+      }
       const evidenceLines = [];
       try {
         const codeOwn = new Set(ownFiles.filter((f) => !ENTITY_EXT.has(extname(f).toLowerCase()) && !isConfigFile(f)));
         const hasTests = codeOwn.size > 0 && db.query("SELECT COUNT(*) n FROM graph_nodes WHERE file LIKE '%test%' OR file LIKE '%spec%'").get().n > 0;
         if (hasTests) {
-          const transcript = input.transcript_path ?? db.query("SELECT transcript_path FROM sessions WHERE session_id=?").get(sid)?.transcript_path ?? null;
           const ev = evidenceFromTranscript(transcript, codeOwn, (abs) => toRelNode(cwd, abs));
           if (ev.readable && ev.uncheckedFiles.length > 0) {
             const files = [...ev.uncheckedFiles].sort();
@@ -785,8 +878,17 @@ function handleStop(input, dataRoot) {
           }
         }
       } catch {}
+      const testLines = [];
+      const guardedFiles = new Set;
       try {
-        const transcript = input.transcript_path ?? db.query("SELECT transcript_path FROM sessions WHERE session_id=?").get(sid)?.transcript_path ?? null;
+        const history = runHistory(transcript, (abs) => toRelNode(cwd, abs));
+        const findings = testGuardFindings({ cwd, dirty, own, parallel, history, sessionStartMs, sinceIso });
+        for (const f of findings)
+          if (f.kind === "assertions" || f.kind === "cases")
+            guardedFiles.add(f.file);
+        testLines.push(...renderTestGuard(findings.filter((f) => Number(dedup.run(sid, `#тесты:${f.file}`, f.law).changes) > 0)));
+      } catch {}
+      try {
         harvestVoiced(db, transcript, sid, new Date().toISOString());
         markCited(db, sid, transcript);
       } catch {}
@@ -801,7 +903,8 @@ function handleStop(input, dataRoot) {
           edges: edges.map((e) => ({ from: e.from_file, to: e.to_file })),
           diffs
         });
-        const fresh = signals.filter((s) => Number(dedup.run(sid, "#фокус", s.kind).changes) > 0);
+        const unsaid = signals.filter((s) => !(s.kind === "из диффа исчезли проверки" && s.files.length > 0 && s.files.every((f) => guardedFiles.has(f))));
+        const fresh = unsaid.filter((s) => Number(dedup.run(sid, "#фокус", s.kind).changes) > 0);
         focusLines.push(...renderFocus(fresh));
       } catch {}
       const budgetLines = [];
@@ -820,23 +923,18 @@ function handleStop(input, dataRoot) {
           }
         }
       } catch {}
-      const observations = [...evidenceLines, ...focusLines, ...budgetLines, parallelLine].filter(Boolean);
+      const observations = [...evidenceLines, ...testLines, ...focusLines, ...budgetLines, parallelLine].filter(Boolean);
       const freshLines = all.filter((v) => Number(dedup.run(sid, v.file, v.law).changes) > 0).map((v) => `- ${v.file} · ${t(`«${statement(v.law)}»`, `“${statement(v.law)}”`)} · ${v.detail}`);
       db.run("CREATE TABLE IF NOT EXISTS gate_fuse(session_id TEXT PRIMARY KEY, streak INTEGER NOT NULL DEFAULT 0, released INTEGER NOT NULL DEFAULT 0)");
       const fuse = db.query("SELECT streak, released FROM gate_fuse WHERE session_id=?").get(sid) ?? { streak: 0, released: 0 };
+      const observationBlock = observations.length > 0 ? `Symbiont · ${t("наблюдение о ходе работы (факт, не требование)", "an observation about how the work is going (a fact, not a demand)")}:
+${observations.join(`
+`)}` : "";
       if (all.length === 0) {
         if (fuse.streak > 0)
           db.query("UPDATE gate_fuse SET streak=0 WHERE session_id=?").run(sid);
-        if (observations.length > 0) {
-          return {
-            hookSpecificOutput: {
-              hookEventName: "Stop",
-              additionalContext: `Symbiont · ${t("наблюдение о ходе работы (факт, не требование)", "an observation about how the work is going (a fact, not a demand)")}:
-${observations.join(`
-`)}`
-            }
-          };
-        }
+        if (observationBlock)
+          return { hookSpecificOutput: { hookEventName: "Stop", additionalContext: observationBlock } };
         return {};
       }
       const mode = readGateMode(dataDir);
@@ -860,7 +958,9 @@ ${observations.join(`
 Правила выведены из репозитория (passport_conventions/passport_orphans); если отклонение намеренное — скажи об этом владельцу явно.`, `Symbiont gate (blocking mode, ${streak}/${FUSE_LIMIT}): the changed files break the passport's rules ` + `(form laws + direction verifiers) — bring them in line with the project's conventions and finish the turn:
 ` + all.map((v) => `- ${v.file} · “${statement(v.law)}” · ${v.detail}`).join(`
 `) + `
-The rules are derived from this repository (passport_conventions/passport_orphans); if the deviation is deliberate, say so to the owner explicitly.`)
+The rules are derived from this repository (passport_conventions/passport_orphans); if the deviation is deliberate, say so to the owner explicitly.`) + (observationBlock ? `
+
+${observationBlock}` : "")
         };
       }
       if (freshLines.length === 0 && observations.length === 0)
@@ -872,13 +972,10 @@ ${freshLines.join(`
 ${freshLines.join(`
 `)}
 ` + `The rules are derived from this repository (passport_conventions/passport_orphans).`) : "";
-      const focusBlock = observations.length > 0 ? `Symbiont · ${t("наблюдение о ходе работы (факт, не требование)", "an observation about how the work is going (a fact, not a demand)")}:
-${observations.join(`
-`)}` : "";
       return {
         hookSpecificOutput: {
           hookEventName: "Stop",
-          additionalContext: [gateBlock, focusBlock].filter(Boolean).join(`
+          additionalContext: [gateBlock, observationBlock].filter(Boolean).join(`
 
 `)
         }
@@ -895,7 +992,7 @@ ${observations.join(`
 if (isInternalCall())
   process.exit(0);
 var input = readStdinJson();
-var dataRoot = resolveDataRoot(join3(import.meta.dirname, "..", "..", ".data")).root;
+var dataRoot = resolveDataRoot(join4(import.meta.dirname, "..", "..", ".data")).root;
 var out = handleStop(input, dataRoot);
 if (out.hookSpecificOutput || out.decision)
   console.log(JSON.stringify(out));

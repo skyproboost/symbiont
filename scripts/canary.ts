@@ -142,6 +142,20 @@ const sid = 'canary-1'
   check('PreToolUse', out !== null && beat, out === null ? raw : beat ? 'канал прошёл и оставил пульс' : 'пульса нет')
 }
 
+// 4б) Тот же вход на коммите: вторая ветка канала (условие `if` в hooks.json
+// пускает сюда оболочку только на `git commit`). В мире канарейки нет ни
+// тестов в графе, ни транскрипта — сказать нечего, контракт тот же: чистый
+// прогон настоящим процессом, без падения и без мусора в stdout.
+{
+  const { out, raw } = hook('pre-tool.ts', {
+    cwd: proj,
+    session_id: sid,
+    tool_name: 'Bash',
+    tool_input: { command: 'git add -A && git commit -m "x"' },
+  })
+  check('PreToolUse·коммит', out !== null, out === null ? raw : 'ветка коммита прошла чисто')
+}
+
 // 5) Stop: dry-run гейт видит второе нарушение, дедуп не повторяет первое
 {
   writeFileSync(join(proj, 'fresh.js'), 'const c = items.filter((x) => x)\n')

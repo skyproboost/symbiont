@@ -7,15 +7,14 @@ import {
 import {
   migrateLegacyPassports,
   resolveDataRoot
-} from "./session-start-57mz5gat.js";
+} from "./session-start-vzch827x.js";
 import {
   emitHookOutput,
   handleSessionStart
-} from "./session-start-8rqex817.js";
+} from "./session-start-r66a8rwv.js";
 import {
-  __require,
-  __toESM
-} from "./session-start-70d7ckvt.js";
+  __require
+} from "./session-start-rvra3cez.js";
 
 // src/hooks/session-start.ts
 import { join } from "node:path";
@@ -28,6 +27,6 @@ var out = handleSessionStart(input, res.root);
 if (out.hookSpecificOutput)
   emitHookOutput(out, "SessionStart", res.root, input.cwd);
 try {
-  const { spawnAutoLearnDetached } = await import("./detach-cx37y9kd.js");
+  const { spawnAutoLearnDetached } = await import("./detach-ejht83gj.js");
   spawnAutoLearnDetached(input.cwd ?? process.cwd(), res.root);
 } catch {}

@@ -19,6 +19,7 @@ import {
   type Intent,
 } from '../core/models'
 import { internalEnv } from '../core/internal'
+import { claudeBin } from '../core/runtime'
 import { t } from '../core/i18n'
 import { readFrame } from '../domains/frame'
 import { detectRefusal, recordRefusal, markRefusalsResolved } from '../domains/refusal'
@@ -117,7 +118,7 @@ export function callClaudeDetailed(prompt: string, opts: LlmOpts = {}): LlmOutco
       // Промпт — через stdin (многострочный argv на Windows рвётся по \n).
       const spawnOnce = (withEffort: boolean) =>
         spawnSync(
-          'claude',
+          claudeBin(),
           [
             '-p',
             '--model',
@@ -253,7 +254,7 @@ export function callClaudeWithTools(prompt: string, opts: LlmOpts = {}): LlmResu
   for (const model of resolveModels(opts)) {
     try {
       const r = spawnSync(
-        'claude',
+        claudeBin(),
         ['-p', '--model', model, '--output-format', 'json', '--max-turns', '24', '--tools', 'WebSearch,WebFetch'],
         { input: prompt, encoding: 'utf8', timeout: 420_000, windowsHide: true, maxBuffer: 32 * 1024 * 1024, env: internalEnv() },
       )

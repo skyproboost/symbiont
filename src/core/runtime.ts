@@ -19,7 +19,9 @@
  * порождаемый процесс запускается скрыто, а для открытия файлов используется
  * GUI-программа системы, а не консольная команда.
  */
+import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { basename } from 'node:path'
 import { t } from './i18n'
 
 export interface RuntimeReport {
@@ -148,4 +150,31 @@ export function fileOpener(platform: string = process.platform): { cmd: string; 
   if (platform === 'win32') return { cmd: 'explorer.exe', usesShell: false }
   if (platform === 'darwin') return { cmd: 'open', usesShell: false }
   return { cmd: 'xdg-open', usesShell: false }
+}
+
+/** Имя исполняемого файла CLI: только такой путь из окружения принимается за CLI сессии. */
+const CLAUDE_EXE = /^claude(\.exe)?$/i
+
+/**
+ * CLI для собственных вызовов модели — тот же, что ведёт сессию владельца.
+ *
+ * Модели зовутся алиасами (core/models.ts), и в конкретную версию их
+ * превращает сам CLI: свежий отдаёт на «opus» последнюю модель семейства,
+ * устаревший — ту, что была последней при его выпуске. Голое `claude` брало
+ * первое по PATH, и на машине владельца им оказалась забытая копия из
+ * глобальных пакетов старой версии node: фоновые проходы, запущенные из её
+ * оболочки, молча получали «opus» на поколение старше, чем сессия, из
+ * которой их позвали.
+ *
+ * Claude Code передаёт дочерним процессам путь к своему бинарнику
+ * (`CLAUDE_CODE_EXECPATH`) — берём его: версия вызова равна версии сессии, без
+ * единого номера модели в коде. Принимается только файл с именем CLI: при
+ * другой установке там может оказаться сам рантайм (`node`), и `node -p`
+ * исполнил бы промпт как код. Нет переменной (CI, ручной запуск вне сессии) —
+ * как прежде, из PATH.
+ */
+export function claudeBin(env: Record<string, string | undefined> = process.env): string {
+  const exec = env.CLAUDE_CODE_EXECPATH
+  if (!exec || !CLAUDE_EXE.test(basename(exec))) return 'claude'
+  return existsSync(exec) ? exec : 'claude'
 }

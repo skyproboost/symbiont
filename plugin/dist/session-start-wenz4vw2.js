@@ -7,15 +7,16 @@ import {
   readAvailability,
   recordOutcome,
   resolveVector
-} from "./session-start-00g9ekpd.js";
+} from "./session-start-rmm1zxj3.js";
 import {
   internalEnv
 } from "./session-start-5s7r4262.js";
 import {
+  claudeBin,
   init_i18n,
   readFrame,
   t
-} from "./session-start-8rqex817.js";
+} from "./session-start-r66a8rwv.js";
 
 // src/layer2/llm.ts
 import { spawnSync } from "node:child_process";
@@ -106,7 +107,7 @@ ${t("Отвечай по-русски.", "Answer in English.")}`;
   for (const model of resolveModels(opts)) {
     const t0 = performance.now();
     try {
-      const spawnOnce = (withEffort) => spawnSync("claude", [
+      const spawnOnce = (withEffort) => spawnSync(claudeBin(), [
         "-p",
         "--model",
         model,
@@ -211,7 +212,7 @@ function callClaudeWithTools(prompt, opts = {}) {
     return null;
   for (const model of resolveModels(opts)) {
     try {
-      const r = spawnSync("claude", ["-p", "--model", model, "--output-format", "json", "--max-turns", "24", "--tools", "WebSearch,WebFetch"], { input: prompt, encoding: "utf8", timeout: 420000, windowsHide: true, maxBuffer: 32 * 1024 * 1024, env: internalEnv() });
+      const r = spawnSync(claudeBin(), ["-p", "--model", model, "--output-format", "json", "--max-turns", "24", "--tools", "WebSearch,WebFetch"], { input: prompt, encoding: "utf8", timeout: 420000, windowsHide: true, maxBuffer: 32 * 1024 * 1024, env: internalEnv() });
       let parsed = {};
       if (typeof r.stdout === "string" && r.stdout.trim()) {
         try {

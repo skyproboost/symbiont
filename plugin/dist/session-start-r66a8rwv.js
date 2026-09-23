@@ -3,7 +3,7 @@ import {
   __export,
   __require,
   __toCommonJS
-} from "./session-start-70d7ckvt.js";
+} from "./session-start-rvra3cez.js";
 
 // src/core/i18n.ts
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -774,7 +774,9 @@ function emitHookOutput(out, channel, dataRoot, cwd) {
 
 // src/core/runtime.ts
 init_i18n();
+import { existsSync as existsSync2 } from "node:fs";
 import { createRequire } from "node:module";
+import { basename as basename2 } from "node:path";
 var NODE_SQLITE_MIN = "22.13";
 var requireDriver = createRequire(import.meta.url);
 function loadSqliteDriver(runtime) {
@@ -826,6 +828,13 @@ function runtimeBlocker(report = inspectRuntime()) {
 }
 function silentSpawnOptions(detached = true) {
   return { detached, stdio: "ignore", windowsHide: true };
+}
+var CLAUDE_EXE = /^claude(\.exe)?$/i;
+function claudeBin(env = process.env) {
+  const exec = env.CLAUDE_CODE_EXECPATH;
+  if (!exec || !CLAUDE_EXE.test(basename2(exec)))
+    return "claude";
+  return existsSync2(exec) ? exec : "claude";
 }
 
 // src/core/db.ts
@@ -2431,7 +2440,7 @@ function renderMaturity(m) {
 // src/passport/profile.ts
 init_signals();
 init_i18n();
-import { existsSync as existsSync2, readFileSync as readFileSync4 } from "node:fs";
+import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
 import { join as join5 } from "node:path";
 var evidenceEn = (ru) => ru === "заявлено в доках" ? "declared in the docs" : ru === "тестовых файлов" ? "test files" : ru.startsWith("тестовых файлов: ") ? `test files: ${ru.slice("тестовых файлов: ".length)}` : ru;
 var evidenceListEn = (ru, sep) => ru.split(sep).map(evidenceEn).join(sep);
@@ -2482,7 +2491,7 @@ function probeProfile(root, relPaths) {
   if (relPaths.length === 0 && deps.length === 0 && docsText.trim().length === 0)
     return [];
   const probes = [];
-  const ciPresent = [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].filter((p) => existsSync2(join5(root, p)));
+  const ciPresent = [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].filter((p) => existsSync3(join5(root, p)));
   for (const d of DETECTORS) {
     const sig = SIGNALS[d.signal];
     const evidence = [];
@@ -2815,7 +2824,7 @@ class FactStore {
 }
 
 // src/gardener/truth.ts
-import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync5 } from "node:fs";
 import { join as join6 } from "node:path";
 var tableExists = (db, name) => {
   try {
@@ -2829,7 +2838,7 @@ var deadOf = (db, table, column, root) => {
     return [];
   try {
     const rows = db.query(`SELECT ${column} AS f FROM ${table}`).all();
-    return rows.filter((r) => typeof r.f === "string" && !existsSync3(join6(root, r.f))).map((r) => r.f);
+    return rows.filter((r) => typeof r.f === "string" && !existsSync4(join6(root, r.f))).map((r) => r.f);
   } catch {
     return [];
   }
@@ -2839,7 +2848,7 @@ function deadLessonZones(db, root) {
     return [];
   try {
     const rows = db.query("SELECT DISTINCT zone FROM lessons").all();
-    return rows.filter((r) => r.zone && r.zone !== "(корень)" && !existsSync3(join6(root, r.zone))).map((r) => r.zone);
+    return rows.filter((r) => r.zone && r.zone !== "(корень)" && !existsSync4(join6(root, r.zone))).map((r) => r.zone);
   } catch {
     return [];
   }
@@ -3075,8 +3084,8 @@ function hotspotsFromGit(projectRoot) {
 }
 
 // src/passport/build.ts
-import { readFileSync as readFileSync11, writeFileSync as writeFileSync4, mkdirSync, existsSync as existsSync6 } from "node:fs";
-import { basename as basename2, join as join12, relative, dirname as dirname3 } from "node:path";
+import { readFileSync as readFileSync11, writeFileSync as writeFileSync4, mkdirSync, existsSync as existsSync7 } from "node:fs";
+import { basename as basename3, join as join12, relative, dirname as dirname3 } from "node:path";
 import { spawnSync as spawnSync2 } from "node:child_process";
 
 // src/graph/cochange.ts
@@ -4619,7 +4628,7 @@ function renderArtifacts(profile) {
 // src/passport/stack.ts
 init_signals();
 init_i18n();
-import { existsSync as existsSync4 } from "node:fs";
+import { existsSync as existsSync5 } from "node:fs";
 import { join as join10 } from "node:path";
 var DETECTORS2 = [
   { name: "nuxt", kind: "framework", deps: /^nuxt$/, files: ["nuxt.config.ts", "nuxt.config.js"] },
@@ -4671,7 +4680,7 @@ function detectStack(projectRoot, relPaths) {
   const { all: deps, prod: prodDeps } = readDeps(projectRoot);
   const hasDep = (re) => deps.some((d) => re.test(d));
   const hasPath = (re) => relPaths.some((p) => re.test(p));
-  const hasFile = (files) => files ? files.some((f) => existsSync4(join10(projectRoot, f))) : false;
+  const hasFile = (files) => files ? files.some((f) => existsSync5(join10(projectRoot, f))) : false;
   const reason = (d) => {
     if (d.signal)
       return matchSignal(SIGNALS[d.signal], { paths: relPaths, deps }) ? "сигнал направления" : null;
@@ -4930,7 +4939,7 @@ function unknownFact(u) {
 }
 
 // src/core/learned.ts
-import { existsSync as existsSync5, readFileSync as readFileSync10, writeFileSync as writeFileSync3 } from "node:fs";
+import { existsSync as existsSync6, readFileSync as readFileSync10, writeFileSync as writeFileSync3 } from "node:fs";
 import { join as join11 } from "node:path";
 init_i18n();
 var FILE2 = "learned-materials.json";
@@ -4959,7 +4968,7 @@ function sanitize(entry) {
 function readLearnedMaterials(root) {
   try {
     const p = join11(root, FILE2);
-    if (!existsSync5(p))
+    if (!existsSync6(p))
       return [];
     const raw = JSON.parse(readFileSync10(p, "utf8"));
     if (!Array.isArray(raw))
@@ -4976,7 +4985,7 @@ function mergeLearnedMaterials(root, observations, projectKey, nowIso = new Date
     const seenPath = join11(root, "learned-seen.json");
     let seen = {};
     try {
-      seen = existsSync5(seenPath) ? JSON.parse(readFileSync10(seenPath, "utf8")) : {};
+      seen = existsSync6(seenPath) ? JSON.parse(readFileSync10(seenPath, "utf8")) : {};
     } catch {
       seen = {};
     }
@@ -5235,7 +5244,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-095d216d30d9";
+    return "bundle-664145f47f45";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5316,7 +5325,7 @@ function buildPassport(projectRoot, dataDir) {
       edges: g.edges
     };
   });
-  const artProfile = artifactProfile(walked.map((f) => ({ name: basename2(f.path), ext: f.ext })));
+  const artProfile = artifactProfile(walked.map((f) => ({ name: basename3(f.path), ext: f.ext })));
   const artifactsBlock = renderArtifacts(artProfile);
   const stanceBlock = renderQualityStance(artProfile);
   const stack = detectStack(projectRoot, walked.map((f) => relative(projectRoot, f.path).replaceAll("\\", "/")));
@@ -5365,7 +5374,7 @@ function buildPassport(projectRoot, dataDir) {
     ctx.input("journal-active");
     ctx.input("artifacts");
     ctx.input("maturity");
-    return renderSummary(basename2(projectRoot), new FactStore(engine.db).active(), {
+    return renderSummary(basename3(projectRoot), new FactStore(engine.db).active(), {
       graphTop: ctx.get("graph").top,
       muted: mutedKeys(engine.db).size,
       artifacts: artifactsBlock,
@@ -5484,7 +5493,7 @@ ${learnedBlock}` : ""}` : learnedBlock
     codeFiles: relPaths.length,
     commits: derived.totalCommits,
     testFiles: allRel.filter((p) => /(\.test\.|\.spec\.|_test\.|(^|\/)(tests?|__tests__|spec)\/)/i.test(p)).length,
-    hasCi: [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].some((p) => existsSync6(join12(projectRoot, p))),
+    hasCi: [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].some((p) => existsSync7(join12(projectRoot, p))),
     prevalences: styleFacts.map((f) => f.prevalence),
     fixCommits: derived.commitTypes.fix ?? 0,
     reverts: derived.reverts,
@@ -5568,12 +5577,12 @@ ${learnedBlock}` : ""}` : learnedBlock
     const frame = buildFrame(frameText);
     if (frame)
       writeFileSync4(framePath, frame, "utf8");
-    else if (existsSync6(framePath))
+    else if (existsSync7(framePath))
       writeFileSync4(framePath, "", "utf8");
   } catch {}
   const summaryPath = join12(dataDir, "SUMMARY.md");
   const summaryRebuilt = engine.executions("summary") > 0;
-  if (summaryRebuilt || !existsSync6(summaryPath))
+  if (summaryRebuilt || !existsSync7(summaryPath))
     writeFileSync4(summaryPath, summary, "utf8");
   const result = {
     factsExecuted: factsExecutedNow,
@@ -5998,7 +6007,7 @@ function renderUtility(rows) {
 
 // src/gardener/voiced.ts
 init_i18n();
-import { existsSync as existsSync7, readFileSync as readFileSync13 } from "node:fs";
+import { existsSync as existsSync8, readFileSync as readFileSync13 } from "node:fs";
 var VOICED_MIN_SESSIONS = 2;
 var OWNER_PROMPT_MAX = 2000;
 var SENTENCE_MIN = 12;
@@ -6026,7 +6035,7 @@ function ruleSentences(text) {
   return out;
 }
 function ownerMessages(transcriptPath) {
-  if (!transcriptPath || !existsSync7(transcriptPath))
+  if (!transcriptPath || !existsSync8(transcriptPath))
     return [];
   let lines;
   try {
@@ -6647,4 +6656,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { slugOf, lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, emitHookOutput, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, isTestPath, init_signals, guardTests, renderTestGuard, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, fitToBudget, handleSessionStart };
+export { slugOf, lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, emitHookOutput, inspectRuntime, runtimeBlocker, silentSpawnOptions, claudeBin, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, isTestPath, init_signals, guardTests, renderTestGuard, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, fitToBudget, handleSessionStart };

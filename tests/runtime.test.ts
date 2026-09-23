@@ -3,7 +3,11 @@
  * работать не может: невидимая неработоспособность хуже видимой ошибки.
  */
 import { describe, expect, it } from 'bun:test'
-import { inspectRuntime, renderRuntimeWarning, silentSpawnOptions, fileOpener, loadSqliteDriver } from '../src/core/runtime'
+import { inspectRuntime, renderRuntimeWarning, silentSpawnOptions, fileOpener, loadSqliteDriver, claudeBin } from '../src/core/runtime'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { rmrf } from './_helpers'
 import { setLang } from '../src/core/i18n'
 
 // Наличие драйвера — свойство ЧУЖОЙ машины, поэтому в тестах оно подставляется:
@@ -106,5 +110,36 @@ describe('окружение говорит на языке владельца',
     // 'неизвестно' в типе было русским литералом в КОДЕ против конвенции
     // «код и идентификаторы — английские»; русская форма рождается на показе
     expect(inspectRuntime({}, withoutDriver).runtime).toBe('unknown')
+  })
+})
+
+/**
+ * Модели зовутся алиасами, и версию им назначает CLI: устаревшая копия в PATH
+ * молча понижала «opus» на поколение. Поэтому вызов идёт через CLI сессии.
+ */
+describe('CLI для собственных вызовов модели', () => {
+  it('в сессии — бинарник, который её ведёт; вне сессии — из PATH', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'symbiont-clibin-'))
+    try {
+      const exe = join(dir, process.platform === 'win32' ? 'claude.exe' : 'claude')
+      writeFileSync(exe, '')
+      expect(claudeBin({ CLAUDE_CODE_EXECPATH: exe })).toBe(exe)
+      expect(claudeBin({})).toBe('claude')
+    } finally {
+      rmrf(dir)
+    }
+  })
+
+  it('чужой исполняемый файл или несуществующий путь — не CLI: остаётся PATH', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'symbiont-clibin2-'))
+    try {
+      // node вместо CLI исполнил бы промпт как код (`node -p`)
+      const runtime = join(dir, process.platform === 'win32' ? 'node.exe' : 'node')
+      writeFileSync(runtime, '')
+      expect(claudeBin({ CLAUDE_CODE_EXECPATH: runtime })).toBe('claude')
+      expect(claudeBin({ CLAUDE_CODE_EXECPATH: join(dir, 'нет', 'claude.exe') })).toBe('claude')
+    } finally {
+      rmrf(dir)
+    }
   })
 })

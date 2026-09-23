@@ -1,7 +1,6 @@
 import {
-  __require,
-  __toESM
-} from "./session-start-70d7ckvt.js";
+  __require
+} from "./session-start-rvra3cez.js";
 
 // src/layer1/ast.ts
 import { existsSync } from "node:fs";
@@ -1546,7 +1545,7 @@ var Module2 = (() => {
           throw new Error(response.status + " : " + response.url);
         }, "readAsync");
       }
-    } else {}
+    }
     var out = Module["print"] || console.log.bind(console);
     var err = Module["printErr"] || console.error.bind(console);
     Object.assign(Module, moduleOverrides);

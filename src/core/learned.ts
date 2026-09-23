@@ -22,6 +22,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isOpaqueMaterial } from '../miner/noncode'
+import { t } from './i18n'
 
 export interface MaterialKnowledge {
   /** вид материала — расширение и ничего больше */
@@ -152,9 +153,19 @@ export function hintsForMaterials(root: string, exts: string[]): string[] {
   for (const k of known) {
     if (!wanted.has(k.ext) || k.seenIn < MIN_PROJECTS) continue
     const parts: string[] = []
-    if (k.pairsWith.length > 0) parts.push(`обычно ходит парой с ${k.pairsWith.join(', ')}`)
-    if (k.typicalLines > 0) parts.push(`характерный размер ~${k.typicalLines} строк`)
-    if (parts.length > 0) out.push(`${k.ext}: ${parts.join(', ')} (по опыту ${k.seenIn} проектов)`)
+    if (k.pairsWith.length > 0) parts.push(t(`обычно ходит парой с ${k.pairsWith.join(', ')}`, `usually paired with ${k.pairsWith.join(', ')}`))
+    if (k.typicalLines > 0) parts.push(t(`характерный размер ~${k.typicalLines} строк`, `typical size ~${k.typicalLines} lines`))
+    if (parts.length > 0) out.push(t(`${k.ext}: ${parts.join(', ')} (по опыту ${k.seenIn} проектов)`, `${k.ext}: ${parts.join(', ')} (from ${k.seenIn} projects)`))
   }
   return out.slice(0, 5)
+}
+
+/** Блок сводки «опыт по видам материала»; пустая строка — подсказок нет. */
+export function renderLearnedBlock(hints: string[]): string {
+  if (hints.length === 0) return ''
+  return [
+    t('## Опыт по видам материала (из других проектов; здешнее наблюдение сильнее)', '## Experience with kinds of material (from other projects; what is observed here wins)'),
+    '',
+    ...hints.map((h) => `- ${h}`),
+  ].join('\n')
 }

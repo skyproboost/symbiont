@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { readStdinJson } from './stdin'
+import { emitHookOutput } from './emit'
 import { resolveDataRoot } from '../core/data-root'
 import { handlePostToolFailure, type PostToolFailureInput } from './post-tool-failure-core'
 import { isInternalCall } from '../core/internal'
@@ -10,4 +11,4 @@ if (isInternalCall()) process.exit(0)
 const input = readStdinJson<PostToolFailureInput>()
 const dataRoot = resolveDataRoot(join(import.meta.dirname, '..', '..', '.data')).root
 const out = handlePostToolFailure(input, dataRoot)
-if (out.hookSpecificOutput) console.log(JSON.stringify(out))
+if (out.hookSpecificOutput) emitHookOutput(out, 'PostToolUseFailure', dataRoot, input.cwd)

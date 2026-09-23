@@ -8,6 +8,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { t } from './i18n'
 
 export interface ConstitutionPair {
   goal: string
@@ -49,7 +50,14 @@ export function upsertConstitution(dataDir: string, incoming: ConstitutionPair[]
 
 /** Блок для сводки сессии: воля владельца ПОВЕРХ выведенного (ручное побеждает). */
 export function renderConstitution(c: Constitution): string {
-  const lines = ['## Воля владельца (задана явно, поверх выведенных приоритетов; действует без повторения в промптах)', '']
-  for (const p of c.pairs) lines.push(`- цель: ${p.goal} · ограничение: ${p.constraint}`)
+  const lines = [
+    t(
+      '## Воля владельца (задана явно, поверх выведенных приоритетов; действует без повторения в промптах)',
+      '## The owner’s will (set explicitly, above the derived priorities; applies without being repeated in prompts)',
+    ),
+    '',
+  ]
+  // Слова владельца — как записаны; переводятся только наши метки вокруг них
+  for (const p of c.pairs) lines.push(t(`- цель: ${p.goal} · ограничение: ${p.constraint}`, `- goal: ${p.goal} · constraint: ${p.constraint}`))
   return lines.join('\n')
 }

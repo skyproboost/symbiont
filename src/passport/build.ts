@@ -30,7 +30,7 @@ import { artifactProfile, renderArtifacts, renderQualityStance } from './artifac
 import { detectStack, renderStack } from './stack'
 import { assessMaturity, maturityFact, renderMaturity } from './maturity'
 import { findUnknownMaterial, unknownFact } from '../miner/unknown'
-import { hintsForMaterials } from '../core/learned'
+import { hintsForMaterials, renderLearnedBlock } from '../core/learned'
 import { OFFICE, TEXT, CSVX } from '../miner/noncode'
 import { captureHealth } from '../gardener/drift'
 import { buildFrame } from '../domains/frame'
@@ -549,10 +549,7 @@ ${learnedBlock}` : ''}` : learnedBlock,
   // наблюдение в текущем проекте всегда сильнее (индивидуальность священна).
   let learnedBlock = ''
   try {
-    const hints = hintsForMaterials(dirname(dataDir), [...new Set(walked.map((f) => f.ext))])
-    if (hints.length > 0) {
-      learnedBlock = ['## Опыт по видам материала (из других проектов; здешнее наблюдение сильнее)', '', ...hints.map((h) => `- ${h}`)].join('\n')
-    }
+    learnedBlock = renderLearnedBlock(hintsForMaterials(dirname(dataDir), [...new Set(walked.map((f) => f.ext))]))
   } catch {
     /* накопленного нет — блок молчит */
   }

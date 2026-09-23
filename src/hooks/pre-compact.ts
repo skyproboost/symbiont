@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { readStdinJson } from './stdin'
+import { emitHookOutput } from './emit'
 import { resolveDataRoot } from '../core/data-root'
 import { handlePreCompact, type PreCompactInput } from './pre-compact-core'
 import { isInternalCall } from '../core/internal'
@@ -10,7 +11,7 @@ if (isInternalCall()) process.exit(0)
 const input = readStdinJson<PreCompactInput>()
 const res = resolveDataRoot(join(import.meta.dirname, '..', '..', '.data'))
 const out = handlePreCompact(input, res.root)
-if (out.hookSpecificOutput) console.log(JSON.stringify(out))
+if (out.hookSpecificOutput) emitHookOutput(out, 'PreCompact', res.root, input.cwd)
 
 // Оппортунистический харвест ПЕРЕД сжатием — тот же само-гейтованный детач, что и
 // на SessionStart (кулдаун внутри не даёт бегать на каждом сжатии). Хук выходит

@@ -2,7 +2,7 @@ import {
   claimNode,
   ensureFeedLog,
   nodeBrief
-} from "./session-start-sahq4kjf.js";
+} from "./session-start-8jryvzx3.js";
 import {
   communityLabels,
   delegationView
@@ -10,7 +10,7 @@ import {
 import {
   lessonsForZones,
   zoneOf
-} from "./session-start-gmd2p749.js";
+} from "./session-start-54m9r494.js";
 import {
   readStdinJson
 } from "./session-start-p89re5se.js";
@@ -19,11 +19,12 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-7d4dv2d8.js";
+} from "./session-start-57mz5gat.js";
 import {
   FactStore,
   beat,
   effectiveHeat,
+  emitHookOutput,
   hotFiles,
   initLang,
   init_i18n,
@@ -36,7 +37,7 @@ import {
   statement,
   t,
   taskRelevantNeighbors
-} from "./session-start-v794t6f0.js";
+} from "./session-start-8rqex817.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/user-prompt.ts
@@ -304,4 +305,4 @@ var input = readStdinJson();
 var dataRoot = resolveDataRoot(join2(import.meta.dirname, "..", "..", ".data")).root;
 var out = handleUserPrompt(input, dataRoot);
 if (out.hookSpecificOutput)
-  console.log(JSON.stringify(out));
+  emitHookOutput(out, "UserPromptSubmit", dataRoot, input.cwd);

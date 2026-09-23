@@ -270,14 +270,14 @@ var init_i18n = __esm(() => {
 });
 
 // src/passport/signals.ts
-import { readFileSync as readFileSync2 } from "node:fs";
-import { join as join3 } from "node:path";
+import { readFileSync as readFileSync3 } from "node:fs";
+import { join as join4 } from "node:path";
 function readManifestDeps(root) {
   const all = new Set;
   const prod = new Set;
   const read = (name) => {
     try {
-      return readFileSync2(join3(root, name), "utf8");
+      return readFileSync3(join4(root, name), "utf8");
     } catch {
       return null;
     }
@@ -571,8 +571,8 @@ __export(exports_walk, {
   JS_EXT: () => JS_EXT,
   CODE_EXT: () => CODE_EXT
 });
-import { readdirSync, readFileSync as readFileSync5, statSync } from "node:fs";
-import { extname as extname2, join as join6 } from "node:path";
+import { readdirSync, readFileSync as readFileSync6, statSync } from "node:fs";
+import { extname as extname2, join as join7 } from "node:path";
 function inDerivedZone(rel) {
   return rel.split("/").some((seg) => SKIP_DIRS.has(seg));
 }
@@ -581,7 +581,7 @@ function declaredSkips(root) {
   const prefixes = new Set;
   let text = "";
   try {
-    text = readFileSync5(join6(root, ".gitignore"), "utf8");
+    text = readFileSync6(join7(root, ".gitignore"), "utf8");
   } catch {}
   for (const raw of text.split(`
 `)) {
@@ -617,10 +617,10 @@ function walkFiles(root) {
         const childRel = rel ? `${rel}/${e.name}` : e.name;
         if (skips.prefixes.has(childRel))
           continue;
-        stack.push({ abs: join6(dir, e.name), rel: childRel });
+        stack.push({ abs: join7(dir, e.name), rel: childRel });
         continue;
       }
-      const p = join6(dir, e.name);
+      const p = join7(dir, e.name);
       const ext = extname2(e.name).toLowerCase();
       let size = 0;
       let mtimeMs = 0;
@@ -690,6 +690,87 @@ var init_walk = __esm(() => {
     ".dart"
   ]);
 });
+
+// src/hooks/slug.ts
+import { basename } from "node:path";
+function slugOf(path) {
+  const norm = path.replaceAll("\\", "/").replace(/\/+$/, "");
+  return basename(norm).toLowerCase().replace(/[^a-z0-9-]+/g, "-") || "project";
+}
+
+// src/hooks/emit.ts
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { join as join2 } from "node:path";
+init_i18n();
+var PLATFORM_TEXT_LIMIT = 1e4;
+var HOOK_TEXT_BUDGET = 9500;
+var TEXT_FIELDS = new Set(["additionalContext", "systemMessage", "reason", "permissionDecisionReason", "initialUserMessage"]);
+var OVERFLOW_FILE = "hook-overflow.json";
+var OVERFLOW_SHOWN_DAYS = 7;
+function capText(text, budget = HOOK_TEXT_BUDGET) {
+  if (text.length <= budget)
+    return text;
+  const note = `
+…${t(`обрезано Symbiont: ${text.length} символов при лимите платформы ${PLATFORM_TEXT_LIMIT} — показано начало`, `truncated by Symbiont: ${text.length} characters against the platform limit of ${PLATFORM_TEXT_LIMIT} — the beginning is shown`)}`;
+  const room = Math.max(0, budget - note.length);
+  const cut = text.lastIndexOf(`
+`, room);
+  return `${text.slice(0, cut > room / 2 ? cut : room)}${note}`;
+}
+function capHookOutput(out, budget = HOOK_TEXT_BUDGET) {
+  const overflows = [];
+  const walk = (v) => {
+    if (Array.isArray(v))
+      return v.map(walk);
+    if (v === null || typeof v !== "object")
+      return v;
+    const copy = {};
+    for (const [k, x] of Object.entries(v)) {
+      if (TEXT_FIELDS.has(k) && typeof x === "string" && x.length > budget) {
+        overflows.push({ field: k, length: x.length });
+        copy[k] = capText(x, budget);
+      } else {
+        copy[k] = walk(x);
+      }
+    }
+    return copy;
+  };
+  return { out: walk(out), overflows };
+}
+function recordOverflow(dataDir, channel, overflows, now = new Date) {
+  try {
+    let all = {};
+    try {
+      all = JSON.parse(readFileSync2(join2(dataDir, OVERFLOW_FILE), "utf8"));
+    } catch {}
+    const prev = all[channel];
+    all[channel] = {
+      at: now.toISOString(),
+      length: Math.max(...overflows.map((o) => o.length)),
+      count: (prev?.count ?? 0) + 1
+    };
+    writeFileSync2(join2(dataDir, OVERFLOW_FILE), JSON.stringify(all), "utf8");
+  } catch {}
+}
+function renderOverflow(dataDir, nowMs = Date.now()) {
+  let all;
+  try {
+    all = JSON.parse(readFileSync2(join2(dataDir, OVERFLOW_FILE), "utf8"));
+  } catch {
+    return "";
+  }
+  const recent = Object.entries(all).filter((e) => nowMs - Date.parse(e[1].at) < OVERFLOW_SHOWN_DAYS * 86400000).sort((a, b) => b[1].length - a[1].length);
+  if (recent.length === 0)
+    return "";
+  const named = recent.map((e) => `${e[0]} (${e[1].length} ×${e[1].count})`).join(", ");
+  return t(`- ⚠ текст длиннее лимита платформы (${PLATFORM_TEXT_LIMIT} символов) за ${OVERFLOW_SHOWN_DAYS} дней: ${named} — Symbiont обрезал его сам, модель видела начало; это дефект плагина, а не проекта`, `- ⚠ text longer than the platform limit (${PLATFORM_TEXT_LIMIT} characters) in the last ${OVERFLOW_SHOWN_DAYS} days: ${named} — Symbiont cut it itself and the model saw the beginning; this is a plugin defect, not a project one`);
+}
+function emitHookOutput(out, channel, dataRoot, cwd) {
+  const { out: capped, overflows } = capHookOutput(out);
+  if (overflows.length > 0)
+    recordOverflow(join2(dataRoot, slugOf(cwd ?? process.cwd())), channel, overflows);
+  console.log(JSON.stringify(capped));
+}
 
 // src/core/runtime.ts
 init_i18n();
@@ -1694,7 +1775,7 @@ init_i18n();
 
 // src/graph/entities.ts
 init_i18n();
-import { dirname, join as join2, normalize as normalize2 } from "node:path/posix";
+import { dirname, join as join3, normalize as normalize2 } from "node:path/posix";
 var ENTITY_EXT = new Set([".md", ".mdx", ".markdown", ".html", ".htm", ".yaml", ".yml"]);
 var EXTERNAL_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 var MD_LINK_RE = /(^|[^!])\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
@@ -1790,7 +1871,7 @@ function resolveContentTarget(fromRel, rawTarget, index) {
       return { kind: "entity", rel: hit };
     return hasEntityExt(lower) ? { kind: "broken" } : { kind: "unresolved" };
   }
-  const joined = normalize2(join2(dirname(fromRel.toLowerCase()), lower));
+  const joined = normalize2(join3(dirname(fromRel.toLowerCase()), lower));
   if (!joined.startsWith("..")) {
     const hit = tryKeys(joined);
     if (hit)
@@ -2350,8 +2431,8 @@ function renderMaturity(m) {
 // src/passport/profile.ts
 init_signals();
 init_i18n();
-import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
-import { join as join4 } from "node:path";
+import { existsSync as existsSync2, readFileSync as readFileSync4 } from "node:fs";
+import { join as join5 } from "node:path";
 var evidenceEn = (ru) => ru === "заявлено в доках" ? "declared in the docs" : ru === "тестовых файлов" ? "test files" : ru.startsWith("тестовых файлов: ") ? `test files: ${ru.slice("тестовых файлов: ".length)}` : ru;
 var evidenceListEn = (ru, sep) => ru.split(sep).map(evidenceEn).join(sep);
 pattern(/^безопасность — защитные слои: (.+) \(их ослабление — не рядовая правка\)$/, (m) => `security — protective layers: ${m[1]} (weakening them is not an ordinary change)`);
@@ -2374,13 +2455,13 @@ function readConceptText(root, relPaths) {
   const parts = [];
   for (const name of ["README.md", "readme.md", "README.rst", "CONCEPT.md", "AGENTS.md", "CLAUDE.md"]) {
     try {
-      parts.push(readFileSync3(join4(root, name), "utf8").slice(0, README_LIMIT));
+      parts.push(readFileSync4(join5(root, name), "utf8").slice(0, README_LIMIT));
     } catch {}
   }
   const docFiles = relPaths.filter((p) => /^(docs|\.docs|doc)\//i.test(p) && p.endsWith(".md")).slice(0, 12);
   for (const rel of docFiles) {
     try {
-      parts.push(readFileSync3(join4(root, rel), "utf8").slice(0, 8000));
+      parts.push(readFileSync4(join5(root, rel), "utf8").slice(0, 8000));
     } catch {}
   }
   return parts.join(`
@@ -2390,7 +2471,7 @@ function readPackageSignals(root) {
   const { all } = readManifestDeps(root);
   let scripts = "";
   try {
-    const pkg = JSON.parse(readFileSync3(join4(root, "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync4(join5(root, "package.json"), "utf8"));
     scripts = Object.values(pkg.scripts ?? {}).join(" ");
   } catch {}
   return { deps: all, scripts };
@@ -2401,7 +2482,7 @@ function probeProfile(root, relPaths) {
   if (relPaths.length === 0 && deps.length === 0 && docsText.trim().length === 0)
     return [];
   const probes = [];
-  const ciPresent = [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].filter((p) => existsSync2(join4(root, p)));
+  const ciPresent = [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].filter((p) => existsSync2(join5(root, p)));
   for (const d of DETECTORS) {
     const sig = SIGNALS[d.signal];
     const evidence = [];
@@ -2734,8 +2815,8 @@ class FactStore {
 }
 
 // src/gardener/truth.ts
-import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
-import { join as join5 } from "node:path";
+import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
+import { join as join6 } from "node:path";
 var tableExists = (db, name) => {
   try {
     return db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?").get(name).n > 0;
@@ -2748,7 +2829,7 @@ var deadOf = (db, table, column, root) => {
     return [];
   try {
     const rows = db.query(`SELECT ${column} AS f FROM ${table}`).all();
-    return rows.filter((r) => typeof r.f === "string" && !existsSync3(join5(root, r.f))).map((r) => r.f);
+    return rows.filter((r) => typeof r.f === "string" && !existsSync3(join6(root, r.f))).map((r) => r.f);
   } catch {
     return [];
   }
@@ -2758,7 +2839,7 @@ function deadLessonZones(db, root) {
     return [];
   try {
     const rows = db.query("SELECT DISTINCT zone FROM lessons").all();
-    return rows.filter((r) => r.zone && r.zone !== "(корень)" && !existsSync3(join5(root, r.zone))).map((r) => r.zone);
+    return rows.filter((r) => r.zone && r.zone !== "(корень)" && !existsSync3(join6(root, r.zone))).map((r) => r.zone);
   } catch {
     return [];
   }
@@ -2794,7 +2875,7 @@ function auditTruth(db, root, dataDir) {
   push2("тепло удалённых файлов", deadOf(db, "node_heat", "file", root));
   push2("уроки по несуществующим зонам", deadLessonZones(db, root));
   try {
-    const summary = readFileSync4(join5(dataDir, "SUMMARY.md"), "utf8");
+    const summary = readFileSync5(join6(dataDir, "SUMMARY.md"), "utf8");
     const active = new FactStore(db).active().map((f) => f.statement);
     const stale = staleSummaryLines(summary, active);
     if (stale.length > 0) {
@@ -2962,8 +3043,8 @@ function renderDriftReport(health, drift, hotspots) {
 }
 function hotspotsFromGit(projectRoot) {
   const { spawnSync: spawnSync2 } = __require("node:child_process");
-  const { readFileSync: readFileSync6 } = __require("node:fs");
-  const { join: join7, extname: extname3 } = __require("node:path");
+  const { readFileSync: readFileSync7 } = __require("node:fs");
+  const { join: join8, extname: extname3 } = __require("node:path");
   const { parseCommitLog: parseCommitLog2 } = (init_constitution_derive(), __toCommonJS(exports_constitution_derive));
   const { CODE_EXT: CODE_EXT2 } = (init_walk(), __toCommonJS(exports_walk));
   const r = spawnSync2("git", ["log", "--name-only", "--pretty=format:@%H%x09%s", "-n", "400"], {
@@ -2986,7 +3067,7 @@ function hotspotsFromGit(projectRoot) {
     if (!CODE_EXT2.has(extname3(rel).toLowerCase()))
       continue;
     try {
-      sizeByFile.set(rel, readFileSync6(join7(projectRoot, rel), "utf8").split(`
+      sizeByFile.set(rel, readFileSync7(join8(projectRoot, rel), "utf8").split(`
 `).length);
     } catch {}
   }
@@ -2994,8 +3075,8 @@ function hotspotsFromGit(projectRoot) {
 }
 
 // src/passport/build.ts
-import { readFileSync as readFileSync10, writeFileSync as writeFileSync3, mkdirSync, existsSync as existsSync6 } from "node:fs";
-import { basename, join as join11, relative, dirname as dirname3 } from "node:path";
+import { readFileSync as readFileSync11, writeFileSync as writeFileSync4, mkdirSync, existsSync as existsSync6 } from "node:fs";
+import { basename as basename2, join as join12, relative, dirname as dirname3 } from "node:path";
 import { spawnSync as spawnSync2 } from "node:child_process";
 
 // src/graph/cochange.ts
@@ -3150,7 +3231,7 @@ class Engine {
 init_walk();
 
 // src/graph/imports.ts
-import { dirname as dirname2, join as join7, normalize as normalize3 } from "node:path/posix";
+import { dirname as dirname2, join as join8, normalize as normalize3 } from "node:path/posix";
 var defaults = {
   targets: [],
   indexes: [],
@@ -3621,7 +3702,7 @@ var bareAllowed = (segs, rooted) => segs.length >= 2 || rooted;
 function resolvePath(fromRel, spec, p, index) {
   const clean = spec.replace(/^package:/, "").replace(/[?#].*$/, "");
   if (clean.startsWith("./") || clean.startsWith("../")) {
-    const base = normalize3(join7(dirname2(fromRel), clean));
+    const base = normalize3(join8(dirname2(fromRel), clean));
     if (base.startsWith(".."))
       return [];
     const hit = matchTail(base, p, index).filter((f) => f === base || f.startsWith(`${base}.`) || f.startsWith(`${base}/`));
@@ -3674,7 +3755,7 @@ function resolveSymbol(fromRel, spec, p, index) {
     return [];
   if (rel > 0) {
     const up = Array.from({ length: rel - 1 }, () => "..").join("/");
-    const base = normalize3(join7(dirname2(fromRel), up, segs.join("/")));
+    const base = normalize3(join8(dirname2(fromRel), up, segs.join("/")));
     if (base.startsWith(".."))
       return [];
     const hit = matchTail(base, p, index).filter((f) => f === base || f.startsWith(`${base}.`) || f.startsWith(`${base}/`));
@@ -3694,7 +3775,7 @@ function resolveSymbol(fromRel, spec, p, index) {
     return [];
   }
   if (p.id === "py") {
-    const sibling = normalize3(join7(dirname2(fromRel), segs.join("/")));
+    const sibling = normalize3(join8(dirname2(fromRel), segs.join("/")));
     if (!sibling.startsWith("..")) {
       const hit = matchTail(sibling, p, index).filter((f) => f === sibling || f.startsWith(`${sibling}.`) || f.startsWith(`${sibling}/`));
       const exact = nearest(fromRel, hit);
@@ -3921,8 +4002,8 @@ init_constitution_derive();
 
 // src/passport/cascade.ts
 init_signals();
-import { readFileSync as readFileSync6 } from "node:fs";
-import { join as join8 } from "node:path";
+import { readFileSync as readFileSync7 } from "node:fs";
+import { join as join9 } from "node:path";
 var ZONE_AXES = [
   { axis: "корректность", signal: "testing" },
   { axis: "целостность данных", signal: "db" },
@@ -3949,7 +4030,7 @@ function localDocs(root, zone, zonePaths) {
   const parts = [];
   for (const rel of docs) {
     try {
-      parts.push(readFileSync6(join8(root, rel), "utf8").slice(0, LOCAL_DOC_LIMIT));
+      parts.push(readFileSync7(join9(root, rel), "utf8").slice(0, LOCAL_DOC_LIMIT));
     } catch {}
   }
   return parts.join(`
@@ -4100,7 +4181,7 @@ function migrateRenames(db, current2) {
 }
 
 // src/env/config-graph.ts
-import { readFileSync as readFileSync7 } from "node:fs";
+import { readFileSync as readFileSync8 } from "node:fs";
 import { extname as extname4 } from "node:path";
 var CONFIG_EXT = new Set([".json", ".yml", ".yaml", ".toml", ".ini", ".conf", ".env", ".cfg", ".properties"]);
 var CONFIG_NAME = /(^|\/)(\.env[\w.-]*|[\w.-]*\.?config\.[tj]s|nginx[\w.-]*\.conf|docker-compose[\w.-]*\.ya?ml|Dockerfile|\.htaccess|[\w-]*\.tf|Caddyfile|\.npmrc|Procfile)$/i;
@@ -4277,7 +4358,7 @@ function historicalLinks(cochange, minPairs = 2) {
   }
   return out;
 }
-function readConfigEntries(root, relPaths, read = (p) => readFileSync7(p, "utf8")) {
+function readConfigEntries(root, relPaths, read = (p) => readFileSync8(p, "utf8")) {
   const out = [];
   for (const rel of relPaths) {
     if (!isConfigFile(rel))
@@ -4539,7 +4620,7 @@ function renderArtifacts(profile) {
 init_signals();
 init_i18n();
 import { existsSync as existsSync4 } from "node:fs";
-import { join as join9 } from "node:path";
+import { join as join10 } from "node:path";
 var DETECTORS2 = [
   { name: "nuxt", kind: "framework", deps: /^nuxt$/, files: ["nuxt.config.ts", "nuxt.config.js"] },
   { name: "next.js", kind: "framework", deps: /^next$/, files: ["next.config.js", "next.config.mjs"] },
@@ -4590,7 +4671,7 @@ function detectStack(projectRoot, relPaths) {
   const { all: deps, prod: prodDeps } = readDeps(projectRoot);
   const hasDep = (re) => deps.some((d) => re.test(d));
   const hasPath = (re) => relPaths.some((p) => re.test(p));
-  const hasFile = (files) => files ? files.some((f) => existsSync4(join9(projectRoot, f))) : false;
+  const hasFile = (files) => files ? files.some((f) => existsSync4(join10(projectRoot, f))) : false;
   const reason = (d) => {
     if (d.signal)
       return matchSignal(SIGNALS[d.signal], { paths: relPaths, deps }) ? "сигнал направления" : null;
@@ -4701,7 +4782,7 @@ var SUMMARY_BUDGET = 4000;
 
 // src/miner/noncode.ts
 import { inflateRawSync } from "node:zlib";
-import { readFileSync as readFileSync8 } from "node:fs";
+import { readFileSync as readFileSync9 } from "node:fs";
 function mineCsv(content) {
   const lines = content.split(/\r?\n/).filter((l) => l.length > 0);
   const header = lines[0] ?? "";
@@ -4777,15 +4858,15 @@ function isOpaqueMaterial(ext) {
 function extractContent(path, ext) {
   try {
     if (OFFICE.has(ext)) {
-      const o = mineOffice(readFileSync8(path), ext);
+      const o = mineOffice(readFileSync9(path), ext);
       return o.text ? `[${o.format}, ${o.units} ед.] ${o.text}` : null;
     }
     if (CSVX.has(ext)) {
-      const c = mineCsv(readFileSync8(path, "utf8"));
+      const c = mineCsv(readFileSync9(path, "utf8"));
       return `[таблица ${c.rows} строк, колонки: ${c.columns.join(", ")}]`;
     }
     if (TEXT.has(ext)) {
-      const content = readFileSync8(path, "utf8");
+      const content = readFileSync9(path, "utf8");
       const t2 = mineText(content);
       return `[${t2.words} слов, заголовки: ${t2.headings.slice(0, 8).join(" · ")}]
 ${content.slice(0, 3000)}`;
@@ -4849,8 +4930,9 @@ function unknownFact(u) {
 }
 
 // src/core/learned.ts
-import { existsSync as existsSync5, readFileSync as readFileSync9, writeFileSync as writeFileSync2 } from "node:fs";
-import { join as join10 } from "node:path";
+import { existsSync as existsSync5, readFileSync as readFileSync10, writeFileSync as writeFileSync3 } from "node:fs";
+import { join as join11 } from "node:path";
+init_i18n();
 var FILE2 = "learned-materials.json";
 var MIN_PROJECTS = 2;
 var MAX_ENTRIES = 200;
@@ -4876,10 +4958,10 @@ function sanitize(entry) {
 }
 function readLearnedMaterials(root) {
   try {
-    const p = join10(root, FILE2);
+    const p = join11(root, FILE2);
     if (!existsSync5(p))
       return [];
-    const raw = JSON.parse(readFileSync9(p, "utf8"));
+    const raw = JSON.parse(readFileSync10(p, "utf8"));
     if (!Array.isArray(raw))
       return [];
     return raw.map(sanitize).filter((x) => x !== null);
@@ -4891,10 +4973,10 @@ function mergeLearnedMaterials(root, observations, projectKey, nowIso = new Date
   try {
     const existing = readLearnedMaterials(root);
     const byExt = new Map(existing.map((e) => [e.ext, e]));
-    const seenPath = join10(root, "learned-seen.json");
+    const seenPath = join11(root, "learned-seen.json");
     let seen = {};
     try {
-      seen = existsSync5(seenPath) ? JSON.parse(readFileSync9(seenPath, "utf8")) : {};
+      seen = existsSync5(seenPath) ? JSON.parse(readFileSync10(seenPath, "utf8")) : {};
     } catch {
       seen = {};
     }
@@ -4920,8 +5002,8 @@ function mergeLearnedMaterials(root, observations, projectKey, nowIso = new Date
       changed++;
     }
     const out = [...byExt.values()].sort((a, b) => b.seenIn - a.seenIn).slice(0, MAX_ENTRIES);
-    writeFileSync2(join10(root, FILE2), JSON.stringify(out, null, 1), "utf8");
-    writeFileSync2(seenPath, JSON.stringify(seen, null, 1), "utf8");
+    writeFileSync3(join11(root, FILE2), JSON.stringify(out, null, 1), "utf8");
+    writeFileSync3(seenPath, JSON.stringify(seen, null, 1), "utf8");
     return changed;
   } catch {
     return 0;
@@ -4936,16 +5018,27 @@ function hintsForMaterials(root, exts) {
       continue;
     const parts = [];
     if (k.pairsWith.length > 0)
-      parts.push(`обычно ходит парой с ${k.pairsWith.join(", ")}`);
+      parts.push(t(`обычно ходит парой с ${k.pairsWith.join(", ")}`, `usually paired with ${k.pairsWith.join(", ")}`));
     if (k.typicalLines > 0)
-      parts.push(`характерный размер ~${k.typicalLines} строк`);
+      parts.push(t(`характерный размер ~${k.typicalLines} строк`, `typical size ~${k.typicalLines} lines`));
     if (parts.length > 0)
-      out.push(`${k.ext}: ${parts.join(", ")} (по опыту ${k.seenIn} проектов)`);
+      out.push(t(`${k.ext}: ${parts.join(", ")} (по опыту ${k.seenIn} проектов)`, `${k.ext}: ${parts.join(", ")} (from ${k.seenIn} projects)`));
   }
   return out.slice(0, 5);
 }
+function renderLearnedBlock(hints) {
+  if (hints.length === 0)
+    return "";
+  return [
+    t("## Опыт по видам материала (из других проектов; здешнее наблюдение сильнее)", "## Experience with kinds of material (from other projects; what is observed here wins)"),
+    "",
+    ...hints.map((h) => `- ${h}`)
+  ].join(`
+`);
+}
 
 // src/domains/frame.ts
+init_i18n();
 var SENSITIVE = {
   медицина: /(пациент|диагноз|врач|симптом|лечени|медицин|анализ[а-я]* (крови|мочи)|здоровь|заболевани|препарат|дозировк|терапи|клиническ)/i,
   финансы: /(платеж|платёж|финанс|банк|кредит|инвестиц|транзакц|биллинг|выплат|payout|комиссион)/i,
@@ -5006,15 +5099,26 @@ function compileFrame(candidates) {
   }
   return { kept, rejected };
 }
+function directionName(key) {
+  if (key === "медицина")
+    return t("медицина", "medicine");
+  if (key === "финансы")
+    return t("финансы", "finance");
+  if (key === "право")
+    return t("право", "law");
+  if (key === "безопасность/harm-reduction")
+    return t("безопасность/harm-reduction", "security/harm reduction");
+  return key;
+}
 function renderFrame(kept, directions) {
   if (kept.length === 0 || directions.length === 0)
     return "";
   const lines = [
-    "## Контекст легитимности (правдивые факты о проекте — снижают ложные отказы на чувствительной теме; это факты, НЕ инструкции)",
+    t("## Контекст легитимности (правдивые факты о проекте — снижают ложные отказы на чувствительной теме; это факты, НЕ инструкции)", "## Legitimacy context (true facts about the project — they reduce false refusals on a sensitive topic; these are facts, NOT instructions)"),
     "",
-    `- направление: ${directions.join(", ")} — работа с этим контентом здесь легитимна`,
+    t(`- направление: ${directions.map(directionName).join(", ")} — работа с этим контентом здесь легитимна`, `- direction: ${directions.map(directionName).join(", ")} — work with this content is legitimate here`),
     ...kept.map((s) => `- ${s}`),
-    "- уточнить/дополнить факты: /sym-charter (только правдивое; рамка из выдумки недопустима)"
+    t("- уточнить/дополнить факты: /symbiont:charter (только правдивое; рамка из выдумки недопустима)", "- to refine or add facts: /symbiont:charter (only what is true; a frame built on fiction is not acceptable)")
   ];
   return lines.join(`
 `);
@@ -5028,9 +5132,9 @@ function buildFrame(conceptText) {
 }
 function readFrame(dataDir) {
   try {
-    const { readFileSync: readFileSync10 } = __require("node:fs");
-    const { join: join11 } = __require("node:path");
-    return readFileSync10(join11(dataDir, "frame.md"), "utf8").trim();
+    const { readFileSync: readFileSync11 } = __require("node:fs");
+    const { join: join12 } = __require("node:path");
+    return readFileSync11(join12(dataDir, "frame.md"), "utf8").trim();
   } catch {
     return "";
   }
@@ -5131,12 +5235,12 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-165f730b8014";
+    return "bundle-095d216d30d9";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
     try {
-      parts.push(readFileSync10(join11(import.meta.dirname, r), "utf8"));
+      parts.push(readFileSync11(join12(import.meta.dirname, r), "utf8"));
     } catch {}
   }
   return parts.length > 0 ? `auto-${sha1(parts.join(" "))}` : "fallback-v4-2026-07-30";
@@ -5144,7 +5248,7 @@ function projectionCodeVersion() {
 function buildPassport(projectRoot, dataDir) {
   mkdirSync(dataDir, { recursive: true });
   initLang(dataDir, projectRoot);
-  const engine = new Engine(join11(dataDir, "passport.db"));
+  const engine = new Engine(join12(dataDir, "passport.db"));
   engine.invalidateIfCodeChanged(`${projectionCodeVersion()}:${lang()}`);
   const store = new FactStore(engine.db);
   engine.db.run("CREATE TABLE IF NOT EXISTS file_cache(path TEXT PRIMARY KEY, mtime_ms REAL NOT NULL, size INTEGER NOT NULL, hash TEXT NOT NULL)");
@@ -5164,7 +5268,7 @@ function buildPassport(projectRoot, dataDir) {
     } else {
       let content = "";
       try {
-        content = readFileSync10(f.path, "utf8");
+        content = readFileSync11(f.path, "utf8");
       } catch {}
       hash = sha1(content);
       cachePut.run(rel, f.mtimeMs, f.size, hash);
@@ -5181,7 +5285,7 @@ function buildPassport(projectRoot, dataDir) {
       const rel = rawRel.replaceAll("\\", "/");
       let content = "";
       try {
-        content = readFileSync10(f.path, "utf8");
+        content = readFileSync11(f.path, "utf8");
       } catch {}
       return { rel, obs: analyzeFile(f.path, f.ext, content) };
     });
@@ -5198,7 +5302,7 @@ function buildPassport(projectRoot, dataDir) {
       ctx.input(`file:${rel}`);
       let content = "";
       try {
-        content = readFileSync10(f.path, "utf8");
+        content = readFileSync11(f.path, "utf8");
       } catch {}
       return { rel: rel.replaceAll("\\", "/"), content };
     });
@@ -5212,7 +5316,7 @@ function buildPassport(projectRoot, dataDir) {
       edges: g.edges
     };
   });
-  const artProfile = artifactProfile(walked.map((f) => ({ name: basename(f.path), ext: f.ext })));
+  const artProfile = artifactProfile(walked.map((f) => ({ name: basename2(f.path), ext: f.ext })));
   const artifactsBlock = renderArtifacts(artProfile);
   const stanceBlock = renderQualityStance(artProfile);
   const stack = detectStack(projectRoot, walked.map((f) => relative(projectRoot, f.path).replaceAll("\\", "/")));
@@ -5223,7 +5327,7 @@ function buildPassport(projectRoot, dataDir) {
   for (const f of entityFiles) {
     let content = null;
     try {
-      content = readFileSync10(f.path, "utf8");
+      content = readFileSync11(f.path, "utf8");
     } catch {}
     if (content === null || content.length > 1e6)
       continue;
@@ -5261,7 +5365,7 @@ function buildPassport(projectRoot, dataDir) {
     ctx.input("journal-active");
     ctx.input("artifacts");
     ctx.input("maturity");
-    return renderSummary(basename(projectRoot), new FactStore(engine.db).active(), {
+    return renderSummary(basename2(projectRoot), new FactStore(engine.db).active(), {
       graphTop: ctx.get("graph").top,
       muted: mutedKeys(engine.db).size,
       artifacts: artifactsBlock,
@@ -5325,7 +5429,7 @@ ${learnedBlock}` : ""}` : learnedBlock
       const codeSample = [];
       for (const f of files.slice(0, 400)) {
         try {
-          codeSample.push({ rel: relative(projectRoot, f.path).replaceAll("\\", "/"), content: readFileSync10(f.path, "utf8") });
+          codeSample.push({ rel: relative(projectRoot, f.path).replaceAll("\\", "/"), content: readFileSync11(f.path, "utf8") });
         } catch {}
       }
       const pairs = cochange.pairs.map((p) => {
@@ -5380,7 +5484,7 @@ ${learnedBlock}` : ""}` : learnedBlock
     codeFiles: relPaths.length,
     commits: derived.totalCommits,
     testFiles: allRel.filter((p) => /(\.test\.|\.spec\.|_test\.|(^|\/)(tests?|__tests__|spec)\/)/i.test(p)).length,
-    hasCi: [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].some((p) => existsSync6(join11(projectRoot, p))),
+    hasCi: [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].some((p) => existsSync6(join12(projectRoot, p))),
     prevalences: styleFacts.map((f) => f.prevalence),
     fixCommits: derived.commitTypes.fix ?? 0,
     reverts: derived.reverts,
@@ -5405,11 +5509,7 @@ ${learnedBlock}` : ""}` : learnedBlock
   } catch {}
   let learnedBlock = "";
   try {
-    const hints = hintsForMaterials(dirname3(dataDir), [...new Set(walked.map((f) => f.ext))]);
-    if (hints.length > 0) {
-      learnedBlock = ["## Опыт по видам материала (из других проектов; здешнее наблюдение сильнее)", "", ...hints.map((h) => `- ${h}`)].join(`
-`);
-    }
+    learnedBlock = renderLearnedBlock(hintsForMaterials(dirname3(dataDir), [...new Set(walked.map((f) => f.ext))]));
   } catch {}
   const maturityBlock = renderMaturity(maturity);
   engine.setInput("maturity", sha1(`${maturity.score.toFixed(3)}|${maturity.level}`));
@@ -5458,7 +5558,7 @@ ${learnedBlock}` : ""}` : learnedBlock
   } catch {}
   captureHealth(engine.db, head, new Date().toISOString());
   try {
-    const framePath = join11(dataDir, "frame.md");
+    const framePath = join12(dataDir, "frame.md");
     const step = Math.max(1, Math.floor(entityInputs.length / 60));
     const sample = [];
     for (let i = 0;i < entityInputs.length; i += step)
@@ -5467,14 +5567,14 @@ ${learnedBlock}` : ""}` : learnedBlock
 `).slice(0, 150000);
     const frame = buildFrame(frameText);
     if (frame)
-      writeFileSync3(framePath, frame, "utf8");
+      writeFileSync4(framePath, frame, "utf8");
     else if (existsSync6(framePath))
-      writeFileSync3(framePath, "", "utf8");
+      writeFileSync4(framePath, "", "utf8");
   } catch {}
-  const summaryPath = join11(dataDir, "SUMMARY.md");
+  const summaryPath = join12(dataDir, "SUMMARY.md");
   const summaryRebuilt = engine.executions("summary") > 0;
   if (summaryRebuilt || !existsSync6(summaryPath))
-    writeFileSync3(summaryPath, summary, "utf8");
+    writeFileSync4(summaryPath, summary, "utf8");
   const result = {
     factsExecuted: factsExecutedNow,
     graphExecuted,
@@ -5559,7 +5659,7 @@ class SessionLog {
       return;
     const ids = recent.map((r) => r.session_id);
     const placeholders = ids.map(() => "?").join(",");
-    for (const table of ["jit_log", "gate_log", "model_state", "gate_fuse", "session_edits"]) {
+    for (const table of ["jit_log", "gate_log", "model_state", "gate_fuse", "session_edits", "feed_cost"]) {
       try {
         this.db.query(`DELETE FROM ${table} WHERE session_id NOT IN (${placeholders})`).run(...ids);
       } catch {}
@@ -5568,12 +5668,13 @@ class SessionLog {
 }
 
 // src/core/constitution.ts
-import { readFileSync as readFileSync11, writeFileSync as writeFileSync4 } from "node:fs";
-import { join as join12 } from "node:path";
+init_i18n();
+import { readFileSync as readFileSync12, writeFileSync as writeFileSync5 } from "node:fs";
+import { join as join13 } from "node:path";
 var FILE3 = "constitution.json";
 function readConstitution(dataDir) {
   try {
-    const j = JSON.parse(readFileSync11(join12(dataDir, FILE3), "utf8"));
+    const j = JSON.parse(readFileSync12(join13(dataDir, FILE3), "utf8"));
     if (!Array.isArray(j.pairs))
       return null;
     const pairs = j.pairs.filter((p) => typeof p?.goal === "string" && typeof p?.constraint === "string" && p.goal.trim().length > 0);
@@ -5591,24 +5692,27 @@ function upsertConstitution(dataDir, incoming, now = new Date().toISOString()) {
     byGoal.set(p.goal.trim().toLowerCase(), { goal: p.goal.trim(), constraint: p.constraint.trim() });
   }
   const next = { pairs: [...byGoal.values()], updated_at: now };
-  writeFileSync4(join12(dataDir, FILE3), JSON.stringify(next, null, 1), "utf8");
+  writeFileSync5(join13(dataDir, FILE3), JSON.stringify(next, null, 1), "utf8");
   return next;
 }
 function renderConstitution(c) {
-  const lines = ["## Воля владельца (задана явно, поверх выведенных приоритетов; действует без повторения в промптах)", ""];
+  const lines = [
+    t("## Воля владельца (задана явно, поверх выведенных приоритетов; действует без повторения в промптах)", "## The owner’s will (set explicitly, above the derived priorities; applies without being repeated in prompts)"),
+    ""
+  ];
   for (const p of c.pairs)
-    lines.push(`- цель: ${p.goal} · ограничение: ${p.constraint}`);
+    lines.push(t(`- цель: ${p.goal} · ограничение: ${p.constraint}`, `- goal: ${p.goal} · constraint: ${p.constraint}`));
   return lines.join(`
 `);
 }
 
 // src/hooks/heartbeat.ts
-import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync5 } from "node:fs";
-import { join as join13 } from "node:path";
+import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync6 } from "node:fs";
+import { join as join14 } from "node:path";
 function beat(dataDir, channel, extra = {}) {
   try {
     mkdirSync2(dataDir, { recursive: true });
-    writeFileSync5(join13(dataDir, `heartbeat-${channel.toLowerCase()}.json`), JSON.stringify({ channel, at: new Date().toISOString(), ...extra }), "utf8");
+    writeFileSync6(join14(dataDir, `heartbeat-${channel.toLowerCase()}.json`), JSON.stringify({ channel, at: new Date().toISOString(), ...extra }), "utf8");
   } catch {}
 }
 
@@ -5894,7 +5998,7 @@ function renderUtility(rows) {
 
 // src/gardener/voiced.ts
 init_i18n();
-import { existsSync as existsSync7, readFileSync as readFileSync12 } from "node:fs";
+import { existsSync as existsSync7, readFileSync as readFileSync13 } from "node:fs";
 var VOICED_MIN_SESSIONS = 2;
 var OWNER_PROMPT_MAX = 2000;
 var SENTENCE_MIN = 12;
@@ -5926,7 +6030,7 @@ function ownerMessages(transcriptPath) {
     return [];
   let lines;
   try {
-    lines = readFileSync12(transcriptPath, "utf8").split(`
+    lines = readFileSync13(transcriptPath, "utf8").split(`
 `);
   } catch {
     return [];
@@ -6016,8 +6120,8 @@ function renderVoiced(rules) {
 }
 
 // src/hooks/session-start-core.ts
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync14, appendFileSync } from "node:fs";
-import { basename as basename2, join as join15 } from "node:path";
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync15, appendFileSync } from "node:fs";
+import { join as join16 } from "node:path";
 
 // src/hooks/git-state.ts
 init_i18n();
@@ -6191,8 +6295,9 @@ function reconstructEntry(db, thread, dirty, nowMs) {
 }
 
 // src/hooks/diagnose.ts
-import { readFileSync as readFileSync13, readdirSync as readdirSync2 } from "node:fs";
-import { join as join14 } from "node:path";
+init_i18n();
+import { readFileSync as readFileSync14, readdirSync as readdirSync2 } from "node:fs";
+import { join as join15 } from "node:path";
 var EXPECTED = ["userpromptsubmit", "stop"];
 var SILENT_SESSIONS = 3;
 function silentChannels(beats, sessionStartsDesc) {
@@ -6214,7 +6319,7 @@ function readBeats(dataDir) {
   try {
     return readdirSync2(dataDir).filter((f) => f.startsWith("heartbeat-") && f.endsWith(".json")).map((f) => {
       try {
-        const j = JSON.parse(readFileSync13(join14(dataDir, f), "utf8"));
+        const j = JSON.parse(readFileSync14(join15(dataDir, f), "utf8"));
         return j.channel && j.at ? { channel: j.channel, at: j.at } : null;
       } catch {
         return null;
@@ -6224,15 +6329,18 @@ function readBeats(dataDir) {
     return [];
   }
 }
-var LABEL = {
-  userpromptsubmit: "UserPromptSubmit (JIT-срез по промпту)",
-  stop: "Stop (гейт формы / HANDOFF)"
-};
+function label(channel) {
+  if (channel === "userpromptsubmit")
+    return t("UserPromptSubmit (JIT-срез по промпту)", "UserPromptSubmit (JIT brief by prompt)");
+  if (channel === "stop")
+    return t("Stop (гейт формы / HANDOFF)", "Stop (form gate / HANDOFF)");
+  return channel;
+}
 function renderDiagnosis(silent) {
   if (silent.length === 0)
     return "";
-  const named = silent.map((c) => LABEL[c] ?? c).join(", ");
-  return `- ⚠ самодиагностика: канал(ы) молчат ${SILENT_SESSIONS}+ сессий — ${named}. Возможен сломанный хук (обнови плагин / перезапусти Claude Code); паспорт работает на оставшихся каналах.`;
+  const named = silent.map(label).join(", ");
+  return t(`- ⚠ самодиагностика: канал(ы) молчат ${SILENT_SESSIONS}+ сессий — ${named}. Возможен сломанный хук (обнови плагин / перезапусти Claude Code); паспорт работает на оставшихся каналах.`, `- ⚠ self-diagnosis: channel(s) silent for ${SILENT_SESSIONS}+ sessions — ${named}. A hook may be broken (update the plugin / restart Claude Code); the passport keeps working on the remaining channels.`);
 }
 
 // src/hooks/session-start-core.ts
@@ -6275,7 +6383,7 @@ function detectCorrections(db, cwd, currentSid) {
     }
     let corrected = false;
     try {
-      const nowContent = snapshotContent(readFileSync14(join15(cwd, r.file), "utf8"));
+      const nowContent = snapshotContent(readFileSync15(join16(cwd, r.file), "utf8"));
       corrected = sha1(nowContent) !== r.hash;
     } catch {}
     if (!writePair(db, () => {
@@ -6324,7 +6432,7 @@ function lineValueFromGate(db) {
     return () => 1;
   }
 }
-function fitToBudget(summary, budget, fullPath, value = () => 1) {
+function fitToBudget(summary, budget, fullPath, value = () => 1, more = passportMore) {
   if (summary.length <= budget)
     return summary;
   const parts = summary.split(/\n(?=## )/);
@@ -6335,7 +6443,7 @@ function fitToBudget(summary, budget, fullPath, value = () => 1) {
     return head === -1 ? { lines, items: [], dropped: 0 } : { lines: lines.slice(0, head), items: lines.slice(head).filter((l) => l.startsWith("- ")), dropped: 0 };
   });
   const render = () => blocks.map((b) => {
-    const tail = b.dropped > 0 ? [`- …${t(`ещё ${b.dropped} — passport_conventions`, `${b.dropped} more — passport_conventions`)}`] : [];
+    const tail = b.dropped > 0 ? [`- …${more(b.dropped)}`] : [];
     return [...b.lines, ...b.items, ...tail].join(`
 `);
   }).join(`
@@ -6364,16 +6472,32 @@ function fitToBudget(summary, budget, fullPath, value = () => 1) {
     blocks[fat].dropped++;
   }
   const fitted = render();
-  return fitted.length <= budget ? fitted : `${fitted.slice(0, budget)}
-…${t("обрезано; полная версия", "truncated; full version")}: ${fullPath}`;
+  if (fitted.length <= budget)
+    return fitted;
+  const note = `
+…${fullPath ? `${t("обрезано; полная версия", "truncated; full version")}: ${fullPath}` : t("обрезано по лимиту подачи", "truncated to the delivery limit")}`;
+  const room = Math.max(0, budget - note.length);
+  const cut = fitted.lastIndexOf(`
+`, room);
+  return `${fitted.slice(0, cut > room / 2 ? cut : room)}${note}`;
 }
-function slugOf(path) {
-  const norm = path.replaceAll("\\", "/").replace(/\/+$/, "");
-  return basename2(norm).toLowerCase().replace(/[^a-z0-9-]+/g, "-") || "project";
+function passportMore(dropped) {
+  return t(`ещё ${dropped} — passport_conventions`, `${dropped} more — passport_conventions`);
+}
+function restMore(dropped) {
+  return t(`ещё ${dropped} — не вместилось в лимит подачи`, `${dropped} more — did not fit the delivery limit`);
+}
+var PASSPORT_FLOOR = 5000;
+function composeContext(summary, tail, footer, summaryPath, value = () => 1) {
+  const budget = HOOK_TEXT_BUDGET - footer.length;
+  const room = Math.min(CONTEXT_CHAR_BUDGET, Math.max(PASSPORT_FLOOR, budget - tail.length));
+  const passport = fitToBudget(summary, room, summaryPath, value);
+  const rest = passport.length + tail.length > budget ? fitToBudget(tail, budget - passport.length, null, value, restMore) : tail;
+  return `${passport}${rest}${footer}`;
 }
 function handleSessionStart(input, dataRoot) {
   const cwd = input.cwd ?? process.cwd();
-  const dataDir = join15(dataRoot, slugOf(cwd));
+  const dataDir = join16(dataRoot, slugOf(cwd));
   mkdirSync3(dataDir, { recursive: true });
   initLang(dataDir, cwd);
   beat(dataDir, "SessionStart", { source: input.source ?? null });
@@ -6393,7 +6517,7 @@ function handleSessionStart(input, dataRoot) {
     let lineValue = () => 1;
     const g = gitState(cwd);
     try {
-      const db = openDb(join15(dataDir, "passport.db"));
+      const db = openDb(join16(dataDir, "passport.db"));
       const log = new SessionLog(db);
       const sid = input.session_id ?? `manual-${Date.now()}`;
       diagLine = renderDiagnosis(silentChannels(readBeats(dataDir), log.recentStarts(sid)));
@@ -6473,17 +6597,17 @@ ${voicedBlock}
 ` : ""}`;
     let summary = "";
     try {
-      summary = readFileSync14(r.summaryPath, "utf8");
+      summary = readFileSync15(r.summaryPath, "utf8");
     } catch {}
     if (!summary.includes("## "))
       summary = "";
     if (!summary && !constBlock)
       return {};
-    summary = fitToBudget(summary, CONTEXT_CHAR_BUDGET, r.summaryPath, lineValue);
+    const overflowLine = renderOverflow(dataDir);
     let stateBlock = g ? `
 ${renderGitBlock(g, reconciled)}` : "";
     const compactNote = input.source === "compact" ? t("- контекст был сжат — паспорт восстановлен (то, что компакция могла выронить)", "- the context was compacted — the passport has been restored (what compaction could have dropped)") : input.source === "fork" ? t("- сессия форкнута — паспорт подан форку (сабагенты не наследуют контекст родителя)", "- the session was forked — the passport was delivered to the fork (subagents do not inherit the parent context)") : "";
-    for (const line of [runtimeLine, compactNote, survivalLine, threadLine, bgLine, utilLine, gateLine, diagLine]) {
+    for (const line of [runtimeLine, compactNote, survivalLine, threadLine, bgLine, utilLine, gateLine, diagLine, overflowLine]) {
       if (line)
         stateBlock += `${stateBlock ? `
 ` : `
@@ -6499,27 +6623,28 @@ ${entryBlock}
 ` : "";
     let frameSection = "";
     try {
-      const frame = readFileSync14(join15(dataDir, "frame.md"), "utf8").trim();
+      const frame = readFileSync15(join16(dataDir, "frame.md"), "utf8").trim();
       if (frame)
         frameSection = `
 ${frame}
 `;
     } catch {}
     const freshness = r.factsExecuted ? t("свежий пересчёт", "freshly recomputed") : t("кэш (код не менялся)", "cache (the code has not changed)");
+    const footer = `
+_Symbiont · ${freshness} · ${t("подробнее по требованию", "more on demand")}: passport_conventions / passport_history_`;
     return {
       hookSpecificOutput: {
         hookEventName: "SessionStart",
-        additionalContext: `${summary}${constBlock}${frameSection}${stateBlock}${entrySection}
-_Symbiont · ${freshness} · ${t("подробнее по требованию", "more on demand")}: passport_conventions / passport_history_`
+        additionalContext: composeContext(summary, `${constBlock}${frameSection}${stateBlock}${entrySection}`, footer, r.summaryPath, lineValue)
       }
     };
   } catch (e) {
     try {
-      appendFileSync(join15(dataDir, "errors.log"), `${new Date().toISOString()} SessionStart: ${String(e)}
+      appendFileSync(join16(dataDir, "errors.log"), `${new Date().toISOString()} SessionStart: ${String(e)}
 `, "utf8");
     } catch {}
     return {};
   }
 }
 
-export { lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, isTestPath, init_signals, guardTests, renderTestGuard, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, fitToBudget, slugOf, handleSessionStart };
+export { slugOf, lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, emitHookOutput, inspectRuntime, runtimeBlocker, silentSpawnOptions, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, isTestPath, init_signals, guardTests, renderTestGuard, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, fitToBudget, handleSessionStart };

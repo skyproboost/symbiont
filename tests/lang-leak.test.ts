@@ -26,6 +26,12 @@ import { reconstructEntry } from '../src/hooks/entry'
 import { storeOutline } from '../src/layer1/symbols'
 import { setLang } from '../src/core/i18n'
 import type { Fact } from '../src/miner/facts'
+import { renderConstitution } from '../src/core/constitution'
+import { renderLearnedBlock } from '../src/core/learned'
+import { renderFrame } from '../src/domains/frame'
+import { renderDiagnosis } from '../src/hooks/diagnose'
+import { renderOverflow, recordOverflow } from '../src/hooks/emit'
+import { renderFeedCost } from '../src/gardener/feed-cost'
 
 const CYRILLIC = /[а-яё]/i
 
@@ -142,6 +148,36 @@ describe('выбор английского соблюдают все канал
       setLang('ru')
       rmrf(proj)
       rmrf(dataRoot)
+    }
+  })
+})
+
+/**
+ * Сводку SessionStart эти пробы не покрывали — и в английской подаче
+ * labreadai-v2 шли четыре русских блока: устав, опыт по видам материала, рамка
+ * легитимности, самодиагностика. Каждый рендер проверяется отдельно: сквозной
+ * мир с рамкой требует русского текста проекта, и кириллица самого проекта
+ * заслонила бы нашу.
+ */
+describe('блоки сводки говорят на выбранном языке', () => {
+  it('устав, опыт материала, рамка, самодиагностика, рубеж и цена подачи — без кириллицы', () => {
+    setLang('en')
+    const dir = mkdtempSync(join(tmpdir(), 'symbiont-leak-blocks-'))
+    try {
+      recordOverflow(dir, 'SessionStart', [{ field: 'additionalContext', length: 11888 }])
+      const blocks = [
+        renderConstitution({ pairs: [{ goal: 'ship weekly', constraint: 'no prod data in tests' }], updated_at: '' }),
+        renderLearnedBlock(['.vue: typical size ~65 lines (from 6 projects)']),
+        renderFrame(['The service does not replace a doctor.'], ['медицина', 'финансы']),
+        renderDiagnosis(['userpromptsubmit', 'stop']),
+        renderOverflow(dir),
+        renderFeedCost({ sessions: 5, oncePerSession: 3900, replayPerSession: 575_000, top: { channel: 'SessionStart', share: 35 } }),
+      ]
+      for (const b of blocks) expect(b.length).toBeGreaterThan(0)
+      expect(blocks.join('\n').split('\n').filter((l) => CYRILLIC.test(l))).toEqual([])
+    } finally {
+      setLang('ru')
+      rmrf(dir)
     }
   })
 })

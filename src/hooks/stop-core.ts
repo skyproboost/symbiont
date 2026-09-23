@@ -31,6 +31,7 @@ import { renderTestGuard } from '../verifiers/test-guard'
 import { testGuardFindings, type DirtyEntry } from './test-guard-stop'
 import { harvestVoiced } from '../gardener/voiced'
 import { markCited } from '../gardener/cited'
+import { accountFeedCost } from '../gardener/feed-cost'
 import { toRelNode } from './post-tool-core'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
@@ -454,6 +455,10 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       } catch {
         /* накопление — не условие хода: без него гейт и наблюдения всё равно отданы */
       }
+      // Цена поданного — с того же транскрипта: польза без цены была половиной
+      // окупаемости. Отдельно от накопления выше: сама не бросает и не должна
+      // выпадать из-за чужого исключения
+      accountFeedCost(db, sid, transcript)
 
       // Страж фокуса: расфокус виден из графа и диффов, без единого токена.
       // Отдельно от гейта формы: это не нарушение правила, а наблюдение о ходе

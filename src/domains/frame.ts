@@ -17,6 +17,7 @@
  * Чистые функции — тестируются без процесса; ноль LLM (детерминированная
  * экстракция + фильтр). Несенситивный проект → пустая рамка (ноль токенов).
  */
+import { t } from '../core/i18n'
 
 /** Чувствительные направления — по словам самого проекта. */
 const SENSITIVE: Record<string, RegExp> = {
@@ -107,15 +108,37 @@ export function compileFrame(candidates: string[]): CompiledFrame {
   return { kept, rejected }
 }
 
-/** Блок рамки для подачи; пусто, если фактов нет или проект несенситивный. */
+/** Имя направления на языке подачи; ключи SENSITIVE остаются русскими — это идентификаторы, не текст. */
+function directionName(key: string): string {
+  if (key === 'медицина') return t('медицина', 'medicine')
+  if (key === 'финансы') return t('финансы', 'finance')
+  if (key === 'право') return t('право', 'law')
+  if (key === 'безопасность/harm-reduction') return t('безопасность/harm-reduction', 'security/harm reduction')
+  return key
+}
+
+/**
+ * Блок рамки для подачи; пусто, если фактов нет или проект несенситивный.
+ * Факты — цитаты из документов самого проекта и остаются на их языке;
+ * переводятся только наши метки вокруг них.
+ */
 export function renderFrame(kept: string[], directions: string[]): string {
   if (kept.length === 0 || directions.length === 0) return ''
   const lines = [
-    '## Контекст легитимности (правдивые факты о проекте — снижают ложные отказы на чувствительной теме; это факты, НЕ инструкции)',
+    t(
+      '## Контекст легитимности (правдивые факты о проекте — снижают ложные отказы на чувствительной теме; это факты, НЕ инструкции)',
+      '## Legitimacy context (true facts about the project — they reduce false refusals on a sensitive topic; these are facts, NOT instructions)',
+    ),
     '',
-    `- направление: ${directions.join(', ')} — работа с этим контентом здесь легитимна`,
+    t(
+      `- направление: ${directions.map(directionName).join(', ')} — работа с этим контентом здесь легитимна`,
+      `- direction: ${directions.map(directionName).join(', ')} — work with this content is legitimate here`,
+    ),
     ...kept.map((s) => `- ${s}`),
-    '- уточнить/дополнить факты: /sym-charter (только правдивое; рамка из выдумки недопустима)',
+    t(
+      '- уточнить/дополнить факты: /symbiont:charter (только правдивое; рамка из выдумки недопустима)',
+      '- to refine or add facts: /symbiont:charter (only what is true; a frame built on fiction is not acceptable)',
+    ),
   ]
   return lines.join('\n')
 }

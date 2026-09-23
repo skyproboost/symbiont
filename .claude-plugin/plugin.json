@@ -1,7 +1,7 @@
 {
   "name": "symbiont",
   "displayName": "Symbiont",
-  "version": "0.135.1",
+  "version": "0.136.0",
   "description": "A living passport of your project: conventions, precedents and a quality profile — derived from the code itself and delivered to every session.",
   "author": { "name": "skyproboost" }
 }

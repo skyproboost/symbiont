@@ -17,6 +17,7 @@ import { summaryStats, summaryFor, contentHashOf } from '../graph/zsummary'
 import { countLessons } from '../gardener/lessons'
 import { computeDrift, renderDrift } from '../gardener/drift'
 import { citedStats } from '../gardener/cited'
+import { feedCostStats, renderFeedCost } from '../gardener/feed-cost'
 import { reviewQueue, renderReviewQueue } from '../gardener/review'
 import { inspectRuntime } from '../core/runtime'
 
@@ -153,6 +154,9 @@ export function buildStatusReport(dataDir: string): string {
     } catch {
       /* старая схема без колонки used — метрики просто нет */
     }
+    // Цена поданного рядом с пользой: окно перечитывается каждым запросом (gardener/feed-cost.ts)
+    const cost = renderFeedCost(feedCostStats(db))
+    if (cost) L.push(`   ${pad(t('цена подачи', 'delivery cost'), 15)} ${cost}`)
     // Очередь ревизии: какие узлы система подаёт впустую (данные те же, что у тишины брифов)
     for (const line of renderReviewQueue(reviewQueue(db))) L.push(line)
     // Авто-петля: последний фоновый LLM-проход (запускается сам по сырью)

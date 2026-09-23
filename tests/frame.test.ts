@@ -74,7 +74,7 @@ describe('renderFrame / buildFrame', () => {
     expect(block).toContain('Контекст легитимности')
     expect(block).toContain('медицина')
     expect(block).toContain('не заменяет')
-    expect(block).toContain('/sym-charter')
+    expect(block).toContain('/symbiont:charter')
   })
   it('buildFrame: несенситивный проект → пусто (ноль токенов)', () => {
     expect(buildFrame('CLI-утилита для сборки. Быстро, без зависимостей.')).toBe('')

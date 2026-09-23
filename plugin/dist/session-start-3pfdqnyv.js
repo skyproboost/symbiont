@@ -10,12 +10,12 @@ import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./session-start-qwqtq2cp.js";
+} from "./session-start-ekggtzrb.js";
 import {
   buildRulesPrompt,
   parseRules,
   storeRules
-} from "./session-start-ae6zr2z6.js";
+} from "./session-start-rfw3wa3w.js";
 import {
   buildGroundingPrompt,
   dueForGrounding,
@@ -23,7 +23,7 @@ import {
   pendingDigests,
   runCommunityDigests,
   storeGrounding
-} from "./session-start-kq43228r.js";
+} from "./session-start-t8e41w9c.js";
 import {
   collectOutline,
   ensureSymbols,
@@ -40,7 +40,7 @@ import {
   recordLesson,
   runZSummaries,
   zoneOf
-} from "./session-start-gmd2p749.js";
+} from "./session-start-54m9r494.js";
 import {
   CODE_EXT,
   CSVX,
@@ -70,7 +70,7 @@ import {
   t,
   walkFiles,
   zoneOfArea
-} from "./session-start-v794t6f0.js";
+} from "./session-start-8rqex817.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -449,7 +449,7 @@ function buildPrompt(laws, samples, dueStatements = [], knownStatements = []) {
     ] : [],
     ...dueStatements.length > 0 ? [
       "",
-      "Правила, выведенные ранее, — им пора переподтверждение. Включи в ответ те, что образец подтверждает: той же формулировкой, со свежими evidence. Остальные просто опусти:",
+      "Правила, выведенные ранее, — им пора переподтверждение. Включи в ответ те, что образец подтверждает: той же формулировкой, со свежими цитатами. Остальные просто опусти:",
       ...dueStatements.map((s) => `- ${s}`)
     ] : [],
     "",
@@ -458,25 +458,67 @@ function buildPrompt(laws, samples, dueStatements = [], knownStatements = []) {
     "",
     "Выведи 3–8 дополнительных конвенций: обработка ошибок, семантика именования, архитектурные привычки, паттерны API, структура модулей.",
     "Правила только с подтверждением минимум в 3 файлах образца: правило, увиденное дважды, ещё неотличимо от совпадения, а этот вывод уходит в постоянный журнал проекта.",
+    "Подтверждение — строка из файла образца, скопированная дословно, вместе с путём из <source>. Цитата сверяется с текстом файла по словам (отступы и переносы строк не важны; каждое слово, его регистр и порядок — важны), и правило, у которого не нашлось трёх сверенных цитат из разных файлов, отбрасывается целиком: проверяемая улика — единственное, что отличает наблюдение от правдоподобного пересказа. Сокращение, пересказ или «…» внутри цитаты сверку не проходят.",
     "Формулируй фактами в формате «предмет — вердикт» (как «ошибки — возвращаются значением, не бросаются»).",
     "",
-    jsonOnly('[{"area": "область", "statement": "предмет — вердикт", "evidence": ["файл1", "файл2", "файл3"], "confidence": 0.85}]')
+    jsonOnly('[{"area": "область", "statement": "предмет — вердикт", "evidence": [{"file": "путь из <source>", "quote": "строка из этого файла дословно"}, {"file": "…", "quote": "…"}, {"file": "…", "quote": "…"}], "confidence": 0.85}]')
   ].join(`
 `);
 }
-function parseRules2(text, minEvidence = 3) {
+function extractArray(text) {
   try {
     const start = text.indexOf("[");
     const end = text.lastIndexOf("]");
     if (start === -1 || end <= start)
       return [];
     const arr = JSON.parse(text.slice(start, end + 1));
-    if (!Array.isArray(arr))
-      return [];
-    return arr.filter((r) => typeof r?.area === "string" && typeof r?.statement === "string" && r.statement.trim().length >= 10 && Array.isArray(r?.evidence) && r.evidence.length >= minEvidence && typeof r?.confidence === "number" && r.confidence > 0 && r.confidence <= 1);
+    return Array.isArray(arr) ? arr : [];
   } catch {
     return [];
   }
+}
+function hasRuleShape(r) {
+  const x = r;
+  return typeof x?.area === "string" && typeof x?.statement === "string" && x.statement.trim().length >= 10 && Array.isArray(x?.evidence) && typeof x?.confidence === "number" && x.confidence > 0 && x.confidence <= 1;
+}
+function parseRules2(text, minEvidence = 3) {
+  return extractArray(text).filter((r) => hasRuleShape(r) && r.evidence.length >= minEvidence);
+}
+var MIN_QUOTE_CHARS = 5;
+var MAX_QUOTE_CHARS = 400;
+var ANSWER_FORMAT = 2;
+var normPath = (p) => p.trim().replaceAll("\\", "/").replace(/^\.\//, "");
+var LINE_MARKUP = /^\s*(?:(?:\/\/+|\/\*+|\*+\/?|#+|<!--|--|;+|[•·▪‣]|-(?=\s))\s*)*/;
+function canonText(text) {
+  return text.split(/\r?\n/).map((l) => l.replace(LINE_MARKUP, "")).join(" ").replace(/\s+/g, " ").trim();
+}
+function parseQuotedRules(text, samples, minEvidence = 3) {
+  const byFile = new Map(samples.map((s) => [normPath(s.file), canonText(s.content)]));
+  const rules = [];
+  let unverified = 0;
+  for (const r of extractArray(text)) {
+    if (!hasRuleShape(r))
+      continue;
+    const files = new Set;
+    for (const e of r.evidence) {
+      const ev = e;
+      if (typeof ev?.file !== "string" || typeof ev?.quote !== "string")
+        continue;
+      if (ev.quote.length > MAX_QUOTE_CHARS)
+        continue;
+      const file = normPath(ev.file);
+      const quote = canonText(ev.quote);
+      if (quote.length < MIN_QUOTE_CHARS)
+        continue;
+      if (byFile.get(file)?.includes(quote))
+        files.add(file);
+    }
+    if (files.size >= minEvidence)
+      rules.push({ area: r.area, statement: r.statement, evidence: [...files], confidence: r.confidence });
+    else
+      unverified++;
+  }
+  return { rules, unverified };
 }
 function ruleToFact(rule, sampleSize) {
   const tier = rule.confidence >= 0.8 && rule.evidence.length >= 3 ? "привычка" : "гипотеза";
@@ -490,7 +532,7 @@ function ruleToFact(rule, sampleSize) {
   };
 }
 function materialFingerprint(laws, due, samples) {
-  return sha1(JSON.stringify({ laws, due, samples: samples.map((s) => [s.file, sha1(s.content)]) }));
+  return sha1(JSON.stringify({ format: ANSWER_FORMAT, laws, due, samples: samples.map((s) => [s.file, sha1(s.content)]) }));
 }
 function readStoredFingerprint(db) {
   try {
@@ -504,7 +546,7 @@ function runVerbalize(projectRoot, dataDir, caller) {
   const empty = { born: 0, updated: 0, superseded: 0 };
   const samples = buildSample(projectRoot, dataDir);
   if (samples.length === 0)
-    return { model: null, rules: [], journal: empty, merges: [], cutoff: false };
+    return { model: null, rules: [], journal: empty, merges: [], cutoff: false, unverified: 0 };
   const db = openDb(join(dataDir, "passport.db"));
   try {
     const store = new FactStore(db);
@@ -520,11 +562,11 @@ function runVerbalize(projectRoot, dataDir, caller) {
       const upd = db.query("UPDATE fact_journal SET seen_at=? WHERE id=?");
       for (const f of dueRows)
         upd.run(nowIso, f.id);
-      return { model: null, rules: [], journal: empty, merges: [], cutoff: true };
+      return { model: null, rules: [], journal: empty, merges: [], cutoff: true, unverified: 0 };
     }
     const res = caller(buildPrompt(laws, samples, due, known));
     if (!res)
-      return { model: null, rules: [], journal: empty, merges: [], cutoff: false };
+      return { model: null, rules: [], journal: empty, merges: [], cutoff: false, unverified: 0 };
     try {
       db.run("CREATE TABLE IF NOT EXISTS learn_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)");
       db.query("INSERT INTO learn_meta(key,value) VALUES('layer2_material',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(fp);
@@ -533,11 +575,11 @@ function runVerbalize(projectRoot, dataDir, caller) {
       const { writeFileSync } = __require("node:fs");
       writeFileSync(join(dataDir, "layer2-last.json"), JSON.stringify({ model: res.model, at: new Date().toISOString(), raw: res.text }, null, 1), "utf8");
     } catch {}
-    const rules = parseRules2(res.text);
+    const { rules, unverified } = parseQuotedRules(res.text, samples);
     const facts = rules.map((r) => ruleToFact(r, samples.length));
     const journal = store.assertAll(facts, `llm:layer2:${res.model}`);
     const merges = [...dedupeLlmFacts(db), ...dedupeLlmFactsSemantic(db, caller)];
-    return { model: res.model, rules, journal, merges, cutoff: false };
+    return { model: res.model, rules, journal, merges, cutoff: false, unverified };
   } finally {
     db.close();
   }
@@ -807,9 +849,10 @@ var verbalizeWork = {
       return t("материал не менялся — проход пропущен, правила освежены", "material unchanged — pass skipped, rules refreshed");
     if (!v.model)
       throw new Error(explainNoAnswer(tried));
-    if (v.journal.born === 0 && v.journal.updated === 0)
+    const dropped = v.unverified > 0 ? t(`, без дословной улики отброшено ${v.unverified}`, `, ${v.unverified} dropped without a verbatim quote`) : "";
+    if (v.journal.born === 0 && v.journal.updated === 0 && !dropped)
       return null;
-    return t(`правил +${v.journal.born}, подтверждено ${v.journal.updated}`, `rules +${v.journal.born}, confirmed ${v.journal.updated}`);
+    return t(`правил +${v.journal.born}, подтверждено ${v.journal.updated}${dropped}`, `rules +${v.journal.born}, confirmed ${v.journal.updated}${dropped}`);
   }
 };
 var correctionsWork = {

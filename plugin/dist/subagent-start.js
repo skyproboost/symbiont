@@ -6,10 +6,11 @@ import {
 } from "./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-7d4dv2d8.js";
+} from "./session-start-57mz5gat.js";
 import {
   FactStore,
   beat,
+  emitHookOutput,
   initLang,
   init_i18n,
   openDb,
@@ -17,7 +18,7 @@ import {
   statement,
   t,
   zoneOfArea
-} from "./session-start-v794t6f0.js";
+} from "./session-start-8rqex817.js";
 import"./session-start-70d7ckvt.js";
 
 // src/hooks/subagent-start.ts
@@ -90,4 +91,4 @@ var input = readStdinJson();
 var dataRoot = resolveDataRoot(join2(import.meta.dirname, "..", "..", ".data")).root;
 var out = handleSubagentStart(input, dataRoot);
 if (out.hookSpecificOutput)
-  console.log(JSON.stringify(out));
+  emitHookOutput(out, "SubagentStart", dataRoot, input.cwd);

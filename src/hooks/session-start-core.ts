@@ -3,11 +3,14 @@
  *
  * Принципы: fail-open (любая ошибка не должна сломать старт сессии владельца),
  * heartbeat (канал оставляет след срабатывания — самодиагностика),
- * бюджет вывода (обрезка до лимита платформы с указателем на полный файл).
+ * бюджет вывода: ВСЯ сводка — паспорт вместе с уставом, рамкой, состоянием и
+ * входом в работу — укладывается в лимит платформы на поле (см. emit.ts).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { openDb, type Database } from '../core/db'
+import { slugOf } from './slug'
+import { HOOK_TEXT_BUDGET, renderOverflow } from './emit'
 import { buildPassport } from '../passport/build'
 import { SessionLog, snapshotContent } from '../core/sessions'
 import { readConstitution, renderConstitution } from '../core/constitution'
@@ -184,7 +187,13 @@ export function lineValueFromGate(db: Database): (line: string) => number {
  * на другом языке подачи или на новой секции. Каждая урезанная секция говорит,
  * сколько строк осталось за кадром и где лежит полная версия.
  */
-export function fitToBudget(summary: string, budget: number, fullPath: string, value: (line: string) => number = () => 1): string {
+export function fitToBudget(
+  summary: string,
+  budget: number,
+  fullPath: string | null,
+  value: (line: string) => number = () => 1,
+  more: (dropped: number) => string = passportMore,
+): string {
   if (summary.length <= budget) return summary
   const parts = summary.split(/\n(?=## )/)
   const blocks = parts.map((p) => {
@@ -197,7 +206,7 @@ export function fitToBudget(summary: string, budget: number, fullPath: string, v
   const render = (): string =>
     blocks
       .map((b) => {
-        const tail = b.dropped > 0 ? [`- …${t(`ещё ${b.dropped} — passport_conventions`, `${b.dropped} more — passport_conventions`)}`] : []
+        const tail = b.dropped > 0 ? [`- …${more(b.dropped)}`] : []
         return [...b.lines, ...b.items, ...tail].join('\n')
       })
       .join('\n')
@@ -225,7 +234,53 @@ export function fitToBudget(summary: string, budget: number, fullPath: string, v
     blocks[fat].dropped++
   }
   const fitted = render()
-  return fitted.length <= budget ? fitted : `${fitted.slice(0, budget)}\n…${t('обрезано; полная версия', 'truncated; full version')}: ${fullPath}`
+  if (fitted.length <= budget) return fitted
+  // Честный обрыв — ВНУТРИ бюджета: пометка, выводящая текст за предел, ради
+  // которого резали, превращала бюджет в пожелание (было: срез по бюджету и
+  // пометка сверху)
+  const note = `\n…${fullPath ? `${t('обрезано; полная версия', 'truncated; full version')}: ${fullPath}` : t('обрезано по лимиту подачи', 'truncated to the delivery limit')}`
+  const room = Math.max(0, budget - note.length)
+  const cut = fitted.lastIndexOf('\n', room)
+  return `${fitted.slice(0, cut > room / 2 ? cut : room)}${note}`
+}
+
+/** Хвост урезанной секции паспорта: остальное доступно инструментом. */
+function passportMore(dropped: number): string {
+  return t(`ещё ${dropped} — passport_conventions`, `${dropped} more — passport_conventions`)
+}
+
+/** Хвост урезанной секции состояния/входа: этих строк нет ни в каком инструменте, поэтому — только честное число. */
+function restMore(dropped: number): string {
+  return t(`ещё ${dropped} — не вместилось в лимит подачи`, `${dropped} more — did not fit the delivery limit`)
+}
+
+/**
+ * Ниже этого паспорт перестаёт быть паспортом: минимум секций по
+ * MIN_SECTION_ITEMS строк на зрелом проекте — около пяти тысяч символов. Когда
+ * хвост сводки так велик, что паспорту осталось бы меньше, урезается хвост.
+ */
+const PASSPORT_FLOOR = 5000
+
+/**
+ * Сложить сводку SessionStart в ОДИН лимит поля платформы.
+ *
+ * Паспорт и хвост (устав, приглашения в устав, рамка, «Состояние», «Вход в
+ * работу») делят одно поле `additionalContext`, а платформа меряет поле целиком.
+ * Прежде бюджет держал только паспорт — 8000 символов, — и хвост ложился
+ * поверх: на labreadai-v2 выходило 11.9 тыс., и платформа подменяла ВСЁ поле
+ * превью на 2 тыс. — заголовок паспорта без законов и карты.
+ *
+ * Уступает первым паспорт: его урезанные строки остаются доступны через
+ * passport_conventions, а хвост — это состояние именно этой сессии, которого
+ * нет больше нигде. Но не ниже PASSPORT_FLOOR: дальше режется хвост тем же
+ * правилом — самая толстая секция, по одной строке, с числом за кадром.
+ */
+export function composeContext(summary: string, tail: string, footer: string, summaryPath: string | null, value: (line: string) => number = () => 1): string {
+  const budget = HOOK_TEXT_BUDGET - footer.length
+  const room = Math.min(CONTEXT_CHAR_BUDGET, Math.max(PASSPORT_FLOOR, budget - tail.length))
+  const passport = fitToBudget(summary, room, summaryPath, value)
+  const rest = passport.length + tail.length > budget ? fitToBudget(tail, budget - passport.length, null, value, restMore) : tail
+  return `${passport}${rest}${footer}`
 }
 
 export interface SessionStartInput {
@@ -243,14 +298,9 @@ export interface HookOutput {
   }
 }
 
-export function slugOf(path: string): string {
-  // Разделители приводятся к одному виду ДО basename: node:path на Linux не
-  // считает обратный слэш разделителем, и виндовый путь целиком превращался бы
-  // в слаг («d-ospanel-domains-проект» вместо «проект»). Путь может прийти из
-  // конфигурации или с другой машины, поэтому судить по системе нельзя.
-  const norm = path.replaceAll('\\', '/').replace(/\/+$/, '')
-  return basename(norm).toLowerCase().replace(/[^a-z0-9-]+/g, '-') || 'project'
-}
+// Реэкспорт: слаг переехал в свой модуль (см. slug.ts), а импортируют его отсюда
+// полтора десятка точек входа и тестов.
+export { slugOf }
 
 export function handleSessionStart(input: SessionStartInput, dataRoot: string): HookOutput {
   const cwd = input.cwd ?? process.cwd()
@@ -442,7 +492,8 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
     }
     if (!summary.includes('## ')) summary = '' // один заголовок без секций — не сводка
     if (!summary && !constBlock) return {} // нечего сказать — молчим, не занимаем контекст
-    summary = fitToBudget(summary, CONTEXT_CHAR_BUDGET, r.summaryPath, lineValue)
+    // Рубеж на выходе хука резал что-то в прошлые дни — называем (см. emit.ts)
+    const overflowLine = renderOverflow(dataDir)
 
     let stateBlock = g ? `\n${renderGitBlock(g, reconciled)}` : ''
     // Контекст сжат/форкнут — сводка переинжектится (восстановление после потери
@@ -459,7 +510,7 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
               '- the session was forked — the passport was delivered to the fork (subagents do not inherit the parent context)',
             )
           : ''
-    for (const line of [runtimeLine, compactNote, survivalLine, threadLine, bgLine, utilLine, gateLine, diagLine]) {
+    for (const line of [runtimeLine, compactNote, survivalLine, threadLine, bgLine, utilLine, gateLine, diagLine, overflowLine]) {
       if (line) stateBlock += `${stateBlock ? '\n' : `\n${t('## Состояние', '## State')}\n\n`}${line}`
     }
     if (stateBlock) stateBlock += '\n'
@@ -476,10 +527,11 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
       /* нет рамки — молчим */
     }
     const freshness = r.factsExecuted ? t('свежий пересчёт', 'freshly recomputed') : t('кэш (код не менялся)', 'cache (the code has not changed)')
+    const footer = `\n_Symbiont · ${freshness} · ${t('подробнее по требованию', 'more on demand')}: passport_conventions / passport_history_`
     return {
       hookSpecificOutput: {
         hookEventName: 'SessionStart',
-        additionalContext: `${summary}${constBlock}${frameSection}${stateBlock}${entrySection}\n_Symbiont · ${freshness} · ${t('подробнее по требованию', 'more on demand')}: passport_conventions / passport_history_`,
+        additionalContext: composeContext(summary, `${constBlock}${frameSection}${stateBlock}${entrySection}`, footer, r.summaryPath, lineValue),
       },
     }
   } catch (e) {

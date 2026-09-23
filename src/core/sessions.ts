@@ -194,7 +194,7 @@ export class SessionLog {
     if (recent.length < keep) return // ещё мало сессий — чистить нечего
     const ids = recent.map((r) => r.session_id)
     const placeholders = ids.map(() => '?').join(',')
-    for (const table of ['jit_log', 'gate_log', 'model_state', 'gate_fuse', 'session_edits']) {
+    for (const table of ['jit_log', 'gate_log', 'model_state', 'gate_fuse', 'session_edits', 'feed_cost']) {
       try {
         this.db.query(`DELETE FROM ${table} WHERE session_id NOT IN (${placeholders})`).run(...ids)
       } catch {

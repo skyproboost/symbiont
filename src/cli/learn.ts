@@ -35,9 +35,9 @@ if (r.cutoff) {
 } else if (!r.model) {
   console.log('Не удалось: нет паспорта/графа или все модели цепочки недоступны.')
 } else if (r.rules.length === 0) {
-  console.log(`Модель ${r.model} за ${sec}с не вывела правил, прошедших строгий фильтр (≥3 подтверждения, валидный формат). Это честный ноль, не ошибка.`)
+  console.log(`Модель ${r.model} за ${sec}с не вывела правил, прошедших строгий фильтр (≥3 дословные цитаты из разных файлов образца, валидный формат)${r.unverified > 0 ? `; без сверенной улики отброшено ${r.unverified}` : ''}. Это честный ноль, не ошибка.`)
 } else {
-  console.log(`Модель ${r.model} · ${sec}с · выведено правил: ${r.rules.length}`)
+  console.log(`Модель ${r.model} · ${sec}с · выведено правил: ${r.rules.length}${r.unverified > 0 ? ` · без дословной улики отброшено ${r.unverified}` : ''}`)
   console.log(`Журнал: +${r.journal.born} новых · ${r.journal.updated} уточнено · ${r.journal.superseded} вытеснено`, '\n')
   for (const rule of r.rules) {
     console.log(`  [${rule.area}] ${rule.statement}`)

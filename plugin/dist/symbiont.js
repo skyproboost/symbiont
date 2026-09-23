@@ -2,10 +2,12 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-0v494gwj.js";
+} from "./session-start-00g9ekpd.js";
 import {
-  citedStats
-} from "./session-start-bjm447q5.js";
+  citedStats,
+  feedCostStats,
+  renderFeedCost
+} from "./session-start-ve2wyq80.js";
 import {
   readGateMode
 } from "./session-start-yvd28w11.js";
@@ -14,12 +16,12 @@ import {
   countLessons,
   summaryFor,
   summaryStats
-} from "./session-start-gmd2p749.js";
+} from "./session-start-54m9r494.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-7d4dv2d8.js";
+} from "./session-start-57mz5gat.js";
 import {
   FactStore,
   REPORTED_WORKS,
@@ -47,7 +49,7 @@ import {
   t,
   tier,
   zoneOfArea
-} from "./session-start-v794t6f0.js";
+} from "./session-start-8rqex817.js";
 import {
   __require
 } from "./session-start-70d7ckvt.js";
@@ -173,6 +175,9 @@ function buildStatusReport(dataDir) {
         L.push(`   ${pad(t("окупаемость", "payback"), 15)} ${t("подано файлов", "files surfaced")} ${surfaced} · ${t("пригодилось", "used")} ${used} (${Math.round(used / surfaced * 100)}%)${citedPart}`);
       }
     } catch {}
+    const cost = renderFeedCost(feedCostStats(db));
+    if (cost)
+      L.push(`   ${pad(t("цена подачи", "delivery cost"), 15)} ${cost}`);
     for (const line of renderReviewQueue(reviewQueue(db)))
       L.push(line);
     try {

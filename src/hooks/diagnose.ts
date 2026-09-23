@@ -8,6 +8,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { t } from '../core/i18n'
 
 /** Каналы, которые ДОЛЖНЫ срабатывать при обычной работе (надёжные сигналы).
  *  SessionEnd — best-effort (не гарантирован платформой), PostToolUse — только
@@ -59,14 +60,19 @@ export function readBeats(dataDir: string): ChannelBeat[] {
   }
 }
 
-const LABEL: Record<string, string> = {
-  userpromptsubmit: 'UserPromptSubmit (JIT-срез по промпту)',
-  stop: 'Stop (гейт формы / HANDOFF)',
+/** Подпись канала в предупреждении; функцией, а не таблицей: язык известен только в момент показа. */
+function label(channel: string): string {
+  if (channel === 'userpromptsubmit') return t('UserPromptSubmit (JIT-срез по промпту)', 'UserPromptSubmit (JIT brief by prompt)')
+  if (channel === 'stop') return t('Stop (гейт формы / HANDOFF)', 'Stop (form gate / HANDOFF)')
+  return channel
 }
 
 /** Строка предупреждения для блока «Состояние» сводки, если каналы молчат. */
 export function renderDiagnosis(silent: string[]): string {
   if (silent.length === 0) return ''
-  const named = silent.map((c) => LABEL[c] ?? c).join(', ')
-  return `- ⚠ самодиагностика: канал(ы) молчат ${SILENT_SESSIONS}+ сессий — ${named}. Возможен сломанный хук (обнови плагин / перезапусти Claude Code); паспорт работает на оставшихся каналах.`
+  const named = silent.map(label).join(', ')
+  return t(
+    `- ⚠ самодиагностика: канал(ы) молчат ${SILENT_SESSIONS}+ сессий — ${named}. Возможен сломанный хук (обнови плагин / перезапусти Claude Code); паспорт работает на оставшихся каналах.`,
+    `- ⚠ self-diagnosis: channel(s) silent for ${SILENT_SESSIONS}+ sessions — ${named}. A hook may be broken (update the plugin / restart Claude Code); the passport keeps working on the remaining channels.`,
+  )
 }

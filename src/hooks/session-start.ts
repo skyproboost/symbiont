@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { readStdinJson } from './stdin'
+import { emitHookOutput } from './emit'
 import { resolveDataRoot, migrateLegacyPassports } from '../core/data-root'
 import { handleSessionStart, type SessionStartInput } from './session-start-core'
 import { isInternalCall } from '../core/internal'
@@ -12,7 +13,7 @@ const input = readStdinJson<SessionStartInput>()
 const res = resolveDataRoot(join(import.meta.dirname, '..', '..', '.data'))
 migrateLegacyPassports(res) // идемпотентно: разово переносит паспорта из версионированных установок
 const out = handleSessionStart(input, res.root)
-if (out.hookSpecificOutput) console.log(JSON.stringify(out))
+if (out.hookSpecificOutput) emitHookOutput(out, 'SessionStart', res.root, input.cwd)
 
 // Фоновое обслуживание — ОДИН детач-процесс (слой 1 всегда + LLM-петля по сырью,
 // само-гейт внутри). Хук выходит мгновенно после выдачи сводки: не держим клиент

@@ -193,8 +193,11 @@ const verbalizeWork: Work = {
     // Ранний срез — не отказ моделей: материал не менялся, due освежены без вызова
     if (v.cutoff) return t('материал не менялся — проход пропущен, правила освежены', 'material unchanged — pass skipped, rules refreshed')
     if (!v.model) throw new Error(explainNoAnswer(tried))
-    if (v.journal.born === 0 && v.journal.updated === 0) return null
-    return t(`правил +${v.journal.born}, подтверждено ${v.journal.updated}`, `rules +${v.journal.born}, confirmed ${v.journal.updated}`)
+    // Отброшенное сверкой улик называется: ноль правил при десятке отброшенных —
+    // не «нечего сказать», а сигнал, что модель пересказывает вместо цитаты
+    const dropped = v.unverified > 0 ? t(`, без дословной улики отброшено ${v.unverified}`, `, ${v.unverified} dropped without a verbatim quote`) : ''
+    if (v.journal.born === 0 && v.journal.updated === 0 && !dropped) return null
+    return t(`правил +${v.journal.born}, подтверждено ${v.journal.updated}${dropped}`, `rules +${v.journal.born}, confirmed ${v.journal.updated}${dropped}`)
   },
 }
 

@@ -3,7 +3,7 @@
  * Ключевой инвариант: проекции лечатся, журнал-истина не трогается никогда.
  */
 import { describe, expect, it } from 'bun:test'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb, type Database } from '../src/core/db'
@@ -11,6 +11,7 @@ import { auditTruth, healProjections, staleSummaryLines, renderTruth } from '../
 import { FactStore } from '../src/core/store'
 import { buildPassport } from '../src/passport/build'
 import { slugOf } from '../src/hooks/session-start-core'
+import { markVisited, summaryStats } from '../src/graph/zsummary'
 import { rmrf } from './_helpers'
 
 const seedProjections = (db: Database): void => {
@@ -38,6 +39,24 @@ describe('auditTruth', () => {
     expect(kinds).toContain('роли удалённых файлов')
     expect(kinds).toContain('тепло удалённых файлов')
     expect(kinds).toContain('уроки по несуществующим зонам')
+
+    db.close()
+    rmrf(root)
+  })
+
+  it('ловит визиты удалённых файлов в очереди ролей', () => {
+    const root = mkdtempSync(join(tmpdir(), 'symbiont-truth-'))
+    writeFileSync(join(root, 'alive.ts'), 'export const a = 1\n')
+    const db = openDb(':memory:')
+    seedProjections(db)
+    db.run('CREATE TABLE node_visits(file TEXT PRIMARY KEY, visits INTEGER NOT NULL, last_at TEXT NOT NULL)')
+    db.run("INSERT INTO graph_nodes VALUES('alive.ts', 0.5, 0, 0)")
+    db.run("INSERT INTO node_visits VALUES('alive.ts', 1, '2026-07-30T10:00:00Z'), ('research/moved.py', 1, '2026-07-30T10:00:00Z')")
+
+    const issue = auditTruth(db, root, root).find((i) => i.kind === 'очередь ролей по удалённым файлам')
+    expect(issue?.count).toBe(1)
+    expect(issue?.detail).toBe('research/moved.py')
+    expect(issue?.healable).toBe(true)
 
     db.close()
     rmrf(root)
@@ -134,6 +153,22 @@ describe('healProjections', () => {
     db.close()
     rmrf(root)
   })
+
+  it('визит удалённого файла уходит из очереди ролей, живой остаётся', () => {
+    const root = mkdtempSync(join(tmpdir(), 'symbiont-truth-'))
+    writeFileSync(join(root, 'alive.ts'), 'export const a = 1\n')
+    const db = openDb(':memory:')
+    seedProjections(db)
+    db.run('CREATE TABLE node_visits(file TEXT PRIMARY KEY, visits INTEGER NOT NULL, last_at TEXT NOT NULL)')
+    db.run("INSERT INTO node_visits VALUES('alive.ts', 2, '2026-07-30T10:00:00Z'), ('deleted.ts', 5, '2026-07-30T10:00:00Z')")
+
+    const rep = healProjections(db, root)
+    expect(rep.tables).toContain('node_visits')
+    const left = (db.query('SELECT file FROM node_visits').all() as Array<{ file: string }>).map((r) => r.file)
+    expect(left).toEqual(['alive.ts'])
+    db.close()
+    rmrf(root)
+  })
 })
 
 describe('renderTruth', () => {
@@ -178,6 +213,41 @@ describe('симуляция: удаление файла лечится сле�
     expect(summaries.n).toBe(0)
     expect(heat.n).toBe(0)
     expect(nodes.n).toBe(0)
+
+    rmrf(proj)
+    rmrf(data)
+  })
+
+  it('перенос каталога без ролей: очередь ролей не держит старые пути вечно', () => {
+    // Живой случай: init поставил в очередь research/*.py, файлы переехали в
+    // tools/, следующий init поставил новые пути — статус показывал «в очереди»
+    // и старые, которым резюме не родится никогда (читать нечего)
+    const proj = mkdtempSync(join(tmpdir(), 'symbiont-truth-proj-'))
+    const data = mkdtempSync(join(tmpdir(), 'symbiont-truth-data-'))
+    mkdirSync(join(proj, 'research'), { recursive: true })
+    writeFileSync(join(proj, 'research', 'calc.py'), 'def calc():\n    return 1\n')
+    writeFileSync(join(proj, 'research', 'fetch.py'), 'def fetch():\n    return 2\n')
+    const dataDir = join(data, slugOf(proj))
+
+    buildPassport(proj, dataDir)
+    {
+      const db = openDb(join(dataDir, 'passport.db'))
+      markVisited(db, 'research/calc.py', '2026-07-30T10:00:00Z')
+      markVisited(db, 'research/fetch.py', '2026-07-30T10:00:00Z')
+      db.close()
+    }
+
+    mkdirSync(join(proj, 'tools'), { recursive: true })
+    renameSync(join(proj, 'research', 'calc.py'), join(proj, 'tools', 'calc.py'))
+    renameSync(join(proj, 'research', 'fetch.py'), join(proj, 'tools', 'fetch.py'))
+    buildPassport(proj, dataDir)
+
+    const db = openDb(join(dataDir, 'passport.db'))
+    markVisited(db, 'tools/calc.py', '2026-07-30T11:00:00Z')
+    const visits = (db.query('SELECT file FROM node_visits ORDER BY file').all() as Array<{ file: string }>).map((r) => r.file)
+    expect(visits).toEqual(['tools/calc.py'])
+    expect(summaryStats(db)).toEqual({ have: 0, pending: 1 })
+    db.close()
 
     rmrf(proj)
     rmrf(data)

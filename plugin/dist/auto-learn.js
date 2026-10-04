@@ -1,19 +1,19 @@
 import {
   WORKS
-} from "./session-start-1gx98am7.js";
-import"./session-start-penbn1w9.js";
-import"./session-start-wenz4vw2.js";
-import"./session-start-rmm1zxj3.js";
-import"./session-start-y57jhbkd.js";
-import"./session-start-dapkvst5.js";
+} from "./session-start-ydkfyvga.js";
+import"./session-start-zcnveamz.js";
+import"./session-start-ty0gwf55.js";
+import"./session-start-dbapj88c.js";
+import"./session-start-fscn0xe1.js";
+import"./session-start-5psa84hc.js";
 import"./session-start-psab7pqj.js";
 import"./session-start-8ychq3hk.js";
 import"./session-start-046cybce.js";
-import"./session-start-6xe97a3m.js";
+import"./session-start-vgezmhw1.js";
 import"./session-start-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-vzch827x.js";
+} from "./session-start-m33pss0e.js";
 import {
   initLang,
   init_i18n,
@@ -22,7 +22,7 @@ import {
   runtimeBlocker,
   slugOf,
   t
-} from "./session-start-r66a8rwv.js";
+} from "./session-start-tcz0z3pm.js";
 import"./session-start-rvra3cez.js";
 
 // src/cli/auto-learn.ts
@@ -57,7 +57,7 @@ if (!autoEnabled(dataDir))
   process.exit(0);
 var db = openDb(dbPath);
 try {
-  const report = await runWorks(WORKS, { db, projectRoot: root, dataDir, nowMs: Date.now() });
+  const report = await runWorks(WORKS, { db, projectRoot: root, dataDir, nowMs: Date.now(), full: false });
   for (const o of report.outcomes)
     console.log(`${o.ok ? "✓" : "✗"} ${o.id} · ${o.ms}${t("мс", "ms")} · ${o.note}`);
 } finally {

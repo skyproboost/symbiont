@@ -1,10 +1,7 @@
 import {
   contentHashOf,
-  markVisited,
-  summaryFor
-} from "./session-start-6xe97a3m.js";
-import {
   init_i18n,
+  markVisited,
   noteSurfaced,
   noteUsed,
   noteWithheld,
@@ -12,8 +9,9 @@ import {
   readConfigEdges,
   renderConfigInfluence,
   shouldWithhold,
+  summaryFor,
   t
-} from "./session-start-r66a8rwv.js";
+} from "./session-start-tcz0z3pm.js";
 
 // src/hooks/node-brief.ts
 init_i18n();

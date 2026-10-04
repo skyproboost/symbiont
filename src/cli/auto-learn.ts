@@ -37,7 +37,7 @@ if (!autoEnabled(dataDir)) process.exit(0) // выключатель владе�
 
 const db = openDb(dbPath)
 try {
-  const report = await runWorks(WORKS, { db, projectRoot: root, dataDir, nowMs: Date.now() })
+  const report = await runWorks(WORKS, { db, projectRoot: root, dataDir, nowMs: Date.now(), full: false })
   for (const o of report.outcomes) console.log(`${o.ok ? '✓' : '✗'} ${o.id} · ${o.ms}${t('мс', 'ms')} · ${o.note}`)
 } finally {
   db.close()

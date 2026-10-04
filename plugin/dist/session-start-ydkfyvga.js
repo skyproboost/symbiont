@@ -5,17 +5,17 @@ import {
   collectMetrics,
   withRoot,
   zeroMetrics
-} from "./session-start-penbn1w9.js";
+} from "./session-start-zcnveamz.js";
 import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./session-start-wenz4vw2.js";
+} from "./session-start-ty0gwf55.js";
 import {
   buildRulesPrompt,
   parseRules,
   storeRules
-} from "./session-start-y57jhbkd.js";
+} from "./session-start-fscn0xe1.js";
 import {
   buildGroundingPrompt,
   dueForGrounding,
@@ -23,7 +23,7 @@ import {
   pendingDigests,
   runCommunityDigests,
   storeGrounding
-} from "./session-start-dapkvst5.js";
+} from "./session-start-5psa84hc.js";
 import {
   collectOutline,
   ensureSymbols,
@@ -35,12 +35,9 @@ import {
   PLAYBOOKS
 } from "./session-start-8ychq3hk.js";
 import {
-  contentHashes,
-  pendingSummaries,
   recordLesson,
-  runZSummaries,
   zoneOf
-} from "./session-start-6xe97a3m.js";
+} from "./session-start-vgezmhw1.js";
 import {
   CODE_EXT,
   CSVX,
@@ -52,6 +49,7 @@ import {
   auditTruth,
   buildUnknownPrompt,
   codeFiles,
+  contentHashes,
   deriveAstFacts,
   documentsBlock,
   findUnknownMaterial,
@@ -64,13 +62,15 @@ import {
   keyOf,
   mergeLearnedMaterials,
   openDb,
+  pendingSummaries,
   readConfigEntries,
   revisionsBlock,
+  runZSummaries,
   sha1,
   t,
   walkFiles,
   zoneOfArea
-} from "./session-start-r66a8rwv.js";
+} from "./session-start-tcz0z3pm.js";
 import {
   __require
 } from "./session-start-rvra3cez.js";
@@ -838,8 +838,10 @@ var verbalizeWork = {
     const store = new FactStore(ctx.db);
     if (store.dueForReview(ctx.nowMs).length > 0)
       return true;
-    const everRan = countOf(ctx, "SELECT COUNT(*) n FROM fact_journal WHERE source LIKE 'llm:layer2:%'") > 0;
     const hasCode = countOf(ctx, "SELECT COUNT(*) n FROM fact_journal WHERE source='miner:layer0'") > 0;
+    if (ctx.full)
+      return hasCode;
+    const everRan = countOf(ctx, "SELECT COUNT(*) n FROM fact_journal WHERE source LIKE 'llm:layer2:%'") > 0;
     return !everRan && hasCode;
   },
   run: (ctx) => {

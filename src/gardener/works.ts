@@ -183,8 +183,12 @@ const verbalizeWork: Work = {
   due: (ctx) => {
     const store = new FactStore(ctx.db)
     if (store.dueForReview(ctx.nowMs).length > 0) return true
-    const everRan = countOf(ctx, "SELECT COUNT(*) n FROM fact_journal WHERE source LIKE 'llm:layer2:%'") > 0
     const hasCode = countOf(ctx, "SELECT COUNT(*) n FROM fact_journal WHERE source='miner:layer0'") > 0
+    // «Уже вербализовано» — не отсутствие сырья: полный пересчёт его снимает,
+    // иначе init re молча пропускал единственную работу, ради которой срезает
+    // learn_meta.layer2_material. Фон по-прежнему вербализует один раз
+    if (ctx.full) return hasCode
+    const everRan = countOf(ctx, "SELECT COUNT(*) n FROM fact_journal WHERE source LIKE 'llm:layer2:%'") > 0
     return !everRan && hasCode
   },
   run: (ctx) => {

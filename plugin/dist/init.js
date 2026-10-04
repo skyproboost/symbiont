@@ -1,33 +1,33 @@
 import {
   WORKS
-} from "./session-start-1gx98am7.js";
-import"./session-start-penbn1w9.js";
-import"./session-start-wenz4vw2.js";
-import"./session-start-rmm1zxj3.js";
-import"./session-start-y57jhbkd.js";
-import"./session-start-dapkvst5.js";
+} from "./session-start-ydkfyvga.js";
+import"./session-start-zcnveamz.js";
+import"./session-start-ty0gwf55.js";
+import"./session-start-dbapj88c.js";
+import"./session-start-fscn0xe1.js";
+import"./session-start-5psa84hc.js";
 import"./session-start-psab7pqj.js";
 import"./session-start-8ychq3hk.js";
 import"./session-start-046cybce.js";
-import {
-  markVisited
-} from "./session-start-6xe97a3m.js";
+import"./session-start-vgezmhw1.js";
 import"./session-start-5s7r4262.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-vzch827x.js";
+} from "./session-start-m33pss0e.js";
 import {
   buildPassport,
   initLang,
   init_i18n,
+  markVisited,
   openDb,
+  renderSkipped,
   runWorks,
   runtimeBlocker,
   slugOf,
   t
-} from "./session-start-r66a8rwv.js";
+} from "./session-start-tcz0z3pm.js";
 import"./session-start-rvra3cez.js";
 
 // src/cli/init.ts
@@ -78,16 +78,22 @@ try {
   console.log(t(`  … глубокий проход: разбор кода по синтаксису, неписаные правила, связь настроек с кодом, роли файлов, снимок здоровья
 `, `  … deep pass: parsing the code by syntax, unwritten rules, how settings govern the code, file roles, a health snapshot
 `));
-  const report = await runWorks(WORKS, { db, projectRoot: root, dataDir, nowMs: Date.now() }, { budgetMs: 900000, ignoreCooldown: full });
+  const ctx = { db, projectRoot: root, dataDir, nowMs: Date.now(), full };
+  const report = await runWorks(WORKS, ctx, { budgetMs: 900000 });
   for (const o of report.outcomes)
     console.log(`  ${o.ok ? "✓" : "✗"} ${o.id.padEnd(12)} ${String(o.ms + t("мс", "ms")).padEnd(9)} ${o.note}`);
-  const quiet = report.skipped.filter((s) => s.includes("нечего")).length;
-  if (quiet > 0)
-    console.log(t(`  · ${quiet} работ не нашли для себя материала — это норма`, `  · ${quiet} jobs found no material of their own — that is normal`));
-  const already = report.skipped.filter((s) => !s.includes("нечего") && !s.includes("бюджет")).length;
-  if (!full && already > 0) {
-    console.log(t(`  · ${already} работ уже сделаны ранее и не повторялись (токены не потрачены) — «/symbiont:init re» форсирует`, `  · ${already} jobs were already done and were not repeated (no tokens spent) — “/symbiont:init re” forces them`));
-  }
+  const exhausted = (id) => {
+    if (full)
+      return false;
+    const w = WORKS.find((x) => x.id === id);
+    try {
+      return w !== undefined && w.due({ ...ctx, full: true });
+    } catch {
+      return false;
+    }
+  };
+  for (const line of renderSkipped(report.skipped, exhausted))
+    console.log(line);
   console.log(t(`
 Готово. Паспорт подаётся в каждую сессию сам; дальше система дополняет его по мере работы.`, `
 Done. The passport is delivered to every session by itself; from here the system fills it in as you work.`));

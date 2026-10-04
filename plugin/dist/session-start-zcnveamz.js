@@ -6,7 +6,7 @@ import {
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-// node_modules/web-tree-sitter/tree-sitter.js
+// ../symbiont/node_modules/web-tree-sitter/tree-sitter.js
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 var SIZE_OF_SHORT = 2;

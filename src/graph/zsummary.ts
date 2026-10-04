@@ -79,24 +79,32 @@ export function summaryFor(db: Database, file: string, contentHash: string | nul
   }
 }
 
-/** Хэш одного файла из кэша сборки — точечно, для подачи одного узла. */
+/**
+ * Хэш одного файла из кэша сборки — точечно, для подачи одного узла. Кэш держит
+ * путь таким, каким его отдал relative(), — на Windows с обратными слэшами, — а
+ * узлы и резюме живут с прямыми. Без второго ключа хэш на Windows не находился
+ * никогда, и резюме не протухало даже у переписанного целиком файла. Отвергнуто
+ * нормализовать ключ кэша на записи: им же объявлены входы движка сборки, и
+ * смена ключа стоила бы перечитывания всех файлов ради того, что решает чтение.
+ */
 export function contentHashOf(db: Database, file: string): string | null {
   try {
-    const row = db.query('SELECT hash FROM file_cache WHERE path=?').get(file) as { hash: string } | null
+    const q = db.query('SELECT hash FROM file_cache WHERE path=?')
+    const row = (q.get(file) ?? q.get(file.replaceAll('/', '\\'))) as { hash: string } | null
     return row ? row.hash : null
   } catch {
     return null // кэша сборки нет — свежесть не проверяем, см. summaryFor
   }
 }
 
-/** Карта file→content_hash из кэша сборки (его ведёт buildPassport); нет таблицы → пусто. */
+/** Карта file→content_hash из кэша сборки (его ведёт buildPassport); нет таблицы → пусто. Ключи — с прямыми слэшами, как у узлов (см. contentHashOf). */
 export function contentHashes(db: Database): Map<string, string> {
   const out = new Map<string, string>()
   try {
     const has = (db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='file_cache'").get() as { n: number }).n > 0
     if (!has) return out
     for (const r of db.query('SELECT path, hash FROM file_cache').all() as Array<{ path: string; hash: string }>) {
-      out.set(r.path, r.hash)
+      out.set(r.path.replaceAll('\\', '/'), r.hash)
     }
   } catch {
     /* кэша нет — очередь просто не отфильтруется по свежести */
@@ -194,6 +202,32 @@ export function storeSummary(db: Database, s: ZSummary, contentHash: string, mod
     `INSERT INTO node_summary(file, z1, content_hash, model, created_at) VALUES(?,?,?,?,?)
      ON CONFLICT(file) DO UPDATE SET z1=excluded.z1, content_hash=excluded.content_hash, model=excluded.model, created_at=excluded.created_at`,
   ).run(s.file, s.z1, contentHash, model, nowIso)
+}
+
+/**
+ * Резюме с пустым хэшем получают хэш текущего содержимого. Пустой хэш на Windows
+ * писался всегда (см. contentHashOf), и такие резюме считались свежими навсегда.
+ * Принять их свежими на сегодня — то же утверждение, что делалось до сих пор, но
+ * протухнут они уже со следующей правкой файла. Отвергнуто объявить их
+ * протухшими: роли разом пропали бы из подачи до перевывода, а перевывод — вызов
+ * модели на каждые десять узлов ради знания, которое скорее всего верно.
+ * current — путь с прямыми слэшами → хэш текущего диска (его считает сборка).
+ */
+export function adoptUnknownHashes(db: Database, current: Map<string, string>): number {
+  try {
+    const rows = db.query("SELECT file FROM node_summary WHERE content_hash=''").all() as Array<{ file: string }>
+    const adopt = db.query("UPDATE node_summary SET content_hash=? WHERE file=? AND content_hash=''")
+    let adopted = 0
+    for (const r of rows) {
+      const hash = current.get(r.file)
+      if (hash === undefined) continue // файла нет на диске — сирота, её судьба у rename и truth
+      adopt.run(hash, r.file)
+      adopted++
+    }
+    return adopted
+  } catch {
+    return 0 // таблицы резюме ещё нет — принимать нечего
+  }
 }
 
 export interface ZSummaryResult {

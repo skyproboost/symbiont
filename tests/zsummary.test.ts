@@ -19,9 +19,12 @@ import {
   runZSummaries,
   summaryStats,
   buildSummaryPrompt,
+  adoptUnknownHashes,
   MAX_BATCH,
 } from '../src/graph/zsummary'
 import { nodeBrief } from '../src/hooks/node-brief'
+import { buildPassport } from '../src/passport/build'
+import { slugOf } from '../src/hooks/session-start-core'
 import { rmrf } from './_helpers'
 
 const freshDb = (): Database => {
@@ -93,6 +96,102 @@ describe('инвалидация по content-hash', () => {
     const db = freshDb()
     expect(summaryFor(db, 'нет-такого.ts', null)).toBeNull()
     db.close()
+  })
+})
+
+describe('кэш сборки с путями Windows', () => {
+  // buildPassport кладёт в file_cache путь, как его отдал relative(): на Windows
+  // это src\a.ts, а узлы и резюме живут с прямыми слэшами
+  it('хэш находится по пути узла, хотя кэш держит обратные слэши', () => {
+    const db = freshDb()
+    withCache(db, [['src\\a.ts', 'hash-1']])
+    expect(contentHashOf(db, 'src/a.ts')).toBe('hash-1')
+    expect(contentHashes(db).get('src/a.ts')).toBe('hash-1')
+    db.close()
+  })
+
+  it('полный цикл: резюме пишется с хэшем и протухает после правки файла', () => {
+    const proj = mkdtempSync(join(tmpdir(), 'symbiont-zsum-win-'))
+    mkdirSync(join(proj, 'src'), { recursive: true })
+    writeFileSync(join(proj, 'src', 'a.ts'), 'export const a = 1\n')
+    const db = freshDb()
+    withCache(db, [['src\\a.ts', 'hash-1']])
+    markVisited(db, 'src/a.ts', '2026-07-30T10:00:00.000Z')
+
+    const caller = () => ({ text: '[{"file":"src/a.ts","z1":"константа модуля для проверки свежести"}]', model: 'haiku' })
+    expect(runZSummaries(db, proj, caller, '2026-07-30T10:05:00.000Z').stored).toBe(1)
+    const stored = db.query("SELECT content_hash FROM node_summary WHERE file='src/a.ts'").get() as { content_hash: string }
+    expect(stored.content_hash).toBe('hash-1')
+    expect(summaryFor(db, 'src/a.ts', contentHashOf(db, 'src/a.ts'))).toContain('константа')
+
+    withCache(db, [['src\\a.ts', 'hash-2']]) // файл переписали
+    expect(pendingSummaries(db, contentHashes(db)).map((p) => p.file)).toEqual(['src/a.ts'])
+    expect(summaryFor(db, 'src/a.ts', contentHashOf(db, 'src/a.ts'))).toBeNull()
+    db.close()
+    rmrf(proj)
+  })
+})
+
+describe('adoptUnknownHashes — резюме, записанные без хэша', () => {
+  it('живой файл получает хэш текущего содержимого и дальше протухает по правке', () => {
+    const db = freshDb()
+    storeSummary(db, { file: 'src/a.ts', z1: 'роль, записанная без хэша' }, '', 'haiku', '2026-07-30T10:00:00.000Z')
+    markVisited(db, 'src/a.ts', '2026-07-30T10:00:00.000Z')
+
+    expect(adoptUnknownHashes(db, new Map([['src/a.ts', 'hash-1']]))).toBe(1)
+    withCache(db, [['src\\a.ts', 'hash-1']])
+    // принято свежим: роль подаётся и не просится в очередь — модель не зовётся
+    expect(summaryFor(db, 'src/a.ts', contentHashOf(db, 'src/a.ts'))).toBe('роль, записанная без хэша')
+    expect(pendingSummaries(db, contentHashes(db))).toEqual([])
+
+    withCache(db, [['src\\a.ts', 'hash-2']])
+    expect(pendingSummaries(db, contentHashes(db)).map((p) => p.file)).toEqual(['src/a.ts'])
+    db.close()
+  })
+
+  it('известный хэш не перезаписывается, файл не с диска остаётся как был', () => {
+    const db = freshDb()
+    storeSummary(db, { file: 'known.ts', z1: 'роль с честным хэшем' }, 'hash-old', 'haiku', '2026-07-30T10:00:00.000Z')
+    storeSummary(db, { file: 'gone.ts', z1: 'роль удалённого файла' }, '', 'haiku', '2026-07-30T10:00:00.000Z')
+
+    expect(adoptUnknownHashes(db, new Map([['known.ts', 'hash-new']]))).toBe(0)
+    const rows = db.query('SELECT file, content_hash FROM node_summary ORDER BY file').all()
+    expect(rows).toEqual([
+      { file: 'gone.ts', content_hash: '' },
+      { file: 'known.ts', content_hash: 'hash-old' },
+    ])
+    db.close()
+  })
+
+  it('таблицы резюме нет — ноль, не исключение', () => {
+    const db = openDb(':memory:')
+    expect(adoptUnknownHashes(db, new Map([['a.ts', 'h']]))).toBe(0)
+    db.close()
+  })
+
+  it('сборка паспорта принимает пустые хэши сама — тем же хэшем, что видит подача', () => {
+    const proj = mkdtempSync(join(tmpdir(), 'symbiont-zsum-adopt-'))
+    const data = mkdtempSync(join(tmpdir(), 'symbiont-zsum-adopt-data-'))
+    mkdirSync(join(proj, 'src'), { recursive: true })
+    writeFileSync(join(proj, 'src', 'a.ts'), 'export const a = 1\n')
+    const dataDir = join(data, slugOf(proj))
+
+    buildPassport(proj, dataDir)
+    {
+      const db = openDb(join(dataDir, 'passport.db'))
+      storeSummary(db, { file: 'src/a.ts', z1: 'роль из версии до починки' }, '', 'haiku', '2026-07-30T10:00:00.000Z')
+      db.close()
+    }
+    buildPassport(proj, dataDir)
+
+    const db = openDb(join(dataDir, 'passport.db'))
+    const row = db.query("SELECT content_hash FROM node_summary WHERE file='src/a.ts'").get() as { content_hash: string }
+    expect(row.content_hash).not.toBe('')
+    expect(row.content_hash).toBe(contentHashOf(db, 'src/a.ts') as string)
+    expect(summaryFor(db, 'src/a.ts', contentHashOf(db, 'src/a.ts'))).toBe('роль из версии до починки')
+    db.close()
+    rmrf(proj)
+    rmrf(data)
   })
 })
 

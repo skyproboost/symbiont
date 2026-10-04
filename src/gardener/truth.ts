@@ -95,6 +95,7 @@ export function auditTruth(db: Database, root: string, dataDir: string): TruthIs
   push('сущности контент-графа без файла', deadOf(db, 'entity_nodes', 'file', root))
   push('роли удалённых файлов', deadOf(db, 'node_summary', 'file', root))
   push('тепло удалённых файлов', deadOf(db, 'node_heat', 'file', root))
+  push('очередь ролей по удалённым файлам', deadOf(db, 'node_visits', 'file', root))
   push('уроки по несуществующим зонам', deadLessonZones(db, root))
 
   try {
@@ -143,6 +144,11 @@ export function healProjections(db: Database, root: string): HealReport {
   clean('entity_nodes', 'file', deadOf(db, 'entity_nodes', 'file', root))
   clean('node_summary', 'file', deadOf(db, 'node_summary', 'file', root))
   clean('node_heat', 'file', deadOf(db, 'node_heat', 'file', root))
+  // Визит удалённого файла — вечный жилец очереди ролей: резюме ему не родится
+  // (читать нечего), а статус обещал «доберёт фоновая работа». Переименование с
+  // ролью уводит визит за файлом (rename.ts), без роли — визит просто сирота.
+  // Потерянный при переключении ветки визит вернёт следующее касание узла
+  clean('node_visits', 'file', deadOf(db, 'node_visits', 'file', root))
   clean('lessons', 'zone', deadLessonZones(db, root))
   // Рёбра, повисшие после удаления узлов (обе стороны проверяются отдельно)
   if (tableExists(db, 'graph_edges') && tableExists(db, 'graph_nodes')) {

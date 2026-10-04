@@ -27,6 +27,16 @@ export interface WorkContext {
   projectRoot: string
   dataDir: string
   nowMs: number
+  /**
+   * Полный пересчёт по явному слову владельца (`/symbiont:init re`). Снимает
+   * кулдауны И «уже сделано» внутри due: работа, чьё сырьё исчерпано прошлым
+   * проходом (вербализация после первого успеха), иначе не побежала бы никогда —
+   * кулдаун время снимает само, а это состояние нет. Сырьё по-прежнему обязано
+   * быть: пересчёт не повод звать модель на пустом материале. Отвергнуто держать
+   * флаг в RunOptions, как раньше ignoreCooldown: due его не видит, и «заново»
+   * доходило только до кулдауна.
+   */
+  full: boolean
 }
 
 export interface Work {
@@ -158,9 +168,23 @@ export function cooldownPassed(db: Database, w: Work, nowMs: number): boolean {
   return hours >= (last.ok ? w.cooldownH : w.cooldownH / 4)
 }
 
+/**
+ * Почему работа не бежала: `idle` — сырья нет (due ответил «нет»), `cooldown` —
+ * сырьё есть, но работа отработала недавно, `budget` — дорогое не уместилось в
+ * бюджет, `empty` — запущена, а делать оказалось нечего. Причина — данные, а не
+ * суффикс к имени: отчёт init разбирал строки по русским словам и выдавал
+ * работы без сырья за «уже сделанные ранее», хотя они не бежали ни разу.
+ */
+export type SkipReason = 'idle' | 'cooldown' | 'budget' | 'empty'
+
+export interface SkippedWork {
+  id: string
+  reason: SkipReason
+}
+
 export interface RunReport {
   outcomes: WorkOutcome[]
-  skipped: string[]
+  skipped: SkippedWork[]
 }
 
 /**
@@ -171,12 +195,6 @@ export interface RunReport {
 export interface RunOptions {
   /** потолок времени для дорогих работ */
   budgetMs?: number
-  /**
-   * Игнорировать кулдауны. Нужно ровно одному случаю — явной инициализации,
-   * когда человек согласился ждать: фон намеренно растягивает дорогое во
-   * времени, а init означает «сделай всё сразу».
-   */
-  ignoreCooldown?: boolean
 }
 
 export async function runWorks(works: Work[], ctx: WorkContext, options: RunOptions | number = {}): Promise<RunReport> {
@@ -191,20 +209,24 @@ export async function runWorks(works: Work[], ctx: WorkContext, options: RunOpti
 
   const ordered = [...works].sort((a, b) => (a.cost === b.cost ? 0 : a.cost === 'cheap' ? -1 : 1))
   for (const w of ordered) {
-    let due: boolean
+    let hasMaterial: boolean
     try {
-      due = w.due(ctx) && (opts.ignoreCooldown === true || cooldownPassed(ctx.db, w, ctx.nowMs))
+      hasMaterial = w.due(ctx)
     } catch {
-      due = false // работа не смогла даже оценить сырьё — не наша беда, идём дальше
+      hasMaterial = false // работа не смогла даже оценить сырьё — не наша беда, идём дальше
     }
-    if (!due) {
-      report.skipped.push(w.id)
+    if (!hasMaterial) {
+      report.skipped.push({ id: w.id, reason: 'idle' })
+      continue
+    }
+    if (!ctx.full && !cooldownPassed(ctx.db, w, ctx.nowMs)) {
+      report.skipped.push({ id: w.id, reason: 'cooldown' })
       continue
     }
     // >=, а не >: нулевой бюджет означает «дорогое не делать вовсе», иначе
     // на быстрой машине первая LLM-работа проскакивала бы при elapsed()==0
     if (w.cost === 'llm' && elapsed() >= budgetMs) {
-      report.skipped.push(`${w.id} (бюджет)`)
+      report.skipped.push({ id: w.id, reason: 'budget' })
       continue
     }
     const t0 = Date.now()
@@ -212,7 +234,7 @@ export async function runWorks(works: Work[], ctx: WorkContext, options: RunOpti
       const note = await w.run(ctx)
       const ms = Date.now() - t0
       if (note === null) {
-        report.skipped.push(`${w.id} (нечего)`)
+        report.skipped.push({ id: w.id, reason: 'empty' })
         continue
       }
       report.outcomes.push({ id: w.id, ok: true, note, ms })
@@ -226,6 +248,37 @@ export async function runWorks(works: Work[], ctx: WorkContext, options: RunOpti
     }
   }
   return report
+}
+
+/**
+ * Строки отчёта init о работах, которые не бежали, — каждая по имени: пропуск
+ * без объяснения выглядит как сбой (полный пересчёт печатал пять работ из
+ * двенадцати, и куда делись остальные, сказать было нельзя). Кулдаун и сырьё,
+ * исчерпанное прошлым проходом, для человека одно — «уже сделано, re форсирует»;
+ * второе due от «сырья нет» не отличает, поэтому различение приходит предикатом
+ * от вызывающего, который может позволить себе пробу.
+ */
+export function renderSkipped(skipped: SkippedWork[], exhausted: (id: string) => boolean): string[] {
+  const none: string[] = []
+  const done: string[] = []
+  const budget: string[] = []
+  for (const s of skipped) {
+    if (s.reason === 'budget') budget.push(s.id)
+    else if (s.reason === 'cooldown' || (s.reason === 'idle' && exhausted(s.id))) done.push(s.id)
+    else none.push(s.id)
+  }
+  const out: string[] = []
+  if (none.length > 0) out.push(t(`  · без материала — это норма: ${none.join(', ')}`, `  · no material of their own — that is normal: ${none.join(', ')}`))
+  if (done.length > 0) {
+    out.push(
+      t(
+        `  · уже сделаны ранее и не повторялись (токены не потрачены), «/symbiont:init re» форсирует: ${done.join(', ')}`,
+        `  · already done and not repeated (no tokens spent), “/symbiont:init re” forces them: ${done.join(', ')}`,
+      ),
+    )
+  }
+  if (budget.length > 0) out.push(t(`  · не уместились в бюджет прогона: ${budget.join(', ')}`, `  · did not fit into the run budget: ${budget.join(', ')}`))
+  return out
 }
 
 /** Столько должна прожить сессия, чтобы считаться упущенной возможностью фона. */

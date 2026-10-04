@@ -571,8 +571,8 @@ __export(exports_walk, {
   JS_EXT: () => JS_EXT,
   CODE_EXT: () => CODE_EXT
 });
-import { readdirSync, readFileSync as readFileSync6, statSync } from "node:fs";
-import { extname as extname2, join as join7 } from "node:path";
+import { readdirSync, readFileSync as readFileSync7, statSync } from "node:fs";
+import { extname as extname2, join as join8 } from "node:path";
 function inDerivedZone(rel) {
   return rel.split("/").some((seg) => SKIP_DIRS.has(seg));
 }
@@ -581,7 +581,7 @@ function declaredSkips(root) {
   const prefixes = new Set;
   let text = "";
   try {
-    text = readFileSync6(join7(root, ".gitignore"), "utf8");
+    text = readFileSync7(join8(root, ".gitignore"), "utf8");
   } catch {}
   for (const raw of text.split(`
 `)) {
@@ -617,10 +617,10 @@ function walkFiles(root) {
         const childRel = rel ? `${rel}/${e.name}` : e.name;
         if (skips.prefixes.has(childRel))
           continue;
-        stack.push({ abs: join7(dir, e.name), rel: childRel });
+        stack.push({ abs: join8(dir, e.name), rel: childRel });
         continue;
       }
-      const p = join7(dir, e.name);
+      const p = join8(dir, e.name);
       const ext = extname2(e.name).toLowerCase();
       let size = 0;
       let mtimeMs = 0;
@@ -2882,6 +2882,7 @@ function auditTruth(db, root, dataDir) {
   push2("сущности контент-графа без файла", deadOf(db, "entity_nodes", "file", root));
   push2("роли удалённых файлов", deadOf(db, "node_summary", "file", root));
   push2("тепло удалённых файлов", deadOf(db, "node_heat", "file", root));
+  push2("очередь ролей по удалённым файлам", deadOf(db, "node_visits", "file", root));
   push2("уроки по несуществующим зонам", deadLessonZones(db, root));
   try {
     const summary = readFileSync5(join6(dataDir, "SUMMARY.md"), "utf8");
@@ -2915,6 +2916,7 @@ function healProjections(db, root) {
   clean("entity_nodes", "file", deadOf(db, "entity_nodes", "file", root));
   clean("node_summary", "file", deadOf(db, "node_summary", "file", root));
   clean("node_heat", "file", deadOf(db, "node_heat", "file", root));
+  clean("node_visits", "file", deadOf(db, "node_visits", "file", root));
   clean("lessons", "zone", deadLessonZones(db, root));
   if (tableExists(db, "graph_edges") && tableExists(db, "graph_nodes")) {
     try {
@@ -2938,6 +2940,233 @@ function renderTruth(issues) {
   }
   return lines.join(`
 `);
+}
+
+// src/layer2/prompt.ts
+function jsonOnly(shape) {
+  const array = shape.trimStart().startsWith("[");
+  const head = array ? "Ответ целиком — один JSON-массив: первый символ «[», последний «]». Форма элемента:" : "Ответ целиком — один JSON-объект: первый символ «{», последний «}». Форма:";
+  return `${head}
+${shape}`;
+}
+var OUR_TAGS = /<\/(documents|document_content|document|source|revisions|revision|model_wrote|owner_corrected_to)\b/g;
+var neutralize = (text) => text.replace(OUR_TAGS, "<\\/$1");
+function documentsBlock(samples) {
+  if (samples.length === 0)
+    return "";
+  const lines = ["<documents>"];
+  for (let i = 0;i < samples.length; i++) {
+    lines.push(`<document index="${i + 1}">`, "<source>", samples[i].file, "</source>", "<document_content>", neutralize(samples[i].content), "</document_content>", "</document>");
+  }
+  lines.push("</documents>");
+  return lines.join(`
+`);
+}
+function revisionsBlock(items) {
+  if (items.length === 0)
+    return "";
+  const lines = ["<revisions>"];
+  for (let i = 0;i < items.length; i++) {
+    lines.push(`<revision index="${i + 1}">`, "<source>", items[i].file, "</source>", "<model_wrote>", neutralize(items[i].before), "</model_wrote>", "<owner_corrected_to>", neutralize(items[i].after), "</owner_corrected_to>", "</revision>");
+  }
+  lines.push("</revisions>");
+  return lines.join(`
+`);
+}
+var SUMMARY_BUDGET = 4000;
+
+// src/graph/zsummary.ts
+import { existsSync as existsSync5, readFileSync as readFileSync6 } from "node:fs";
+import { join as join7 } from "node:path";
+var MAX_BATCH = 10;
+var SAMPLE_CHARS = 3000;
+var MAX_Z1_CHARS = 200;
+function ensureSummaryTables(db) {
+  db.run("CREATE TABLE IF NOT EXISTS node_summary(file TEXT PRIMARY KEY, z1 TEXT NOT NULL, content_hash TEXT NOT NULL, model TEXT NOT NULL, created_at TEXT NOT NULL)");
+  db.run("CREATE TABLE IF NOT EXISTS node_visits(file TEXT PRIMARY KEY, visits INTEGER NOT NULL, last_at TEXT NOT NULL)");
+}
+function markVisited(db, file, nowIso) {
+  try {
+    ensureSummaryTables(db);
+    db.query("INSERT INTO node_visits(file, visits, last_at) VALUES(?,1,?) ON CONFLICT(file) DO UPDATE SET visits=visits+1, last_at=excluded.last_at").run(file, nowIso);
+  } catch {}
+}
+function summaryFor(db, file, contentHash) {
+  try {
+    const row = db.query("SELECT z1, content_hash FROM node_summary WHERE file=?").get(file);
+    if (!row)
+      return null;
+    if (contentHash && row.content_hash !== contentHash)
+      return null;
+    return row.z1;
+  } catch {
+    return null;
+  }
+}
+function contentHashOf(db, file) {
+  try {
+    const q = db.query("SELECT hash FROM file_cache WHERE path=?");
+    const row = q.get(file) ?? q.get(file.replaceAll("/", "\\"));
+    return row ? row.hash : null;
+  } catch {
+    return null;
+  }
+}
+function contentHashes(db) {
+  const out = new Map;
+  try {
+    const has = db.query("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='file_cache'").get().n > 0;
+    if (!has)
+      return out;
+    for (const r of db.query("SELECT path, hash FROM file_cache").all()) {
+      out.set(r.path.replaceAll("\\", "/"), r.hash);
+    }
+  } catch {}
+  return out;
+}
+function pendingSummaries(db, hashes, limit = MAX_BATCH) {
+  try {
+    ensureSummaryTables(db);
+    const rows = db.query(`SELECT v.file AS file, v.visits AS visits, s.content_hash AS have
+         FROM node_visits v LEFT JOIN node_summary s ON s.file = v.file
+         ORDER BY v.visits DESC, v.last_at DESC`).all();
+    const out = [];
+    for (const r of rows) {
+      if (out.length >= limit)
+        break;
+      const fresh = r.have !== null && r.have === (hashes.get(r.file) ?? r.have);
+      if (fresh)
+        continue;
+      out.push({ file: r.file, visits: r.visits });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+function buildSummaryPrompt(samples) {
+  return [
+    "Ты описываешь роль файлов в проекте одной строкой каждый — для карты проекта, которую читает другой инженер.",
+    "",
+    "Требования к строке:",
+    "- зачем файл существует и что он держит: строку читает инженер, которому нужно решить, открывать ли файл, а пересказ кода построчно на этот вопрос не отвечает;",
+    "- максимально конкретно: named сущности, ответственность, чем он является для остальных;",
+    `- одна строка до ${MAX_Z1_CHARS} символов, без markdown, без имени файла в начале;`,
+    "- формулируй фактом, без оценок и советов.",
+    "",
+    "Файлы:",
+    documentsBlock(samples),
+    "",
+    jsonOnly('[{"file": "путь как в заголовке", "z1": "роль файла одной строкой"}]')
+  ].join(`
+`);
+}
+var asSummary = (file, z1) => {
+  if (typeof file !== "string" || typeof z1 !== "string")
+    return null;
+  const text = z1.replace(/\s+/g, " ").trim();
+  return text.length >= 10 ? { file, z1: text.slice(0, MAX_Z1_CHARS) } : null;
+};
+function salvageSummaries(text) {
+  const out = [];
+  for (const m of text.matchAll(/\{[^{}]*?"file"\s*:\s*"([^"]+)"[^{}]*?"z1"\s*:\s*"([\s\S]*?)"\s*\}/g)) {
+    const s = asSummary(m[1], m[2]);
+    if (s)
+      out.push(s);
+  }
+  return out;
+}
+function parseSummaries(text) {
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  if (start === -1 || end <= start)
+    return [];
+  const slice = text.slice(start, end + 1);
+  try {
+    const arr = JSON.parse(slice);
+    if (!Array.isArray(arr))
+      return [];
+    const out = [];
+    for (const r of arr) {
+      const s = asSummary(r?.file, r?.z1);
+      if (s)
+        out.push(s);
+    }
+    return out;
+  } catch {
+    return salvageSummaries(slice);
+  }
+}
+function storeSummary(db, s, contentHash, model, nowIso) {
+  ensureSummaryTables(db);
+  db.query(`INSERT INTO node_summary(file, z1, content_hash, model, created_at) VALUES(?,?,?,?,?)
+     ON CONFLICT(file) DO UPDATE SET z1=excluded.z1, content_hash=excluded.content_hash, model=excluded.model, created_at=excluded.created_at`).run(s.file, s.z1, contentHash, model, nowIso);
+}
+function adoptUnknownHashes(db, current2) {
+  try {
+    const rows = db.query("SELECT file FROM node_summary WHERE content_hash=''").all();
+    const adopt = db.query("UPDATE node_summary SET content_hash=? WHERE file=? AND content_hash=''");
+    let adopted = 0;
+    for (const r of rows) {
+      const hash = current2.get(r.file);
+      if (hash === undefined)
+        continue;
+      adopt.run(hash, r.file);
+      adopted++;
+    }
+    return adopted;
+  } catch {
+    return 0;
+  }
+}
+function runZSummaries(db, projectRoot, caller, nowIso = new Date().toISOString(), limit = MAX_BATCH, dataDir = null) {
+  const hashes = contentHashes(db);
+  const pending = pendingSummaries(db, hashes, limit);
+  if (pending.length === 0)
+    return { model: null, requested: 0, stored: 0 };
+  const samples = [];
+  for (const p of pending) {
+    const abs = join7(projectRoot, p.file);
+    if (!existsSync5(abs))
+      continue;
+    try {
+      samples.push({ file: p.file, content: readFileSync6(abs, "utf8").slice(0, SAMPLE_CHARS) });
+    } catch {
+      continue;
+    }
+  }
+  if (samples.length === 0)
+    return { model: null, requested: pending.length, stored: 0 };
+  const res = caller(buildSummaryPrompt(samples));
+  if (!res)
+    return { model: null, requested: pending.length, stored: 0 };
+  const known = new Set(samples.map((s) => s.file));
+  const parsed = parseSummaries(res.text);
+  let stored = 0;
+  for (const s of parsed) {
+    if (!known.has(s.file))
+      continue;
+    storeSummary(db, s, hashes.get(s.file) ?? "", res.model, nowIso);
+    stored++;
+  }
+  if (dataDir) {
+    try {
+      const { writeFileSync: writeFileSync3 } = __require("node:fs");
+      const missed = samples.map((s) => s.file).filter((f) => !parsed.some((p) => p.file === f));
+      writeFileSync3(join7(dataDir, "zsummary-last.json"), JSON.stringify({ model: res.model, at: nowIso, asked: samples.map((s) => s.file), missed, raw: res.text }, null, 1), "utf8");
+    } catch {}
+  }
+  return { model: res.model, requested: pending.length, stored };
+}
+function summaryStats(db) {
+  try {
+    ensureSummaryTables(db);
+    const have = db.query("SELECT COUNT(*) n FROM node_summary").get().n;
+    const pending = pendingSummaries(db, contentHashes(db), 1000).length;
+    return { have, pending };
+  } catch {
+    return { have: 0, pending: 0 };
+  }
 }
 
 // src/gardener/drift.ts
@@ -3052,8 +3281,8 @@ function renderDriftReport(health, drift, hotspots) {
 }
 function hotspotsFromGit(projectRoot) {
   const { spawnSync: spawnSync2 } = __require("node:child_process");
-  const { readFileSync: readFileSync7 } = __require("node:fs");
-  const { join: join8, extname: extname3 } = __require("node:path");
+  const { readFileSync: readFileSync8 } = __require("node:fs");
+  const { join: join9, extname: extname3 } = __require("node:path");
   const { parseCommitLog: parseCommitLog2 } = (init_constitution_derive(), __toCommonJS(exports_constitution_derive));
   const { CODE_EXT: CODE_EXT2 } = (init_walk(), __toCommonJS(exports_walk));
   const r = spawnSync2("git", ["log", "--name-only", "--pretty=format:@%H%x09%s", "-n", "400"], {
@@ -3076,7 +3305,7 @@ function hotspotsFromGit(projectRoot) {
     if (!CODE_EXT2.has(extname3(rel).toLowerCase()))
       continue;
     try {
-      sizeByFile.set(rel, readFileSync7(join8(projectRoot, rel), "utf8").split(`
+      sizeByFile.set(rel, readFileSync8(join9(projectRoot, rel), "utf8").split(`
 `).length);
     } catch {}
   }
@@ -3084,8 +3313,8 @@ function hotspotsFromGit(projectRoot) {
 }
 
 // src/passport/build.ts
-import { readFileSync as readFileSync11, writeFileSync as writeFileSync4, mkdirSync, existsSync as existsSync7 } from "node:fs";
-import { basename as basename3, join as join12, relative, dirname as dirname3 } from "node:path";
+import { readFileSync as readFileSync12, writeFileSync as writeFileSync4, mkdirSync, existsSync as existsSync8 } from "node:fs";
+import { basename as basename3, join as join13, relative, dirname as dirname3 } from "node:path";
 import { spawnSync as spawnSync2 } from "node:child_process";
 
 // src/graph/cochange.ts
@@ -3240,7 +3469,7 @@ class Engine {
 init_walk();
 
 // src/graph/imports.ts
-import { dirname as dirname2, join as join8, normalize as normalize3 } from "node:path/posix";
+import { dirname as dirname2, join as join9, normalize as normalize3 } from "node:path/posix";
 var defaults = {
   targets: [],
   indexes: [],
@@ -3711,7 +3940,7 @@ var bareAllowed = (segs, rooted) => segs.length >= 2 || rooted;
 function resolvePath(fromRel, spec, p, index) {
   const clean = spec.replace(/^package:/, "").replace(/[?#].*$/, "");
   if (clean.startsWith("./") || clean.startsWith("../")) {
-    const base = normalize3(join8(dirname2(fromRel), clean));
+    const base = normalize3(join9(dirname2(fromRel), clean));
     if (base.startsWith(".."))
       return [];
     const hit = matchTail(base, p, index).filter((f) => f === base || f.startsWith(`${base}.`) || f.startsWith(`${base}/`));
@@ -3764,7 +3993,7 @@ function resolveSymbol(fromRel, spec, p, index) {
     return [];
   if (rel > 0) {
     const up = Array.from({ length: rel - 1 }, () => "..").join("/");
-    const base = normalize3(join8(dirname2(fromRel), up, segs.join("/")));
+    const base = normalize3(join9(dirname2(fromRel), up, segs.join("/")));
     if (base.startsWith(".."))
       return [];
     const hit = matchTail(base, p, index).filter((f) => f === base || f.startsWith(`${base}.`) || f.startsWith(`${base}/`));
@@ -3784,7 +4013,7 @@ function resolveSymbol(fromRel, spec, p, index) {
     return [];
   }
   if (p.id === "py") {
-    const sibling = normalize3(join8(dirname2(fromRel), segs.join("/")));
+    const sibling = normalize3(join9(dirname2(fromRel), segs.join("/")));
     if (!sibling.startsWith("..")) {
       const hit = matchTail(sibling, p, index).filter((f) => f === sibling || f.startsWith(`${sibling}.`) || f.startsWith(`${sibling}/`));
       const exact = nearest(fromRel, hit);
@@ -4011,8 +4240,8 @@ init_constitution_derive();
 
 // src/passport/cascade.ts
 init_signals();
-import { readFileSync as readFileSync7 } from "node:fs";
-import { join as join9 } from "node:path";
+import { readFileSync as readFileSync8 } from "node:fs";
+import { join as join10 } from "node:path";
 var ZONE_AXES = [
   { axis: "корректность", signal: "testing" },
   { axis: "целостность данных", signal: "db" },
@@ -4039,7 +4268,7 @@ function localDocs(root, zone, zonePaths) {
   const parts = [];
   for (const rel of docs) {
     try {
-      parts.push(readFileSync7(join9(root, rel), "utf8").slice(0, LOCAL_DOC_LIMIT));
+      parts.push(readFileSync8(join10(root, rel), "utf8").slice(0, LOCAL_DOC_LIMIT));
     } catch {}
   }
   return parts.join(`
@@ -4190,7 +4419,7 @@ function migrateRenames(db, current2) {
 }
 
 // src/env/config-graph.ts
-import { readFileSync as readFileSync8 } from "node:fs";
+import { readFileSync as readFileSync9 } from "node:fs";
 import { extname as extname4 } from "node:path";
 var CONFIG_EXT = new Set([".json", ".yml", ".yaml", ".toml", ".ini", ".conf", ".env", ".cfg", ".properties"]);
 var CONFIG_NAME = /(^|\/)(\.env[\w.-]*|[\w.-]*\.?config\.[tj]s|nginx[\w.-]*\.conf|docker-compose[\w.-]*\.ya?ml|Dockerfile|\.htaccess|[\w-]*\.tf|Caddyfile|\.npmrc|Procfile)$/i;
@@ -4367,7 +4596,7 @@ function historicalLinks(cochange, minPairs = 2) {
   }
   return out;
 }
-function readConfigEntries(root, relPaths, read = (p) => readFileSync8(p, "utf8")) {
+function readConfigEntries(root, relPaths, read = (p) => readFileSync9(p, "utf8")) {
   const out = [];
   for (const rel of relPaths) {
     if (!isConfigFile(rel))
@@ -4628,8 +4857,8 @@ function renderArtifacts(profile) {
 // src/passport/stack.ts
 init_signals();
 init_i18n();
-import { existsSync as existsSync5 } from "node:fs";
-import { join as join10 } from "node:path";
+import { existsSync as existsSync6 } from "node:fs";
+import { join as join11 } from "node:path";
 var DETECTORS2 = [
   { name: "nuxt", kind: "framework", deps: /^nuxt$/, files: ["nuxt.config.ts", "nuxt.config.js"] },
   { name: "next.js", kind: "framework", deps: /^next$/, files: ["next.config.js", "next.config.mjs"] },
@@ -4680,7 +4909,7 @@ function detectStack(projectRoot, relPaths) {
   const { all: deps, prod: prodDeps } = readDeps(projectRoot);
   const hasDep = (re) => deps.some((d) => re.test(d));
   const hasPath = (re) => relPaths.some((p) => re.test(p));
-  const hasFile = (files) => files ? files.some((f) => existsSync5(join10(projectRoot, f))) : false;
+  const hasFile = (files) => files ? files.some((f) => existsSync6(join11(projectRoot, f))) : false;
   const reason = (d) => {
     if (d.signal)
       return matchSignal(SIGNALS[d.signal], { paths: relPaths, deps }) ? "сигнал направления" : null;
@@ -4756,42 +4985,9 @@ function renderStack(s) {
 `);
 }
 
-// src/layer2/prompt.ts
-function jsonOnly(shape) {
-  const array = shape.trimStart().startsWith("[");
-  const head = array ? "Ответ целиком — один JSON-массив: первый символ «[», последний «]». Форма элемента:" : "Ответ целиком — один JSON-объект: первый символ «{», последний «}». Форма:";
-  return `${head}
-${shape}`;
-}
-var OUR_TAGS = /<\/(documents|document_content|document|source|revisions|revision|model_wrote|owner_corrected_to)\b/g;
-var neutralize = (text) => text.replace(OUR_TAGS, "<\\/$1");
-function documentsBlock(samples) {
-  if (samples.length === 0)
-    return "";
-  const lines = ["<documents>"];
-  for (let i = 0;i < samples.length; i++) {
-    lines.push(`<document index="${i + 1}">`, "<source>", samples[i].file, "</source>", "<document_content>", neutralize(samples[i].content), "</document_content>", "</document>");
-  }
-  lines.push("</documents>");
-  return lines.join(`
-`);
-}
-function revisionsBlock(items) {
-  if (items.length === 0)
-    return "";
-  const lines = ["<revisions>"];
-  for (let i = 0;i < items.length; i++) {
-    lines.push(`<revision index="${i + 1}">`, "<source>", items[i].file, "</source>", "<model_wrote>", neutralize(items[i].before), "</model_wrote>", "<owner_corrected_to>", neutralize(items[i].after), "</owner_corrected_to>", "</revision>");
-  }
-  lines.push("</revisions>");
-  return lines.join(`
-`);
-}
-var SUMMARY_BUDGET = 4000;
-
 // src/miner/noncode.ts
 import { inflateRawSync } from "node:zlib";
-import { readFileSync as readFileSync9 } from "node:fs";
+import { readFileSync as readFileSync10 } from "node:fs";
 function mineCsv(content) {
   const lines = content.split(/\r?\n/).filter((l) => l.length > 0);
   const header = lines[0] ?? "";
@@ -4867,15 +5063,15 @@ function isOpaqueMaterial(ext) {
 function extractContent(path, ext) {
   try {
     if (OFFICE.has(ext)) {
-      const o = mineOffice(readFileSync9(path), ext);
+      const o = mineOffice(readFileSync10(path), ext);
       return o.text ? `[${o.format}, ${o.units} ед.] ${o.text}` : null;
     }
     if (CSVX.has(ext)) {
-      const c = mineCsv(readFileSync9(path, "utf8"));
+      const c = mineCsv(readFileSync10(path, "utf8"));
       return `[таблица ${c.rows} строк, колонки: ${c.columns.join(", ")}]`;
     }
     if (TEXT.has(ext)) {
-      const content = readFileSync9(path, "utf8");
+      const content = readFileSync10(path, "utf8");
       const t2 = mineText(content);
       return `[${t2.words} слов, заголовки: ${t2.headings.slice(0, 8).join(" · ")}]
 ${content.slice(0, 3000)}`;
@@ -4939,8 +5135,8 @@ function unknownFact(u) {
 }
 
 // src/core/learned.ts
-import { existsSync as existsSync6, readFileSync as readFileSync10, writeFileSync as writeFileSync3 } from "node:fs";
-import { join as join11 } from "node:path";
+import { existsSync as existsSync7, readFileSync as readFileSync11, writeFileSync as writeFileSync3 } from "node:fs";
+import { join as join12 } from "node:path";
 init_i18n();
 var FILE2 = "learned-materials.json";
 var MIN_PROJECTS = 2;
@@ -4967,10 +5163,10 @@ function sanitize(entry) {
 }
 function readLearnedMaterials(root) {
   try {
-    const p = join11(root, FILE2);
-    if (!existsSync6(p))
+    const p = join12(root, FILE2);
+    if (!existsSync7(p))
       return [];
-    const raw = JSON.parse(readFileSync10(p, "utf8"));
+    const raw = JSON.parse(readFileSync11(p, "utf8"));
     if (!Array.isArray(raw))
       return [];
     return raw.map(sanitize).filter((x) => x !== null);
@@ -4982,10 +5178,10 @@ function mergeLearnedMaterials(root, observations, projectKey, nowIso = new Date
   try {
     const existing = readLearnedMaterials(root);
     const byExt = new Map(existing.map((e) => [e.ext, e]));
-    const seenPath = join11(root, "learned-seen.json");
+    const seenPath = join12(root, "learned-seen.json");
     let seen = {};
     try {
-      seen = existsSync6(seenPath) ? JSON.parse(readFileSync10(seenPath, "utf8")) : {};
+      seen = existsSync7(seenPath) ? JSON.parse(readFileSync11(seenPath, "utf8")) : {};
     } catch {
       seen = {};
     }
@@ -5011,7 +5207,7 @@ function mergeLearnedMaterials(root, observations, projectKey, nowIso = new Date
       changed++;
     }
     const out = [...byExt.values()].sort((a, b) => b.seenIn - a.seenIn).slice(0, MAX_ENTRIES);
-    writeFileSync3(join11(root, FILE2), JSON.stringify(out, null, 1), "utf8");
+    writeFileSync3(join12(root, FILE2), JSON.stringify(out, null, 1), "utf8");
     writeFileSync3(seenPath, JSON.stringify(seen, null, 1), "utf8");
     return changed;
   } catch {
@@ -5141,9 +5337,9 @@ function buildFrame(conceptText) {
 }
 function readFrame(dataDir) {
   try {
-    const { readFileSync: readFileSync11 } = __require("node:fs");
-    const { join: join12 } = __require("node:path");
-    return readFileSync11(join12(dataDir, "frame.md"), "utf8").trim();
+    const { readFileSync: readFileSync12 } = __require("node:fs");
+    const { join: join13 } = __require("node:path");
+    return readFileSync12(join13(dataDir, "frame.md"), "utf8").trim();
   } catch {
     return "";
   }
@@ -5244,12 +5440,12 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-664145f47f45";
+    return "bundle-299b24282803";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
     try {
-      parts.push(readFileSync11(join12(import.meta.dirname, r), "utf8"));
+      parts.push(readFileSync12(join13(import.meta.dirname, r), "utf8"));
     } catch {}
   }
   return parts.length > 0 ? `auto-${sha1(parts.join(" "))}` : "fallback-v4-2026-07-30";
@@ -5257,7 +5453,7 @@ function projectionCodeVersion() {
 function buildPassport(projectRoot, dataDir) {
   mkdirSync(dataDir, { recursive: true });
   initLang(dataDir, projectRoot);
-  const engine = new Engine(join12(dataDir, "passport.db"));
+  const engine = new Engine(join13(dataDir, "passport.db"));
   engine.invalidateIfCodeChanged(`${projectionCodeVersion()}:${lang()}`);
   const store = new FactStore(engine.db);
   engine.db.run("CREATE TABLE IF NOT EXISTS file_cache(path TEXT PRIMARY KEY, mtime_ms REAL NOT NULL, size INTEGER NOT NULL, hash TEXT NOT NULL)");
@@ -5277,7 +5473,7 @@ function buildPassport(projectRoot, dataDir) {
     } else {
       let content = "";
       try {
-        content = readFileSync11(f.path, "utf8");
+        content = readFileSync12(f.path, "utf8");
       } catch {}
       hash = sha1(content);
       cachePut.run(rel, f.mtimeMs, f.size, hash);
@@ -5286,6 +5482,7 @@ function buildPassport(projectRoot, dataDir) {
     currentHashes.set(rel.replaceAll("\\", "/"), hash);
   }
   migrateRenames(engine.db, currentHashes);
+  adoptUnknownHashes(engine.db, currentHashes);
   engine.register("facts", (ctx) => {
     ctx.input("fileset");
     const withRel = files.map((f) => {
@@ -5294,7 +5491,7 @@ function buildPassport(projectRoot, dataDir) {
       const rel = rawRel.replaceAll("\\", "/");
       let content = "";
       try {
-        content = readFileSync11(f.path, "utf8");
+        content = readFileSync12(f.path, "utf8");
       } catch {}
       return { rel, obs: analyzeFile(f.path, f.ext, content) };
     });
@@ -5311,7 +5508,7 @@ function buildPassport(projectRoot, dataDir) {
       ctx.input(`file:${rel}`);
       let content = "";
       try {
-        content = readFileSync11(f.path, "utf8");
+        content = readFileSync12(f.path, "utf8");
       } catch {}
       return { rel: rel.replaceAll("\\", "/"), content };
     });
@@ -5336,7 +5533,7 @@ function buildPassport(projectRoot, dataDir) {
   for (const f of entityFiles) {
     let content = null;
     try {
-      content = readFileSync11(f.path, "utf8");
+      content = readFileSync12(f.path, "utf8");
     } catch {}
     if (content === null || content.length > 1e6)
       continue;
@@ -5438,7 +5635,7 @@ ${learnedBlock}` : ""}` : learnedBlock
       const codeSample = [];
       for (const f of files.slice(0, 400)) {
         try {
-          codeSample.push({ rel: relative(projectRoot, f.path).replaceAll("\\", "/"), content: readFileSync11(f.path, "utf8") });
+          codeSample.push({ rel: relative(projectRoot, f.path).replaceAll("\\", "/"), content: readFileSync12(f.path, "utf8") });
         } catch {}
       }
       const pairs = cochange.pairs.map((p) => {
@@ -5493,7 +5690,7 @@ ${learnedBlock}` : ""}` : learnedBlock
     codeFiles: relPaths.length,
     commits: derived.totalCommits,
     testFiles: allRel.filter((p) => /(\.test\.|\.spec\.|_test\.|(^|\/)(tests?|__tests__|spec)\/)/i.test(p)).length,
-    hasCi: [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].some((p) => existsSync7(join12(projectRoot, p))),
+    hasCi: [".github/workflows", ".gitlab-ci.yml", "Jenkinsfile"].some((p) => existsSync8(join13(projectRoot, p))),
     prevalences: styleFacts.map((f) => f.prevalence),
     fixCommits: derived.commitTypes.fix ?? 0,
     reverts: derived.reverts,
@@ -5567,7 +5764,7 @@ ${learnedBlock}` : ""}` : learnedBlock
   } catch {}
   captureHealth(engine.db, head, new Date().toISOString());
   try {
-    const framePath = join12(dataDir, "frame.md");
+    const framePath = join13(dataDir, "frame.md");
     const step = Math.max(1, Math.floor(entityInputs.length / 60));
     const sample = [];
     for (let i = 0;i < entityInputs.length; i += step)
@@ -5577,12 +5774,12 @@ ${learnedBlock}` : ""}` : learnedBlock
     const frame = buildFrame(frameText);
     if (frame)
       writeFileSync4(framePath, frame, "utf8");
-    else if (existsSync7(framePath))
+    else if (existsSync8(framePath))
       writeFileSync4(framePath, "", "utf8");
   } catch {}
-  const summaryPath = join12(dataDir, "SUMMARY.md");
+  const summaryPath = join13(dataDir, "SUMMARY.md");
   const summaryRebuilt = engine.executions("summary") > 0;
-  if (summaryRebuilt || !existsSync7(summaryPath))
+  if (summaryRebuilt || !existsSync8(summaryPath))
     writeFileSync4(summaryPath, summary, "utf8");
   const result = {
     factsExecuted: factsExecutedNow,
@@ -5678,12 +5875,12 @@ class SessionLog {
 
 // src/core/constitution.ts
 init_i18n();
-import { readFileSync as readFileSync12, writeFileSync as writeFileSync5 } from "node:fs";
-import { join as join13 } from "node:path";
+import { readFileSync as readFileSync13, writeFileSync as writeFileSync5 } from "node:fs";
+import { join as join14 } from "node:path";
 var FILE3 = "constitution.json";
 function readConstitution(dataDir) {
   try {
-    const j = JSON.parse(readFileSync12(join13(dataDir, FILE3), "utf8"));
+    const j = JSON.parse(readFileSync13(join14(dataDir, FILE3), "utf8"));
     if (!Array.isArray(j.pairs))
       return null;
     const pairs = j.pairs.filter((p) => typeof p?.goal === "string" && typeof p?.constraint === "string" && p.goal.trim().length > 0);
@@ -5701,7 +5898,7 @@ function upsertConstitution(dataDir, incoming, now = new Date().toISOString()) {
     byGoal.set(p.goal.trim().toLowerCase(), { goal: p.goal.trim(), constraint: p.constraint.trim() });
   }
   const next = { pairs: [...byGoal.values()], updated_at: now };
-  writeFileSync5(join13(dataDir, FILE3), JSON.stringify(next, null, 1), "utf8");
+  writeFileSync5(join14(dataDir, FILE3), JSON.stringify(next, null, 1), "utf8");
   return next;
 }
 function renderConstitution(c) {
@@ -5717,11 +5914,11 @@ function renderConstitution(c) {
 
 // src/hooks/heartbeat.ts
 import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync6 } from "node:fs";
-import { join as join14 } from "node:path";
+import { join as join15 } from "node:path";
 function beat(dataDir, channel, extra = {}) {
   try {
     mkdirSync2(dataDir, { recursive: true });
-    writeFileSync6(join14(dataDir, `heartbeat-${channel.toLowerCase()}.json`), JSON.stringify({ channel, at: new Date().toISOString(), ...extra }), "utf8");
+    writeFileSync6(join15(dataDir, `heartbeat-${channel.toLowerCase()}.json`), JSON.stringify({ channel, at: new Date().toISOString(), ...extra }), "utf8");
   } catch {}
 }
 
@@ -5785,18 +5982,22 @@ async function runWorks(works, ctx, options = {}) {
   const elapsed = () => Date.now() - started;
   const ordered = [...works].sort((a, b) => a.cost === b.cost ? 0 : a.cost === "cheap" ? -1 : 1);
   for (const w of ordered) {
-    let due;
+    let hasMaterial;
     try {
-      due = w.due(ctx) && (opts.ignoreCooldown === true || cooldownPassed(ctx.db, w, ctx.nowMs));
+      hasMaterial = w.due(ctx);
     } catch {
-      due = false;
+      hasMaterial = false;
     }
-    if (!due) {
-      report.skipped.push(w.id);
+    if (!hasMaterial) {
+      report.skipped.push({ id: w.id, reason: "idle" });
+      continue;
+    }
+    if (!ctx.full && !cooldownPassed(ctx.db, w, ctx.nowMs)) {
+      report.skipped.push({ id: w.id, reason: "cooldown" });
       continue;
     }
     if (w.cost === "llm" && elapsed() >= budgetMs) {
-      report.skipped.push(`${w.id} (бюджет)`);
+      report.skipped.push({ id: w.id, reason: "budget" });
       continue;
     }
     const t0 = Date.now();
@@ -5804,7 +6005,7 @@ async function runWorks(works, ctx, options = {}) {
       const note = await w.run(ctx);
       const ms = Date.now() - t0;
       if (note === null) {
-        report.skipped.push(`${w.id} (нечего)`);
+        report.skipped.push({ id: w.id, reason: "empty" });
         continue;
       }
       report.outcomes.push({ id: w.id, ok: true, note, ms });
@@ -5817,6 +6018,28 @@ async function runWorks(works, ctx, options = {}) {
     }
   }
   return report;
+}
+function renderSkipped(skipped, exhausted) {
+  const none = [];
+  const done = [];
+  const budget = [];
+  for (const s of skipped) {
+    if (s.reason === "budget")
+      budget.push(s.id);
+    else if (s.reason === "cooldown" || s.reason === "idle" && exhausted(s.id))
+      done.push(s.id);
+    else
+      none.push(s.id);
+  }
+  const out = [];
+  if (none.length > 0)
+    out.push(t(`  · без материала — это норма: ${none.join(", ")}`, `  · no material of their own — that is normal: ${none.join(", ")}`));
+  if (done.length > 0) {
+    out.push(t(`  · уже сделаны ранее и не повторялись (токены не потрачены), «/symbiont:init re» форсирует: ${done.join(", ")}`, `  · already done and not repeated (no tokens spent), “/symbiont:init re” forces them: ${done.join(", ")}`));
+  }
+  if (budget.length > 0)
+    out.push(t(`  · не уместились в бюджет прогона: ${budget.join(", ")}`, `  · did not fit into the run budget: ${budget.join(", ")}`));
+  return out;
 }
 var OPPORTUNITY_AGE_MS = 3600000;
 function hadOpportunity(db, sinceIso, nowMs) {
@@ -6007,7 +6230,7 @@ function renderUtility(rows) {
 
 // src/gardener/voiced.ts
 init_i18n();
-import { existsSync as existsSync8, readFileSync as readFileSync13 } from "node:fs";
+import { existsSync as existsSync9, readFileSync as readFileSync14 } from "node:fs";
 var VOICED_MIN_SESSIONS = 2;
 var OWNER_PROMPT_MAX = 2000;
 var SENTENCE_MIN = 12;
@@ -6035,11 +6258,11 @@ function ruleSentences(text) {
   return out;
 }
 function ownerMessages(transcriptPath) {
-  if (!transcriptPath || !existsSync8(transcriptPath))
+  if (!transcriptPath || !existsSync9(transcriptPath))
     return [];
   let lines;
   try {
-    lines = readFileSync13(transcriptPath, "utf8").split(`
+    lines = readFileSync14(transcriptPath, "utf8").split(`
 `);
   } catch {
     return [];
@@ -6129,8 +6352,8 @@ function renderVoiced(rules) {
 }
 
 // src/hooks/session-start-core.ts
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync15, appendFileSync } from "node:fs";
-import { join as join16 } from "node:path";
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync16, appendFileSync } from "node:fs";
+import { join as join17 } from "node:path";
 
 // src/hooks/git-state.ts
 init_i18n();
@@ -6305,8 +6528,8 @@ function reconstructEntry(db, thread, dirty, nowMs) {
 
 // src/hooks/diagnose.ts
 init_i18n();
-import { readFileSync as readFileSync14, readdirSync as readdirSync2 } from "node:fs";
-import { join as join15 } from "node:path";
+import { readFileSync as readFileSync15, readdirSync as readdirSync2 } from "node:fs";
+import { join as join16 } from "node:path";
 var EXPECTED = ["userpromptsubmit", "stop"];
 var SILENT_SESSIONS = 3;
 function silentChannels(beats, sessionStartsDesc) {
@@ -6328,7 +6551,7 @@ function readBeats(dataDir) {
   try {
     return readdirSync2(dataDir).filter((f) => f.startsWith("heartbeat-") && f.endsWith(".json")).map((f) => {
       try {
-        const j = JSON.parse(readFileSync14(join15(dataDir, f), "utf8"));
+        const j = JSON.parse(readFileSync15(join16(dataDir, f), "utf8"));
         return j.channel && j.at ? { channel: j.channel, at: j.at } : null;
       } catch {
         return null;
@@ -6392,7 +6615,7 @@ function detectCorrections(db, cwd, currentSid) {
     }
     let corrected = false;
     try {
-      const nowContent = snapshotContent(readFileSync15(join16(cwd, r.file), "utf8"));
+      const nowContent = snapshotContent(readFileSync16(join17(cwd, r.file), "utf8"));
       corrected = sha1(nowContent) !== r.hash;
     } catch {}
     if (!writePair(db, () => {
@@ -6506,7 +6729,7 @@ function composeContext(summary, tail, footer, summaryPath, value = () => 1) {
 }
 function handleSessionStart(input, dataRoot) {
   const cwd = input.cwd ?? process.cwd();
-  const dataDir = join16(dataRoot, slugOf(cwd));
+  const dataDir = join17(dataRoot, slugOf(cwd));
   mkdirSync3(dataDir, { recursive: true });
   initLang(dataDir, cwd);
   beat(dataDir, "SessionStart", { source: input.source ?? null });
@@ -6526,7 +6749,7 @@ function handleSessionStart(input, dataRoot) {
     let lineValue = () => 1;
     const g = gitState(cwd);
     try {
-      const db = openDb(join16(dataDir, "passport.db"));
+      const db = openDb(join17(dataDir, "passport.db"));
       const log = new SessionLog(db);
       const sid = input.session_id ?? `manual-${Date.now()}`;
       diagLine = renderDiagnosis(silentChannels(readBeats(dataDir), log.recentStarts(sid)));
@@ -6606,7 +6829,7 @@ ${voicedBlock}
 ` : ""}`;
     let summary = "";
     try {
-      summary = readFileSync15(r.summaryPath, "utf8");
+      summary = readFileSync16(r.summaryPath, "utf8");
     } catch {}
     if (!summary.includes("## "))
       summary = "";
@@ -6632,7 +6855,7 @@ ${entryBlock}
 ` : "";
     let frameSection = "";
     try {
-      const frame = readFileSync15(join16(dataDir, "frame.md"), "utf8").trim();
+      const frame = readFileSync16(join17(dataDir, "frame.md"), "utf8").trim();
       if (frame)
         frameSection = `
 ${frame}
@@ -6649,11 +6872,11 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
     };
   } catch (e) {
     try {
-      appendFileSync(join16(dataDir, "errors.log"), `${new Date().toISOString()} SessionStart: ${String(e)}
+      appendFileSync(join17(dataDir, "errors.log"), `${new Date().toISOString()} SessionStart: ${String(e)}
 `, "utf8");
     } catch {}
     return {};
   }
 }
 
-export { slugOf, lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, emitHookOutput, inspectRuntime, runtimeBlocker, silentSpawnOptions, claudeBin, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, isTestPath, init_signals, guardTests, renderTestGuard, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, fitToBudget, handleSessionStart };
+export { slugOf, lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, emitHookOutput, inspectRuntime, runtimeBlocker, silentSpawnOptions, claudeBin, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, isTestPath, init_signals, guardTests, renderTestGuard, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, markVisited, summaryFor, contentHashOf, contentHashes, pendingSummaries, runZSummaries, summaryStats, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, renderSkipped, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, fitToBudget, handleSessionStart };

@@ -3,8 +3,8 @@ import {
 } from "./session-start-7bev5jvd.js";
 import {
   callClaudeDetailed
-} from "./session-start-wenz4vw2.js";
-import"./session-start-rmm1zxj3.js";
+} from "./session-start-ty0gwf55.js";
+import"./session-start-dbapj88c.js";
 import {
   playbooksFor
 } from "./session-start-8ychq3hk.js";
@@ -13,7 +13,7 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-vzch827x.js";
+} from "./session-start-m33pss0e.js";
 import {
   FactStore,
   VOICED_MIN_SESSIONS,
@@ -31,7 +31,7 @@ import {
   upsertConstitution,
   voicedCandidates,
   walkFiles
-} from "./session-start-r66a8rwv.js";
+} from "./session-start-tcz0z3pm.js";
 import"./session-start-rvra3cez.js";
 
 // src/cli/charter.ts

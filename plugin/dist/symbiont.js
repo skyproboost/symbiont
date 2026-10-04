@@ -2,32 +2,30 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./session-start-rmm1zxj3.js";
+} from "./session-start-dbapj88c.js";
 import {
   citedStats,
   feedCostStats,
   renderFeedCost
-} from "./session-start-x7wb6kg2.js";
+} from "./session-start-asf0zj1a.js";
 import {
   readGateMode
 } from "./session-start-yvd28w11.js";
 import {
-  contentHashOf,
-  countLessons,
-  summaryFor,
-  summaryStats
-} from "./session-start-6xe97a3m.js";
+  countLessons
+} from "./session-start-vgezmhw1.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-vzch827x.js";
+} from "./session-start-m33pss0e.js";
 import {
   FactStore,
   REPORTED_WORKS,
   auditTruth,
   computeDrift,
   computeHealth,
+  contentHashOf,
   effectiveHeat,
   hotspotsFromGit,
   initLang,
@@ -46,10 +44,12 @@ import {
   silentSpawnOptions,
   slugOf,
   statement,
+  summaryFor,
+  summaryStats,
   t,
   tier,
   zoneOfArea
-} from "./session-start-r66a8rwv.js";
+} from "./session-start-tcz0z3pm.js";
 import {
   __require
 } from "./session-start-rvra3cez.js";

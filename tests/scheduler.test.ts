@@ -5,13 +5,14 @@
  */
 import { describe, expect, it } from 'bun:test'
 import { openDb, type Database } from '../src/core/db'
-import { runWorks, cooldownPassed, recordRun, lastRun, renderBackground, renderGardenerSilence, MAX_FAST_RETRIES, type Work, type WorkContext } from '../src/gardener/scheduler'
+import { runWorks, cooldownPassed, recordRun, lastRun, renderBackground, renderGardenerSilence, renderSkipped, MAX_FAST_RETRIES, type Work, type WorkContext } from '../src/gardener/scheduler'
 
-const ctxOf = (db: Database, nowMs = Date.parse('2026-07-30T12:00:00.000Z')): WorkContext => ({
+const ctxOf = (db: Database, nowMs = Date.parse('2026-07-30T12:00:00.000Z'), full = false): WorkContext => ({
   db,
   projectRoot: 'D:/proj',
   dataDir: 'D:/data',
   nowMs,
+  full,
 })
 
 const work = (id: string, over: Partial<Work> = {}): Work => ({
@@ -45,7 +46,7 @@ describe('порядок и триггеры', () => {
     let ran = false
     const r = await runWorks([work('idle', { due: () => false, run: () => { ran = true; return 'x' } })], ctxOf(db))
     expect(ran).toBe(false)
-    expect(r.skipped).toContain('idle')
+    expect(r.skipped).toEqual([{ id: 'idle', reason: 'idle' }])
     expect(r.outcomes).toEqual([])
     db.close()
   })
@@ -54,9 +55,99 @@ describe('порядок и триггеры', () => {
     const db = openDb(':memory:')
     const r = await runWorks([work('quiet', { run: () => null })], ctxOf(db))
     expect(r.outcomes).toEqual([])
-    expect(r.skipped).toContain('quiet (нечего)')
+    expect(r.skipped).toEqual([{ id: 'quiet', reason: 'empty' }])
     expect(lastRun(db, 'quiet')).toBeNull()
     db.close()
+  })
+
+  it('кулдаун и отсутствие сырья — разные причины пропуска', async () => {
+    const db = openDb(':memory:')
+    recordRun(db, 'recent', true, 'ok', '2026-07-30T11:00:00.000Z')
+    const r = await runWorks([work('recent', { cooldownH: 24 }), work('idle', { due: () => false })], ctxOf(db))
+    expect(r.skipped).toContainEqual({ id: 'recent', reason: 'cooldown' })
+    expect(r.skipped).toContainEqual({ id: 'idle', reason: 'idle' })
+    db.close()
+  })
+})
+
+describe('полный пересчёт (init re)', () => {
+  it('снимает кулдаун: недавно отработавшая работа бежит снова', async () => {
+    const db = openDb(':memory:')
+    recordRun(db, 'recent', true, 'ok', '2026-07-30T11:00:00.000Z')
+    let ran = false
+    const w = work('recent', { cooldownH: 24, run: () => { ran = true; return 'заново' } })
+    const r = await runWorks([w], ctxOf(db, undefined, true))
+    expect(ran).toBe(true)
+    expect(r.outcomes.map((o) => o.id)).toEqual(['recent'])
+    expect(r.skipped).toEqual([])
+    db.close()
+  })
+
+  it('не снимает требование сырья: работа без материала не зовётся и при пересчёте', async () => {
+    const db = openDb(':memory:')
+    let ran = false
+    const r = await runWorks([work('idle', { due: () => false, run: () => { ran = true; return 'x' } })], ctxOf(db, undefined, true))
+    expect(ran).toBe(false)
+    expect(r.skipped).toEqual([{ id: 'idle', reason: 'idle' }])
+    db.close()
+  })
+
+  it('флаг доходит до due: работа может отличить «уже сделано» от «сырья нет»', async () => {
+    const db = openDb(':memory:')
+    const seen: boolean[] = []
+    const w = work('exhausted', { due: (ctx) => { seen.push(ctx.full); return ctx.full } })
+    expect((await runWorks([w], ctxOf(db))).skipped).toEqual([{ id: 'exhausted', reason: 'idle' }])
+    expect((await runWorks([w], ctxOf(db, undefined, true))).outcomes.map((o) => o.id)).toEqual(['exhausted'])
+    expect(seen).toEqual([false, true])
+    db.close()
+  })
+})
+
+describe('renderSkipped — отчёт init о том, что не бежало', () => {
+  const never = (): boolean => false
+
+  it('каждая пропущенная работа названа по имени, ни одна не теряется', () => {
+    const lines = renderSkipped(
+      [
+        { id: 'repair', reason: 'idle' },
+        { id: 'truth', reason: 'empty' },
+        { id: 'drift', reason: 'cooldown' },
+        { id: 'grounding', reason: 'budget' },
+      ],
+      never,
+    )
+    const text = lines.join('\n')
+    for (const id of ['repair', 'truth', 'drift', 'grounding']) expect(text).toContain(id)
+    expect(lines.length).toBe(3)
+  })
+
+  it('работа без сырья не выдаётся за «уже сделанную»', () => {
+    const lines = renderSkipped([{ id: 'contract', reason: 'idle' }], never)
+    expect(lines).toEqual([expect.stringContaining('без материала')])
+    expect(lines[0]).not.toContain('уже сделаны')
+    expect(lines[0]).toContain('contract')
+  })
+
+  it('кулдаун и исчерпанное прошлым проходом сырьё — «уже сделано, re форсирует»', () => {
+    const lines = renderSkipped(
+      [
+        { id: 'drift', reason: 'cooldown' },
+        { id: 'verbalize', reason: 'idle' },
+      ],
+      (id) => id === 'verbalize',
+    )
+    expect(lines.length).toBe(1)
+    expect(lines[0]).toContain('уже сделаны ранее')
+    expect(lines[0]).toContain('/symbiont:init re')
+    expect(lines[0]).toContain('drift, verbalize')
+  })
+
+  it('не уместившееся в бюджет названо отдельно', () => {
+    expect(renderSkipped([{ id: 'grounding', reason: 'budget' }], never)).toEqual([expect.stringContaining('бюджет')])
+  })
+
+  it('пропусков нет — строк нет', () => {
+    expect(renderSkipped([], never)).toEqual([])
   })
 })
 
@@ -182,7 +273,7 @@ describe('живучесть', () => {
     const db = openDb(':memory:')
     const r = await runWorks([work('bad-due', { due: () => { throw new Error('нет таблицы') } })], ctxOf(db))
     expect(r.outcomes).toEqual([])
-    expect(r.skipped).toContain('bad-due')
+    expect(r.skipped).toEqual([{ id: 'bad-due', reason: 'idle' }])
     db.close()
   })
 
@@ -202,8 +293,9 @@ describe('бюджет', () => {
       work('cheap', { run: () => { done.push('cheap'); return 'ok' } }),
       work('expensive', { cost: 'llm', run: () => { done.push('expensive'); return 'ok' } }),
     ]
-    await runWorks(works, ctxOf(db), 0) // нулевой бюджет на дорогое
+    const r = await runWorks(works, ctxOf(db), 0) // нулевой бюджет на дорогое
     expect(done).toEqual(['cheap'])
+    expect(r.skipped).toEqual([{ id: 'expensive', reason: 'budget' }])
     db.close()
   })
 })

@@ -19,7 +19,7 @@ import { openDb } from '../core/db'
 import { resolveDataRoot, migrateLegacyPassports, stripDataFlag } from '../core/data-root'
 import { slugOf } from '../hooks/session-start-core'
 import { buildPassport } from '../passport/build'
-import { runWorks } from '../gardener/scheduler'
+import { runWorks, renderSkipped } from '../gardener/scheduler'
 import { WORKS } from '../gardener/works'
 import { markVisited } from '../graph/zsummary'
 import { initLang, t } from '../core/i18n'
@@ -108,15 +108,23 @@ try {
       '  … deep pass: parsing the code by syntax, unwritten rules, how settings govern the code, file roles, a health snapshot\n',
     ),
   )
-  const report = await runWorks(WORKS, { db, projectRoot: root, dataDir, nowMs: Date.now() }, { budgetMs: 900_000, ignoreCooldown: full })
+  const ctx = { db, projectRoot: root, dataDir, nowMs: Date.now(), full }
+  const report = await runWorks(WORKS, ctx, { budgetMs: 900_000 })
 
   for (const o of report.outcomes) console.log(`  ${o.ok ? '✓' : '✗'} ${o.id.padEnd(12)} ${String(o.ms + t('мс', 'ms')).padEnd(9)} ${o.note}`)
-  const quiet = report.skipped.filter((s) => s.includes('нечего')).length
-  if (quiet > 0) console.log(t(`  · ${quiet} работ не нашли для себя материала — это норма`, `  · ${quiet} jobs found no material of their own — that is normal`))
-  const already = report.skipped.filter((s) => !s.includes('нечего') && !s.includes('бюджет')).length
-  if (!full && already > 0) {
-    console.log(t(`  · ${already} работ уже сделаны ранее и не повторялись (токены не потрачены) — «/symbiont:init re» форсирует`, `  · ${already} jobs were already done and were not repeated (no tokens spent) — “/symbiont:init re” forces them`))
+  // «Сырья нет» от «сырьё исчерпано прошлым проходом» отличает только проба due
+  // с full — здесь, где строку читает человек; фону различие не нужно, а проба
+  // стоит второго обхода проекта у работ, которые смотрят на диск
+  const exhausted = (id: string): boolean => {
+    if (full) return false
+    const w = WORKS.find((x) => x.id === id)
+    try {
+      return w !== undefined && w.due({ ...ctx, full: true })
+    } catch {
+      return false // проба не смогла оценить сырьё — честнее назвать его отсутствующим
+    }
   }
+  for (const line of renderSkipped(report.skipped, exhausted)) console.log(line)
 
   console.log(
     t(

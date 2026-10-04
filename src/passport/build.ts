@@ -24,6 +24,7 @@ import { parseCommitLog, deriveSignals, deriveConstitutionFacts } from './consti
 import { computeZoneProfiles, storeZoneProfiles } from './cascade'
 import { healProjections } from '../gardener/truth'
 import { migrateRenames } from '../gardener/rename'
+import { adoptUnknownHashes } from '../graph/zsummary'
 import { collectConfigLinks, storeConfigEdges, configPathsOf } from '../env/links'
 import { readConfigEntries } from '../env/config-graph'
 import { artifactProfile, renderArtifacts, renderQualityStance } from './artifacts'
@@ -253,6 +254,9 @@ export function buildPassport(projectRoot: string, dataDir: string): BuildResult
   // Переименование: оплаченное знание узла (роль/тепло/визиты) следует за
   // файлом по точному хэш-матчу, а не сиротеет (см. gardener/rename.ts)
   migrateRenames(engine.db, currentHashes)
+  // Резюме, записанные без хэша (Windows до v0.136.2), получают хэш текущего
+  // содержимого — иначе не протухли бы никогда (см. graph/zsummary.ts)
+  adoptUnknownHashes(engine.db, currentHashes)
 
   engine.register('facts', (ctx) => {
     ctx.input('fileset')

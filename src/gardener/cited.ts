@@ -1,3 +1,4 @@
+import { transcriptLines } from '../core/transcript'
 /**
  * Самоотчёт модели о поданном: названо ли поданное в её собственном ответе.
  *
@@ -31,7 +32,7 @@ export function assistantText(transcriptPath: string | null): string {
   if (!transcriptPath || !existsSync(transcriptPath)) return ''
   let lines: string[]
   try {
-    lines = readFileSync(transcriptPath, 'utf8').split('\n')
+    lines = transcriptLines(readFileSync(transcriptPath, 'utf8'))
   } catch {
     return '' // транскрипт занят — самоотчёт подождёт следующего хода
   }

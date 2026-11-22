@@ -1,0 +1,24 @@
+{
+  "name": "symbiont",
+  "version": "0.137.0+codex.compat1",
+  "description": "A living passport of your project: conventions, precedents and a quality profile — derived from the code itself and delivered to every session.",
+  "author": {
+    "name": "skyproboost"
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Symbiont",
+    "shortDescription": "Project passport, conventions and code graph",
+    "longDescription": "A living passport of your project: conventions, precedents and a quality profile — derived from the code itself and delivered to every session.",
+    "developerName": "skyproboost",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Show what Symbiont knows about this project."
+    ]
+  }
+}

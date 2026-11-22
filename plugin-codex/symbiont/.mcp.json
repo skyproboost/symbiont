@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "passport": {
+      "command": "node",
+      "args": [
+        "D:\\OSPanel\\domains\\symbiont\\plugin-codex\\symbiont\\dist\\launch.js",
+        "server",
+        "--data",
+        "C:\\Users\\skypr\\.codex\\plugins\\data\\symbiont-personal"
+      ],
+      "env": {
+        "SYMBIONT_HOST": "codex"
+      }
+    }
+  }
+}

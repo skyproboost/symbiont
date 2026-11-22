@@ -1,5 +1,5 @@
 import { rmrf } from './_helpers'
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,6 +17,17 @@ import {
   type ModelAvail,
 } from '../src/core/models'
 import { resolveModels, explainNoAnswer, callClaudeDetailed } from '../src/layer2/llm'
+
+// Эти случаи проверяют семейства Claude; родительский Codex не меняет контракт фикстуры.
+let previousHost: string | undefined
+beforeEach(() => {
+  previousHost = process.env.SYMBIONT_HOST
+  process.env.SYMBIONT_HOST = 'claude'
+})
+afterEach(() => {
+  if (previousHost === undefined) delete process.env.SYMBIONT_HOST
+  else process.env.SYMBIONT_HOST = previousHost
+})
 
 const NOW = Date.parse('2026-07-30T12:00:00Z')
 const iso = (msFromNow: number): string => new Date(NOW + msFromNow).toISOString()

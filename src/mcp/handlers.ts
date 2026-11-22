@@ -27,12 +27,24 @@ export interface ToolDef {
   name: string
   description: string
   inputSchema: { type: 'object'; properties: Record<string, unknown>; required?: string[] }
+  /** MCP tool annotations: хост решает по ним, можно ли вызывать без вопроса владельцу. */
+  annotations: { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean; openWorldHint: boolean }
 }
+
+/**
+ * Инструменты паспорта только читают: база открывается `openDb(…, { readonly: true })`, исходник — чтением файла.
+ * Объявлять это обязательно: хост без пометки считает вызов потенциально пишущим и спрашивает разрешения, а там, где
+ * спросить некого (Codex в фоне — duet, approval_policy=never), вызов просто отклоняется: «MCP tool call requires
+ * approval, but approval policy is never» (замер 08.10 на пробном сервере: с readOnlyHint — проходит, без — нет).
+ * Пометка ставится у КАЖДОГО инструмента явно: будущий пишущий инструмент не должен унаследовать её молча.
+ */
+const READ_ONLY_TOOL = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const
 
 /** Определения инструментов на языке подачи. Имена — идентификаторы, не переводятся. */
 export function toolDefs(): ToolDef[] {
   return [
     {
+      annotations: READ_ONLY_TOOL,
       name: 'passport_conventions',
       description: t(
         `Конвенции проекта из паспорта Symbiont: выведенные из кода правила с распространённостью и ярусом уверенности (закон/привычка/гипотеза). Опционально фильтр по области (${areaList()}).`,
@@ -44,6 +56,7 @@ export function toolDefs(): ToolDef[] {
       },
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: 'passport_history',
       description: t(
         'История правила в журнале паспорта: как менялся вердикт со временем (вытеснения, даты, числа). Ключ берётся из passport_conventions ДОСЛОВНО — он остаётся в той форме, в какой лежит в журнале, и не переводится.',
@@ -56,6 +69,7 @@ export function toolDefs(): ToolDef[] {
       },
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: 'passport_map',
       description: t(
         'Карта проекта из паспорта Symbiont: ключевые модули по связности импортов (PageRank, вход/исход) — быстрый обзор структуры без чтения файлов.',
@@ -67,6 +81,7 @@ export function toolDefs(): ToolDef[] {
       },
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: 'passport_impact',
       description: t(
         'Радиус влияния файла: кто зависит от него по импортам (транзитивно, по уровням глубины) — «что может сломаться, если менять X». Принимает имя файла или его хвост пути.',
@@ -79,6 +94,7 @@ export function toolDefs(): ToolDef[] {
       },
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: 'passport_orphans',
       description: t(
         'Здоровье перелинковки контента (статьи/хабы/YAML-сущности): сироты без входящих ссылок, битые внутренние ссылки, одинаковые анкоры на разные цели. Детерминированно из доменного графа сущностей.',
@@ -90,6 +106,7 @@ export function toolDefs(): ToolDef[] {
       },
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: 'passport_reach',
       description: t(
         'Достижимость контента из хабов: глубина каждой сущности (клики от хаба), недостижимые, распределение обратных ссылок. С аргументом file — срез одной сущности (глубина, кто ссылается, куда ссылается).',
@@ -101,6 +118,7 @@ export function toolDefs(): ToolDef[] {
       },
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: 'passport_related',
       description: t(
         'Прецеденты правок из git-истории: какие файлы исторически меняются ВМЕСТЕ с указанным (co-change) — «правишь X — обычно правят и Y» (миграции к схеме, тесты к коду и т.п.).',
@@ -113,6 +131,7 @@ export function toolDefs(): ToolDef[] {
       },
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: 'passport_outline',
       description: t(
         'Оглавление файла из паспорта: какие функции, классы и методы в нём объявлены, на каких строках и во сколько токенов обойдётся выемка каждого — БЕЗ чтения файла (сотни токенов вместо десятков тысяч). Готовый ответ индекса, разбор в этот момент не запускается.',
@@ -125,6 +144,7 @@ export function toolDefs(): ToolDef[] {
       },
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: 'passport_unfold',
       description: t(
         'Один символ файла целиком — по границам из оглавления, со строками для правки. Дешёвая замена чтению всего файла, когда имя нужного символа известно (его даёт passport_outline). Отказывается работать, если файл изменился после снятия оглавления, — вместо того чтобы выдать чужие строки.',

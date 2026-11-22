@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { ENTRY_SOURCES, collectBundleInputs, bundleInputsHash, rewriteEntryPaths, retargetManifestRuntime, retargetSkillRuntime } from '../src/bundle/core'
 import { grammarNames } from '../src/layer1/ast'
+import { addCodexPackage } from './codex-package'
 
 const ROOT = join(import.meta.dirname, '..')
 const OUT = join(ROOT, 'plugin')
@@ -85,6 +86,8 @@ for (const name of readdirSync(skillsRoot)) {
     else cpSync(src, join(OUT, 'skills', name, f))
   }
 }
+
+addCodexPackage(ROOT, OUT)
 
 // 4) Смоук собранной формы: слой 1 должен парсить из dist (wasm-резолв, инлайн
 // web-tree-sitter). Прогон обоими рантаймами — артефакт заявлен рантайм-

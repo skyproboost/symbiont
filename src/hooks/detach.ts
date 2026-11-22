@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { slugOf } from './session-start-core'
 import { silentSpawnOptions } from '../core/runtime'
+import { handOffMaintenance } from '../core/codex-maintenance'
 
 /** Путь точки входа auto-learn: бандл-сосед → исходник (dev). */
 function autoLearnEntry(): string {
@@ -22,8 +23,8 @@ function autoLearnEntry(): string {
 
 /** Запуск обслуживания, если паспорт проекта уже существует; хук не ждёт. */
 export function spawnAutoLearnDetached(cwd: string, dataRoot: string): void {
-  const dbPath = join(dataRoot, slugOf(cwd), 'passport.db')
-  if (!existsSync(dbPath)) return
+  const dataDir = join(dataRoot, slugOf(cwd))
+  if (!existsSync(join(dataDir, 'passport.db')) || handOffMaintenance(cwd, dataDir)) return
   // Рантайм наследуется от текущего процесса (process.execPath), а не берётся
   // именем: хук может исполняться и под bun, и под node — жёсткое 'bun' убивало
   // бы фон на машине без него. Аргумент один (путь входа): и bun, и node

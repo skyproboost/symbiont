@@ -1,3 +1,4 @@
+import { transcriptLines } from '../core/transcript'
 /**
  * Гейт доказательств: «готово» без запущенной проверки — не готово.
  *
@@ -76,7 +77,7 @@ export function evidenceFromTranscript(transcriptPath: string | null, own: Set<s
   if (!transcriptPath || !existsSync(transcriptPath)) return none
   let lines: string[]
   try {
-    lines = readFileSync(transcriptPath, 'utf8').split('\n')
+    lines = transcriptLines(readFileSync(transcriptPath, 'utf8'))
   } catch {
     return none // транскрипт занят другим процессом — не судим
   }
@@ -262,7 +263,7 @@ export function runHistory(transcriptPath: string | null, toRel: (abs: string) =
   if (!transcriptPath || !existsSync(transcriptPath)) return none
   let lines: string[]
   try {
-    lines = readFileSync(transcriptPath, 'utf8').split('\n')
+    lines = transcriptLines(readFileSync(transcriptPath, 'utf8'))
   } catch {
     return none // транскрипт занят другим процессом — не судим
   }
@@ -373,7 +374,7 @@ export function searchChurn(transcriptPath: string | null, toRel: (abs: string) 
   if (!transcriptPath || !existsSync(transcriptPath)) return none
   let lines: string[]
   try {
-    lines = readFileSync(transcriptPath, 'utf8').split('\n')
+    lines = transcriptLines(readFileSync(transcriptPath, 'utf8'))
   } catch {
     return none
   }

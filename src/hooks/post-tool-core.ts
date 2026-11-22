@@ -30,6 +30,7 @@ import { fileDomains } from '../passport/stack'
 import { zoneAncestors } from '../passport/cascade'
 import { zoneOf } from '../gardener/lessons'
 import { findPhantoms, renderPhantom } from '../verifiers/phantom'
+import { patchPaths } from '../core/patch-paths'
 
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 /**
@@ -46,7 +47,7 @@ export interface PostToolInput {
   cwd?: string
   session_id?: string
   tool_name?: string
-  tool_input?: { file_path?: string; notebook_path?: string }
+  tool_input?: { file_path?: string; notebook_path?: string; command?: string; patch?: string }
 }
 
 export interface PostToolOutput {
@@ -97,6 +98,12 @@ export function recordEdit(db: Database, sid: string, rel: string): void {
 
 export function handlePostTool(input: PostToolInput, dataRoot: string): PostToolOutput {
   try {
+    if (input.tool_name === 'apply_patch') {
+      const contexts = patchPaths(input.tool_input?.command ?? input.tool_input?.patch, input.cwd ?? process.cwd())
+        .map(file_path => handlePostTool({ ...input, tool_name: 'Edit', tool_input: { file_path } }, dataRoot).hookSpecificOutput?.additionalContext)
+        .filter((text): text is string => Boolean(text))
+      return contexts.length ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: contexts.join('\n') } } : {}
+    }
     const tool = input.tool_name ?? ''
     if (!TOUCH_TOOLS.has(tool)) return {}
     const filePath = input.tool_input?.file_path ?? input.tool_input?.notebook_path

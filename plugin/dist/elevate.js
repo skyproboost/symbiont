@@ -1,22 +1,22 @@
 import {
   DESIGN_PRINCIPLES,
   axesForArtifacts
-} from "./session-start-7bev5jvd.js";
+} from "./codex-call-7bev5jvd.js";
 import {
   callClaudeDetailed,
   callClaudeWithTools
-} from "./session-start-ty0gwf55.js";
-import"./session-start-dbapj88c.js";
+} from "./codex-call-wtfdym5n.js";
+import"./codex-call-z0d8w6w7.js";
 import {
   playbooksFor
-} from "./session-start-8ychq3hk.js";
-import"./session-start-5s7r4262.js";
+} from "./codex-call-8ychq3hk.js";
+import"./codex-call-5s7r4262.js";
 import {
   migrateLegacyPassports,
   renderRootNotice,
   resolveDataRoot,
   stripDataFlag
-} from "./session-start-m33pss0e.js";
+} from "./codex-call-f5867843.js";
 import {
   SUMMARY_BUDGET,
   activeAxes,
@@ -37,10 +37,11 @@ import {
   slugOf,
   t,
   walkFiles
-} from "./session-start-tcz0z3pm.js";
+} from "./codex-call-21dvb3ma.js";
+import"./codex-call-b1s33asb.js";
 import {
   __require
-} from "./session-start-rvra3cez.js";
+} from "./codex-call-rvra3cez.js";
 
 // src/cli/elevate.ts
 import { join as join3 } from "node:path";

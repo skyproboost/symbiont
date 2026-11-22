@@ -21,6 +21,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { t } from './i18n'
 import { join } from 'node:path'
+import { agentHost, codexModels } from './host'
 
 export type Intent = 'deep' | 'routine'
 
@@ -180,7 +181,7 @@ const freshStatus = (a: ModelAvail | undefined, now: number): AvailStatus => {
  * `nowMs` — для тестируемости (в проде из Date.now в llm.ts, где это допустимо).
  */
 export function resolveVector(intent: Intent, avail: Record<string, ModelAvail>, nowMs: number): string[] {
-  const base = FAMILY_PRIORITY[intent]
+  const base = agentHost() === 'codex' ? codexModels() : FAMILY_PRIORITY[intent]
   // Хвост упорядочен по надежде: исчерпанный лимит вернётся сам, «доступа нет»
   // не вернётся до смены подписки — значит limited пробуем раньше dead.
   const penalty = (alias: string): number => {
@@ -274,7 +275,7 @@ export function renderAvailability(avail: Record<string, ModelAvail>, nowMs: num
   if (known.length > 0) {
     // Семейства, до которых очередь не дошла, — не «недоступны»: вектор
     // останавливается на первой ответившей модели, и это экономия, а не сбой
-    const untried = ['fable', 'opus', 'sonnet', 'haiku'].filter((a) => !(a in avail))
+    const untried = (agentHost() === 'codex' ? codexModels() : FAMILY_PRIORITY.deep).filter((a) => !(a in avail))
     if (untried.length > 0) lines.push(`  ${untried.join(', ')}: ${t('очередь до них не дошла (вектор останавливается на первой ответившей)', 'the queue never reached them (the vector stops at the first model that answers)')}`)
     for (const a of known.sort((x, y) => x.alias.localeCompare(y.alias))) {
       const s = freshStatus(a, nowMs)

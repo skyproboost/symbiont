@@ -22,6 +22,8 @@ import { createHash } from 'node:crypto'
  * auto-learn.js соседом, ast.ts ищет ../wasm от каталога файла).
  */
 export const ENTRY_SOURCES: string[] = [
+  'src/core/codex-call.ts',
+  'src/core/launch.ts',
   'src/hooks/session-start.ts',
   'src/hooks/user-prompt.ts',
   'src/hooks/pre-tool.ts',
@@ -122,6 +124,7 @@ export function collectBundleInputs(root: string): BundleInput[] {
   addFile('hooks/hooks.json')
   addFile('.mcp.json')
   addFile('.claude-plugin/plugin.json')
+  addFile('scripts/codex-package.ts')
   addFile('scripts/bundle.ts')
   out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   return out

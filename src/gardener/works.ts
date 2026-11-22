@@ -18,7 +18,7 @@ import { auditTruth, healProjections } from './truth'
 import { renderDriftReport, computeHealth, computeDrift, hotspotsFromGit } from './drift'
 import { findClones, findNearClones } from './clones'
 import { walkFiles, codeFiles, CODE_EXT } from '../miner/walk'
-import { findUnknownMaterial, buildUnknownPrompt } from '../miner/unknown'
+import { findUnknownMaterial, buildUnknownPrompt, MATERIAL_SOURCE } from '../miner/unknown'
 import { buildComposition, buildCompositionPrompt } from '../miner/composition'
 import { mergeLearnedMaterials } from '../core/learned'
 import { OFFICE, TEXT, CSVX } from '../miner/noncode'
@@ -340,7 +340,7 @@ const unknownMaterialWork: Work = {
     const rules = parseVerbalized(res.text, 2)
     if (rules.length === 0) return null
     const facts = rules.map((r) => ruleToFact(r, samples.length))
-    const journal = new FactStore(ctx.db).assertAll(facts, `llm:material:${kind}`)
+    const journal = new FactStore(ctx.db).assertAll(facts, `${MATERIAL_SOURCE}${kind}`)
     return journal.born > 0 ? t(`материал ${kind}: выведено правил +${journal.born}`, `material ${kind}: rules derived +${journal.born}`) : null
   },
 }

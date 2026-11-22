@@ -9,6 +9,7 @@ import { handleMessage } from './handlers'
 import { resolveDataRoot } from '../core/data-root'
 import { slugOf } from '../hooks/session-start-core'
 import { initLang } from '../core/i18n'
+import { serveMaintenance } from '../core/codex-maintenance'
 
 const dataDir = join(resolveDataRoot(join(import.meta.dirname, '..', '..', '.data')).root, slugOf(process.cwd()))
 // До первой строки ответа: описания инструментов и весь текст паспорта уходят
@@ -17,6 +18,7 @@ const dataDir = join(resolveDataRoot(join(import.meta.dirname, '..', '..', '.dat
 initLang(dataDir, process.cwd())
 
 const rl = createInterface({ input: process.stdin })
+rl.once('close', serveMaintenance(process.cwd(), dataDir))
 rl.on('line', (line) => {
   const trimmed = line.trim()
   if (!trimmed) return

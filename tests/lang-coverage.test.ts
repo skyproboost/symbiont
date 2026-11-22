@@ -30,7 +30,7 @@ function entryText(src: string): string {
 }
 
 /** Точка входа рисует текст владельцу? Фоновый исполнитель и смоук — нет. */
-const RENDERS_TEXT = (src: string): boolean => !src.endsWith('smoke.ts')
+const RENDERS_TEXT = (src: string): boolean => !src.endsWith('smoke.ts') && !['src/core/launch.ts', 'src/core/codex-call.ts'].includes(src)
 
 describe('язык подачи — один на все точки входа', () => {
   it('каждая точка входа определяет язык до первой строки', () => {

@@ -30,11 +30,11 @@ import { readConfigEntries } from '../env/config-graph'
 import { artifactProfile, renderArtifacts, renderQualityStance } from './artifacts'
 import { detectStack, renderStack } from './stack'
 import { assessMaturity, maturityFact, renderMaturity } from './maturity'
-import { findUnknownMaterial, unknownFact } from '../miner/unknown'
+import { findUnknownMaterial, unknownFact, MATERIAL_SOURCE, materialKindOf } from '../miner/unknown'
 import { hintsForMaterials, renderLearnedBlock } from '../core/learned'
 import { OFFICE, TEXT, CSVX } from '../miner/noncode'
 import { captureHealth } from '../gardener/drift'
-import { buildFrame } from '../domains/frame'
+import { buildFrame, frameCorpus } from '../domains/frame'
 import { observeComments, initLang, lang, t, statement } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
 
@@ -478,6 +478,16 @@ ${learnedBlock}` : ''}` : learnedBlock,
   let journal = { born: 0, updated: 0, superseded: 0 }
   if (factsExecutedNow) {
     journal = store.assertAll(facts, 'miner:layer0')
+    // Замер владеет своими фактами целиком: чего в нём больше нет, то отзывается
+    // (история цела, из подачи и гейта уходит). Без этого закон удалённой зоны и
+    // правило языка, файлов которого не осталось, подавались с прежней
+    // уверенностью бессрочно: внесение обновляло только найденные ключи, а
+    // touchAll освежал seen_at остальным. Найдено на живом проекте — после
+    // удаления scripts/ и genesis/ сводка ещё неделю несла «только в scripts/»,
+    // хотя /sym-health называл эти же законы кандидатами на вытеснение.
+    // Отвергнуто «не отзывать при пустом замере»: проект без единого файла кода
+    // действительно не имеет стиля, а возврат файлов родит факты заново из чисел.
+    journal.superseded += store.retractMissingBySource('miner:layer0', new Set(facts.map((f) => keyOf(f))))
   } else {
     store.touchAll()
   }
@@ -545,6 +555,17 @@ ${learnedBlock}` : ''}` : learnedBlock,
     const uf = unknownFact(unknown)
     if (uf) store.assertAll([uf], 'miner:unknown-material')
     else store.retractMissingBySource('miner:unknown-material', new Set())
+    // Правило о виде материала требует присутствия материала — тот же довод, что
+    // у языковых осей («конвенция языка требует присутствия языка»). Правила
+    // вывела модель по образцам, и перепроверка их не отзовёт: образцов больше
+    // нет, спросить не у чего. Живой случай: 25 активных правил о .sh («шебанг»,
+    // «паузы через sleep») в проекте, где не осталось ни одного .sh, — четверть
+    // всей сводки. Порог — ноль файлов, а не порог вывода (MIN_FILES): убыль
+    // материала не опровергает правило, его опровергает только отсутствие.
+    const presentKinds = new Set(walked.map((f) => materialKindOf(f.ext)))
+    for (const source of store.activeSources(MATERIAL_SOURCE)) {
+      if (!presentKinds.has(source.slice(MATERIAL_SOURCE.length))) store.retractMissingBySource(source, new Set())
+    }
   } catch {
     /* граница знания — обогащение, паспорт без неё полон */
   }
@@ -635,15 +656,25 @@ ${learnedBlock}` : ''}` : learnedBlock,
   // yaml-статьях). Переиспользуем уже прочитанный entityInputs (ноль лишних чтений).
   try {
     const framePath = join(dataDir, 'frame.md')
-    // Страйд-сэмпл по ВСЕМУ корпусу (не первые N): дисклеймеры разбросаны по
-    // статьям; равномерная выборка ~60 файлов ловит повторяющиеся заявления.
-    const step = Math.max(1, Math.floor(entityInputs.length / 60))
-    const sample: string[] = []
-    for (let i = 0; i < entityInputs.length; i += step) sample.push(entityInputs[i].content)
-    const frameText = [readConceptText(projectRoot, allRel), ...sample].join('\n').slice(0, 150_000)
-    const frame = buildFrame(frameText)
-    if (frame) writeFileSync(framePath, frame, 'utf8')
-    else if (existsSync(framePath)) writeFileSync(framePath, '', 'utf8') // перестал быть сенситивным → гасим
+    // Выборка по ВСЕМУ корпусу и деление бюджета по файлам — в frameCorpus
+    // (там же замер, почему обрезка склейки оставляла от выборки первые файлы).
+    const frameText = frameCorpus(readConceptText(projectRoot, allRel), entityInputs.map((e) => e.content))
+    // Разбор текста — десятки миллисекунд на большом корпусе (замер: 1,4 млн
+    // символов — 59 мс), а сборка бежит на каждом старте сессии. Хэш текста
+    // стоит единицы миллисекунд, поэтому разбор идёт только при его смене —
+    // тем же red-green, что у графа сущностей выше.
+    engine.setInput('frame-text', sha1(frameText))
+    engine.register('frame', (ctx) => {
+      ctx.input('frame-text')
+      return buildFrame(frameText)
+    })
+    const frame = engine.get<string>('frame')
+    const fresh = engine.executions('frame') > 0
+    if (frame) {
+      if (fresh || !existsSync(framePath)) writeFileSync(framePath, frame, 'utf8')
+    } else if (fresh && existsSync(framePath)) {
+      writeFileSync(framePath, '', 'utf8') // перестал быть сенситивным → гасим
+    }
   } catch {
     /* рамка — обогащение, не обязанность */
   }

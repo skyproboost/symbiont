@@ -1,0 +1,123 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/launch.js\" session-start --data \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 20,
+            "statusMessage": "Symbiont: паспорт проекта",
+            "additionalContextLimit": 5000
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/launch.js\" user-prompt --data \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 10,
+            "additionalContextLimit": 5000
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/launch.js\" subagent-start --data \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 10,
+            "additionalContextLimit": 5000
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/launch.js\" pre-compact --data \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/launch.js\" pre-tool --data \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 10,
+            "additionalContextLimit": 5000
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/launch.js\" pre-tool --data \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 10,
+            "additionalContextLimit": 5000
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/launch.js\" pre-tool --data \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 10,
+            "additionalContextLimit": 5000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/launch.js\" post-tool --data \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 10,
+            "additionalContextLimit": 5000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/launch.js\" stop --data \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/launch.js\" session-end --data \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

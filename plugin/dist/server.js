@@ -1,11 +1,15 @@
 import {
+  serveMaintenance
+} from "./codex-call-dc70z6kp.js";
+import {
   outlineView,
   resolveIndexed,
   tokensOf
-} from "./session-start-psab7pqj.js";
+} from "./codex-call-psab7pqj.js";
+import"./codex-call-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-m33pss0e.js";
+} from "./codex-call-f5867843.js";
 import {
   FactStore,
   area,
@@ -21,8 +25,9 @@ import {
   statement,
   t,
   tier
-} from "./session-start-tcz0z3pm.js";
-import"./session-start-rvra3cez.js";
+} from "./codex-call-21dvb3ma.js";
+import"./codex-call-b1s33asb.js";
+import"./codex-call-rvra3cez.js";
 
 // src/mcp/server.ts
 import { join as join2 } from "node:path";
@@ -32,9 +37,11 @@ import { createInterface } from "node:readline";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 init_i18n();
+var READ_ONLY_TOOL = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 function toolDefs() {
   return [
     {
+      annotations: READ_ONLY_TOOL,
       name: "passport_conventions",
       description: t(`Конвенции проекта из паспорта Symbiont: выведенные из кода правила с распространённостью и ярусом уверенности (закон/привычка/гипотеза). Опционально фильтр по области (${areaList()}).`, `Project conventions from the Symbiont passport: rules derived from the code, with prevalence and a confidence tier (law/habit/hypothesis). Optional filter by area (${areaList()}).`),
       inputSchema: {
@@ -43,6 +50,7 @@ function toolDefs() {
       }
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: "passport_history",
       description: t("История правила в журнале паспорта: как менялся вердикт со временем (вытеснения, даты, числа). Ключ берётся из passport_conventions ДОСЛОВНО — он остаётся в той форме, в какой лежит в журнале, и не переводится.", "The history of a rule in the passport journal: how the verdict changed over time (supersessions, dates, numbers). Take the key VERBATIM from passport_conventions — it stays in the form it has in the journal and is never translated."),
       inputSchema: {
@@ -52,6 +60,7 @@ function toolDefs() {
       }
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: "passport_map",
       description: t("Карта проекта из паспорта Symbiont: ключевые модули по связности импортов (PageRank, вход/исход) — быстрый обзор структуры без чтения файлов.", "A map of the project from the Symbiont passport: key modules by import connectivity (PageRank, in/out degree) — a quick overview of the structure without reading files."),
       inputSchema: {
@@ -60,6 +69,7 @@ function toolDefs() {
       }
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: "passport_impact",
       description: t("Радиус влияния файла: кто зависит от него по импортам (транзитивно, по уровням глубины) — «что может сломаться, если менять X». Принимает имя файла или его хвост пути.", 'The blast radius of a file: what depends on it through imports (transitively, by depth level) — "what may break if X changes". Takes a file name or a path suffix.'),
       inputSchema: {
@@ -69,6 +79,7 @@ function toolDefs() {
       }
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: "passport_orphans",
       description: t("Здоровье перелинковки контента (статьи/хабы/YAML-сущности): сироты без входящих ссылок, битые внутренние ссылки, одинаковые анкоры на разные цели. Детерминированно из доменного графа сущностей.", "The health of content interlinking (articles, hubs, YAML entities): orphans with no inbound links, broken internal links, identical anchors pointing to different targets. Computed deterministically from the domain entity graph."),
       inputSchema: {
@@ -77,6 +88,7 @@ function toolDefs() {
       }
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: "passport_reach",
       description: t("Достижимость контента из хабов: глубина каждой сущности (клики от хаба), недостижимые, распределение обратных ссылок. С аргументом file — срез одной сущности (глубина, кто ссылается, куда ссылается).", "Reachability of content from hubs: the depth of every entity (clicks from a hub), what is unreachable, how backlinks are distributed. With the file argument — a slice for one entity (its depth, what links to it, what it links to)."),
       inputSchema: {
@@ -85,6 +97,7 @@ function toolDefs() {
       }
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: "passport_related",
       description: t("Прецеденты правок из git-истории: какие файлы исторически меняются ВМЕСТЕ с указанным (co-change) — «правишь X — обычно правят и Y» (миграции к схеме, тесты к коду и т.п.).", 'Edit precedents from the git history: which files historically change TOGETHER with the given one (co-change) — "when X is edited, Y usually is too" (migrations with a schema, tests with code, and so on).'),
       inputSchema: {
@@ -94,6 +107,7 @@ function toolDefs() {
       }
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: "passport_outline",
       description: t("Оглавление файла из паспорта: какие функции, классы и методы в нём объявлены, на каких строках и во сколько токенов обойдётся выемка каждого — БЕЗ чтения файла (сотни токенов вместо десятков тысяч). Готовый ответ индекса, разбор в этот момент не запускается.", "A file outline from the passport: which functions, classes and methods it declares, on which lines, and what each one costs to pull out — WITHOUT reading the file (hundreds of tokens instead of tens of thousands). Served from the index; nothing is parsed at call time."),
       inputSchema: {
@@ -103,6 +117,7 @@ function toolDefs() {
       }
     },
     {
+      annotations: READ_ONLY_TOOL,
       name: "passport_unfold",
       description: t("Один символ файла целиком — по границам из оглавления, со строками для правки. Дешёвая замена чтению всего файла, когда имя нужного символа известно (его даёт passport_outline). Отказывается работать, если файл изменился после снятия оглавления, — вместо того чтобы выдать чужие строки.", "One symbol of a file in full — by the boundaries from the outline, with line numbers ready for editing. The cheap replacement for reading the whole file once the symbol name is known (passport_outline gives it). Refuses if the file changed after the outline was taken, rather than handing back the wrong lines."),
       inputSchema: {
@@ -406,6 +421,7 @@ init_i18n();
 var dataDir = join2(resolveDataRoot(join2(import.meta.dirname, "..", "..", ".data")).root, slugOf(process.cwd()));
 initLang(dataDir, process.cwd());
 var rl = createInterface({ input: process.stdin });
+rl.once("close", serveMaintenance(process.cwd(), dataDir));
 rl.on("line", (line) => {
   const trimmed = line.trim();
   if (!trimmed)

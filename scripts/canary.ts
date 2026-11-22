@@ -9,13 +9,16 @@
  */
 import { mkdtempSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const ROOT = join(import.meta.dirname, '..')
 // --dist: те же 9 проверок против СОБРАННОЙ формы (plugin/dist) — то, что реально
 // устанавливается; без флага — против исходников (dev-цикл).
-const DIST = process.argv.includes('--dist')
+const pluginFlag = process.argv.indexOf('--plugin-root')
+if (pluginFlag !== -1 && !process.argv[pluginFlag + 1]) throw new Error('--plugin-root requires an installed plugin path')
+const pluginRoot = pluginFlag === -1 ? join(ROOT, 'plugin') : resolve(process.argv[pluginFlag + 1])
+const DIST = process.argv.includes('--dist') || pluginFlag !== -1
 // --node: тот же прогон рантаймом поставки. Манифесты артефакта зовут node, и
 // «работает под bun» ничего не говорит о том, что увидит владелец. Исходники
 // под node не бегут (это .ts), поэтому флаг имеет смысл только с --dist.
@@ -25,7 +28,7 @@ if (RUNNER === 'node' && !DIST) {
   process.exit(1)
 }
 const entryPath = (kind: 'hooks' | 'mcp', entry: string): string =>
-  DIST ? join(ROOT, 'plugin', 'dist', entry.replace(/\.ts$/, '.js')) : join(ROOT, 'src', kind, entry)
+  DIST ? join(pluginRoot, 'dist', entry.replace(/\.ts$/, '.js')) : join(ROOT, 'src', kind, entry)
 const results: Array<{ channel: string; ok: boolean; note: string }> = []
 const check = (channel: string, ok: boolean, note: string) => results.push({ channel, ok, note })
 
@@ -60,7 +63,8 @@ function hook(entry: string, input: unknown, lang: 'ru' | 'en' = 'ru', root: str
     encoding: 'utf8',
     timeout: 60_000,
     cwd: proj,
-    env: { ...process.env, SYMBIONT_LANG: lang },
+    // Проверяем контракт Claude независимо от оболочки, из которой запущен смок.
+    env: { ...process.env, SYMBIONT_HOST: 'claude', SYMBIONT_LANG: lang },
   })
   const raw = (r.stdout ?? '').trim()
   if (r.status !== 0) return { out: null, raw: `exit=${r.status} stderr=${(r.stderr ?? '').slice(0, 300)}` }
@@ -74,6 +78,9 @@ function hook(entry: string, input: unknown, lang: 'ru' | 'en' = 'ru', root: str
 
 const slug = (await import(join(ROOT, 'src', 'hooks', 'session-start-core.ts'))).slugOf(proj)
 const dataDir = join(dataRoot, slug)
+// Смок каналов не должен порождать платные фоновые проходы над временной фикстурой.
+mkdirSync(dataDir, { recursive: true })
+writeFileSync(join(dataDir, 'learn.json'), JSON.stringify({ auto: false }))
 const sid = 'canary-1'
 
 // 1) SessionStart: сводка с законами и профилем — на обоих языках подачи
@@ -85,6 +92,8 @@ const sid = 'canary-1'
   // работу, и два таких входа на один корень дерутся за SQLite. Гонка убивала
   // не ту проверку, которая её создала (мигали PreCompact и MCP).
   const enRoot = mkdtempSync(join(tmpdir(), 'symbiont-canary-en-'))
+  mkdirSync(join(enRoot, slug), { recursive: true })
+  writeFileSync(join(enRoot, slug, 'learn.json'), JSON.stringify({ auto: false }))
   const en = hook('session-start.ts', { cwd: proj, source: 'startup', session_id: `${sid}-en` }, 'en', enRoot)
   const ctxRu = ctxOf(ru)
   const ctxEn = ctxOf(en)

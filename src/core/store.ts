@@ -262,6 +262,14 @@ export class FactStore {
     return retracted
   }
 
+  /** Источники активных фактов с данным префиксом — чьё владение проверять на присутствие основания. */
+  activeSources(prefix: string): string[] {
+    const rows = this.db
+      .query('SELECT DISTINCT source FROM fact_journal WHERE superseded_by IS NULL')
+      .all() as Array<{ source: string }>
+    return rows.map((r) => r.source).filter((s) => s.startsWith(prefix))
+  }
+
   /** История одного key: от новых к старым (для time-travel и «why»). */
   history(key: string): FactRow[] {
     return this.db

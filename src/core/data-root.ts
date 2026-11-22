@@ -63,7 +63,7 @@ export function resolveDataRoot(
   if (flag !== -1 && argv[flag + 1] && !argv[flag + 1].includes('${')) {
     return { root: argv[flag + 1], mode: 'argv', legacyRoot: existsSync(legacyDataDir) ? legacyDataDir : null }
   }
-  const fromEnv = env.CLAUDE_PLUGIN_DATA?.trim()
+  const fromEnv = env.PLUGIN_DATA?.trim() || env.CLAUDE_PLUGIN_DATA?.trim()
   if (fromEnv) {
     return { root: fromEnv, mode: 'env', legacyRoot: existsSync(legacyDataDir) ? legacyDataDir : null }
   }

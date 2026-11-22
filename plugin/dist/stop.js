@@ -1,38 +1,38 @@
 import {
   accountFeedCost,
   markCited
-} from "./session-start-asf0zj1a.js";
+} from "./codex-call-gfbkgdxm.js";
 import {
   applyRules,
   readRules
-} from "./session-start-fscn0xe1.js";
+} from "./codex-call-j04ge161.js";
 import {
   evidenceFromTranscript,
   runHistory
-} from "./session-start-39yre5nk.js";
+} from "./codex-call-00a25qa2.js";
 import {
   readGateMode
-} from "./session-start-yvd28w11.js";
+} from "./codex-call-yvd28w11.js";
 import {
   checkAgainstLaws,
   lawsForFile,
   toRelNode
-} from "./session-start-5d21kdth.js";
-import"./session-start-5psa84hc.js";
-import"./session-start-psab7pqj.js";
-import"./session-start-8ychq3hk.js";
-import"./session-start-fsz3j9as.js";
-import"./session-start-046cybce.js";
-import"./session-start-vgezmhw1.js";
+} from "./codex-call-wmwdes5m.js";
+import"./codex-call-2295bdpd.js";
+import"./codex-call-psab7pqj.js";
+import"./codex-call-8ychq3hk.js";
+import"./codex-call-zygxj77t.js";
+import"./codex-call-046cybce.js";
+import"./codex-call-vgezmhw1.js";
 import {
   readStdinJson
-} from "./session-start-p89re5se.js";
+} from "./codex-call-p89re5se.js";
 import {
   isInternalCall
-} from "./session-start-5s7r4262.js";
+} from "./codex-call-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./session-start-m33pss0e.js";
+} from "./codex-call-f5867843.js";
 import {
   ENTITY_EXT,
   ENV_TEMPLATES,
@@ -62,8 +62,11 @@ import {
   snapshotContent,
   statement,
   t
-} from "./session-start-tcz0z3pm.js";
-import"./session-start-rvra3cez.js";
+} from "./codex-call-21dvb3ma.js";
+import {
+  agentHost
+} from "./codex-call-b1s33asb.js";
+import"./codex-call-rvra3cez.js";
 
 // src/hooks/stop.ts
 import { join as join4 } from "node:path";
@@ -997,5 +1000,5 @@ if (isInternalCall())
 var input = readStdinJson();
 var dataRoot = resolveDataRoot(join4(import.meta.dirname, "..", "..", ".data")).root;
 var out = handleStop(input, dataRoot);
-if (out.hookSpecificOutput || out.decision)
+if (out.hookSpecificOutput || out.decision || agentHost() === "codex")
   emitHookOutput(out, "Stop", dataRoot, input.cwd);

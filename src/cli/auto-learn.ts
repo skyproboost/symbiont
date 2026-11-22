@@ -18,9 +18,15 @@ import { slugOf } from '../hooks/session-start-core'
 import { runWorks } from '../gardener/scheduler'
 import { WORKS } from '../gardener/works'
 import { autoEnabled } from '../gardener/auto-learn'
+import { claimMaintenance } from '../core/codex-maintenance'
 
 const root = process.argv[2] ?? process.cwd()
 const dataDir = join(resolveDataRoot(join(import.meta.dirname, '..', '..', '.data')).root, slugOf(root))
+if (process.argv.includes('--claim-maintenance')) {
+  const release = claimMaintenance(root, dataDir)
+  if (!release) process.exit(75) // Другой MCP уже забрал заявку или ещё выполняет предыдущую.
+  process.once('exit', release)
+}
 // Язык подачи — до первой отрисованной строки (см. core/i18n.ts).
 initLang(dataDir, root)
 

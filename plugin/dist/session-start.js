@@ -1,20 +1,21 @@
 import {
   readStdinJson
-} from "./session-start-p89re5se.js";
+} from "./codex-call-p89re5se.js";
 import {
   isInternalCall
-} from "./session-start-5s7r4262.js";
+} from "./codex-call-5s7r4262.js";
 import {
   migrateLegacyPassports,
   resolveDataRoot
-} from "./session-start-m33pss0e.js";
+} from "./codex-call-f5867843.js";
 import {
   emitHookOutput,
   handleSessionStart
-} from "./session-start-tcz0z3pm.js";
+} from "./codex-call-21dvb3ma.js";
+import"./codex-call-b1s33asb.js";
 import {
   __require
-} from "./session-start-rvra3cez.js";
+} from "./codex-call-rvra3cez.js";
 
 // src/hooks/session-start.ts
 import { join } from "node:path";
@@ -27,6 +28,6 @@ var out = handleSessionStart(input, res.root);
 if (out.hookSpecificOutput)
   emitHookOutput(out, "SessionStart", res.root, input.cwd);
 try {
-  const { spawnAutoLearnDetached } = await import("./detach-86dw44yc.js");
+  const { spawnAutoLearnDetached } = await import("./detach-ha9aqp6w.js");
   spawnAutoLearnDetached(input.cwd ?? process.cwd(), res.root);
 } catch {}

@@ -24,6 +24,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { slugOf } from './slug'
 import { t } from '../core/i18n'
+import { agentHost } from '../core/host'
+import { hostHookOutput } from './host-output'
 
 /** Лимит платформы на одно текстовое поле вывода хука (hooks: «capped at 10,000 characters»). */
 export const PLATFORM_TEXT_LIMIT = 10_000
@@ -137,7 +139,7 @@ export function renderOverflow(dataDir: string, nowMs: number = Date.now()): str
  * (сторожит тест, берущий список входов у сборщика).
  */
 export function emitHookOutput(out: object, channel: string, dataRoot: string, cwd: string | undefined): void {
-  const { out: capped, overflows } = capHookOutput(out)
+  const { out: capped, overflows } = capHookOutput(hostHookOutput(out, channel, agentHost()))
   if (overflows.length > 0) recordOverflow(join(dataRoot, slugOf(cwd ?? process.cwd())), channel, overflows)
   console.log(JSON.stringify(capped))
 }

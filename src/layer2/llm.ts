@@ -7,6 +7,8 @@
  * фиксируется (никогда fail-silent) и записывается в кэш доступности.
  */
 import { spawnSync } from 'node:child_process'
+import { join } from 'node:path'
+import { agentHost, codexModels } from '../core/host'
 import {
   readAvailability,
   recordOutcome,
@@ -62,6 +64,7 @@ export interface LlmOpts {
 /** Порядок моделей для вызова: явный оверрайд → адаптивный вектор → сид-порядок. */
 export function resolveModels(opts: LlmOpts): string[] {
   if (opts.models && opts.models.length > 0) return opts.models
+  if (agentHost() === 'codex') return codexModels()
   const intent = opts.intent ?? 'routine'
   if (!opts.dataDir) return FAMILY_PRIORITY[intent]
   return resolveVector(intent, readAvailability(opts.dataDir), Date.now())
@@ -78,6 +81,15 @@ function resolvedIdOf(parsed: Record<string, unknown>): string | null {
 }
 
 const asStatus = (v: unknown): number | null => (typeof v === 'number' ? v : null)
+
+function spawnCodex(prompt: string, model: string, effort: string, web = false) {
+  const source = import.meta.url.endsWith('.ts')
+  const entry = source ? join(import.meta.dirname, '..', 'core', 'codex-call.ts') : join(import.meta.dirname, 'codex-call.js')
+  return spawnSync(process.execPath, [entry], {
+    input: JSON.stringify({ prompt, model, effort, web }), encoding: 'utf8',
+    timeout: web ? 420_000 : 180_000, windowsHide: true, maxBuffer: 32 * 1024 * 1024, env: internalEnv(),
+  })
+}
 
 /**
  * Сеть недоступна — попытка бессмысленна, и об этом сказано вслух.
@@ -117,6 +129,7 @@ export function callClaudeDetailed(prompt: string, opts: LlmOpts = {}): LlmOutco
       // без ухода модели в исследование файлов → без error_max_turns).
       // Промпт — через stdin (многострочный argv на Windows рвётся по \n).
       const spawnOnce = (withEffort: boolean) =>
+        agentHost() === 'codex' ? spawnCodex(framedPrompt, model, effort) :
         spawnSync(
           claudeBin(),
           [
@@ -238,7 +251,7 @@ export function explainNoAnswer(tried: LlmAttempt[]): string {
     if (/api=40[134]/.test(note)) return 'нет доступа'
     if (/^отказ/.test(note)) return 'отказ модели'
     if (/timeout|ETIMEDOUT|timed out/i.test(note)) return 'таймаут'
-    if (/ENOENT|not found|не найден/i.test(note)) return 'claude CLI не найден'
+    if (/ENOENT|not found|не найден/i.test(note)) return `${agentHost()} CLI не найден`
     return 'ошибка'
   }
   return `модели недоступны: ${tried.map((t) => `${t.model} — ${reason(t.note)}`).join(', ')}`
@@ -253,7 +266,7 @@ export function callClaudeWithTools(prompt: string, opts: LlmOpts = {}): LlmResu
   if (opts.dataDir && networkDownUntil(opts.dataDir, Date.now()) !== null) return null
   for (const model of resolveModels(opts)) {
     try {
-      const r = spawnSync(
+      const r = agentHost() === 'codex' ? spawnCodex(prompt, model, opts.effort ?? 'high', true) : spawnSync(
         claudeBin(),
         ['-p', '--model', model, '--output-format', 'json', '--max-turns', '24', '--tools', 'WebSearch,WebFetch'],
         { input: prompt, encoding: 'utf8', timeout: 420_000, windowsHide: true, maxBuffer: 32 * 1024 * 1024, env: internalEnv() },

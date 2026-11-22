@@ -35,9 +35,41 @@ const SENSITIVE: Record<string, RegExp> = {
 const LEGIT_MARKER =
   /(не (заменяе[а-я]*|являе[а-я]*|ставит диагноз|назначае[а-я]*|да[её]т медицинск[а-я]*|предоставляе[а-я]* (медицинск|юридическ|финансов)[а-я]*)|носит (информационн|справочн|ознакомительн)[а-я]* характер|информационн[а-я]* характер|не (для|заменяет) самолечени|проконсультируйтесь|перед применением|для информировани|помогает (понять|разобраться|подготовить)|добровольн[а-я]*|с (информированного )?согласия|обезлич[а-я]*|не хранит|не переда[её]т.{0,40}треть)/i
 
+/**
+ * Обороты, которые сами по себе говорят о характере сервиса (справочность,
+ * согласие, обезличивание). Остальные ветви LEGIT_MARKER — «не является», «не
+ * заменяет», «помогает понять» — обычная инженерная проза, пока в том же
+ * предложении не названо чувствительное направление. Замер на шести проектах
+ * (scripts/frame-sim.ts --kept): из 15 «заявлений продукта о себе» настоящим
+ * было одно; остальное — «VACUUM FULL не является универсальной уборкой»,
+ * «Статистика p95 не заменяет верхнюю границу», вопрос викторины про рыбу.
+ */
+const SPECIFIC_MARKER =
+  /(носит (информационн|справочн|ознакомительн)[а-я]* характер|информационн[а-я]* характер|проконсультируйтесь|для информировани|добровольн[а-я]*|с (информированного )?согласия|обезлич[а-я]*|не хранит|не переда[её]т.{0,40}треть)/i
+
 export interface CompiledFrame {
   kept: string[]
   rejected: Array<{ statement: string; reason: string }>
+}
+
+export interface DirectionEvidence {
+  name: string
+  /** сколько раз слова направления встретились в тексте */
+  hits: number
+  /** сколько РАЗНЫХ слов направления встретилось (по началу слова) */
+  stems: number
+  /** встреч на 10 000 символов текста — плотность, не зависящая от объёма доков */
+  per10k: number
+}
+
+/** Улики по каждому направлению: числа, по которым решается, заявлено ли оно проектом. */
+export function directionEvidence(conceptText: string): DirectionEvidence[] {
+  const size = Math.max(1, conceptText.length)
+  return Object.entries(SENSITIVE).map(([name, re]) => {
+    const found = conceptText.match(new RegExp(re.source, 'gi')) ?? []
+    const stems = new Set(found.map((m) => m.toLowerCase().slice(0, 5)))
+    return { name, hits: found.length, stems: stems.size, per10k: (found.length * 10_000) / size }
+  })
 }
 
 /** Направления чувствительности, заявленные текстом проекта (README/доки). */
@@ -65,9 +97,18 @@ const MAX_LEN = 170
  * пунктуация в конце, без хвостового yaml-ключа): грязные run-on из склеенного
  * yaml отбрасываем целиком — дисклеймеры повторяются по статьям, чистый экземпляр
  * найдётся. Рамка легитимности обязана быть чистой. Дедуп; кап.
+ *
+ * Заявления двух родов. ОПОРНОЕ называет чувствительное направление в том же
+ * предложении («не ставит диагноз», «не заменяет консультацию врача») — им
+ * проект и заявляет направление. СОПУТСТВУЮЩЕЕ направления не называет, но
+ * говорит о характере сервиса («данные обезличены») — оно осмысленно только
+ * рядом с опорным: без него это фраза о чём угодно. Нет опорных — нет рамки:
+ * «Пока открыт спор, данные не обезличиваются» в доках агрегатора автомоек
+ * выдавалось за контекст легитимности «медицина, финансы, право».
  */
 export function deriveFrameCandidates(conceptText: string, max = 6): string[] {
-  const out: string[] = []
+  const anchors: string[] = []
+  const companions: string[] = []
   const seen = new Set<string>()
   for (const raw of splitSentences(conceptText)) {
     const s = raw.replace(/[*_`]+/g, '').trim()
@@ -76,13 +117,17 @@ export function deriveFrameCandidates(conceptText: string, max = 6): string[] {
     if (!/^[«"“А-ЯЁA-Z]/.test(s)) continue // начинается чисто (заглавная/кавычка), не с середины
     if (!/[.!?;»"”]$/.test(s)) continue // заканчивается пунктуацией, не yaml-ключом
     if (/[a-zа-яё0-9_]+:\s*$/i.test(s)) continue // хвостовой yaml-ключ
+    const named = sensitiveDirections(s).length > 0
+    if (!named && !SPECIFIC_MARKER.test(s)) continue // широкий оборот без направления — проза
     const key = s.toLowerCase().replace(/[^а-яёa-z ]/g, '').slice(0, 55)
     if (seen.has(key)) continue
     seen.add(key)
-    out.push(s)
-    if (out.length >= max) break
+    if (named) anchors.push(s)
+    else companions.push(s)
+    if (anchors.length >= max) break
   }
-  return out
+  if (anchors.length === 0) return []
+  return [...anchors, ...companions].slice(0, max)
 }
 
 // Анти-паттерны, ПОВЫШАЮЩИЕ отказы (компилятор их отбрасывает).
@@ -143,12 +188,47 @@ export function renderFrame(kept: string[], directions: string[]): string {
   return lines.join('\n')
 }
 
-/** Полный конвейер: текст проекта → блок рамки ('' для несенситивного). */
+/** Сколько файлов контента берётся в выборку и сколько символов читается из одного файла и из доков. */
+const FRAME_SAMPLE_FILES = 60
+const FRAME_FILE_CAP = 100_000
+const FRAME_CONCEPT_CAP = 150_000
+
+/**
+ * Текст, по которому строится рамка: доки проекта плюс равномерная выборка
+ * контента (дисклеймеры продукта живут в статьях, не в README).
+ *
+ * Предел стоит на ФАЙЛЕ, а не на склейке. Прежде выборка склеивалась и
+ * обрезалась по первым 150 000 символам — на корпусе из 914 статей в разбор
+ * попадали доки и первые шесть файлов из шестидесяти одного (выборка весила
+ * 1,37 млн символов), а «равномерность по всему корпусу» оставалась только в
+ * комментарии: было 1 заявление, и то случайное, на полной выборке — 6
+ * настоящих. Отвергнуто «делить прежний бюджет по файлам, брать начало и конец»:
+ * замер на том же корпусе дал ноль — дисклеймер стоит не в хвосте файла, после
+ * него идут поля источников и вопросов. Угадывать место дешевле не стало, чем
+ * прочитать файл: разбор — один проход регэкспов, 1,4 млн символов занимают
+ * десятки миллисекунд (scripts/frame-sim.ts печатает время).
+ */
+export function frameCorpus(conceptText: string, contents: string[]): string {
+  const step = Math.max(1, Math.floor(contents.length / FRAME_SAMPLE_FILES))
+  const parts = [conceptText.slice(0, FRAME_CONCEPT_CAP)]
+  for (let i = 0; i < contents.length; i += step) parts.push(contents[i].slice(0, FRAME_FILE_CAP))
+  return parts.join('\n')
+}
+
+/**
+ * Полный конвейер: текст проекта → блок рамки ('' для несенситивного).
+ *
+ * Направление объявляется только тем, что продукт сам о нём заявил, — по
+ * оставшимся в рамке заявлениям, а не по слову где-либо в тексте. Прежде
+ * хватало одного совпадения на 150 000 символов доков: замер на 14 проектах
+ * (scripts/frame-sim.ts) дал «медицину» у десяти, включая сам этот плагин и
+ * монитор цен, при единственном проекте, где она действительно предмет.
+ * Отвергнут порог плотности слов: он разделял бы выборку, но рамка обещает
+ * «правдивые факты о проекте», а частота слова — не заявление проекта.
+ */
 export function buildFrame(conceptText: string): string {
-  const directions = sensitiveDirections(conceptText)
-  if (directions.length === 0) return ''
   const { kept } = compileFrame(deriveFrameCandidates(conceptText))
-  return renderFrame(kept, directions)
+  return renderFrame(kept, sensitiveDirections(kept.join('\n')))
 }
 
 /**

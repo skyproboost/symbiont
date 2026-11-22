@@ -1,3 +1,4 @@
+import { transcriptLines } from '../core/transcript'
 /**
  * Устные правила владельца: то, что он сказал модели в чате, а не поправил в коде.
  *
@@ -87,7 +88,7 @@ export function ownerMessages(transcriptPath: string | null): string[] {
   if (!transcriptPath || !existsSync(transcriptPath)) return []
   let lines: string[]
   try {
-    lines = readFileSync(transcriptPath, 'utf8').split('\n')
+    lines = transcriptLines(readFileSync(transcriptPath, 'utf8'))
   } catch {
     return [] // транскрипт занят — сырьё подождёт следующего хода
   }

@@ -7,11 +7,11 @@ import {
 import {
   migrateLegacyPassports,
   resolveDataRoot
-} from "./codex-call-pxxba9as.js";
+} from "./codex-call-1chfyq5a.js";
 import {
   emitHookOutput,
   handleSessionStart
-} from "./codex-call-qxxgrqz0.js";
+} from "./codex-call-3wacacvb.js";
 import"./codex-call-b1s33asb.js";
 import {
   __require
@@ -25,9 +25,9 @@ var input = readStdinJson();
 var res = resolveDataRoot(join(import.meta.dirname, "..", "..", ".data"));
 migrateLegacyPassports(res);
 var out = handleSessionStart(input, res.root);
-if (out.hookSpecificOutput)
+if (out.hookSpecificOutput || out.systemMessage)
   emitHookOutput(out, "SessionStart", res.root, input.cwd);
 try {
-  const { spawnAutoLearnDetached } = await import("./detach-avgercbg.js");
+  const { spawnAutoLearnDetached } = await import("./detach-b45a6hn9.js");
   spawnAutoLearnDetached(input.cwd ?? process.cwd(), res.root);
 } catch {}

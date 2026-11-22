@@ -25,6 +25,8 @@ import { renderBackground, renderGardenerSilence, REPORTED_WORKS } from '../gard
 import { mutedKinds } from '../gardener/utility'
 import { voicedCandidates, renderVoiced, VOICED_MIN_SESSIONS } from '../gardener/voiced'
 import { inspectRuntime, renderRuntimeWarning } from '../core/runtime'
+import { startSkillTrial, type TrialStart } from '../gardener/skill-trial'
+import { agentHost } from '../core/host'
 import { t, statement, initLang } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
 
@@ -276,11 +278,22 @@ const PASSPORT_FLOOR = 5000
  * нет больше нигде. Но не ниже PASSPORT_FLOOR: дальше режется хвост тем же
  * правилом — самая толстая секция, по одной строке, с числом за кадром.
  */
-export function composeContext(summary: string, tail: string, footer: string, summaryPath: string | null, value: (line: string) => number = () => 1): string {
-  const budget = HOOK_TEXT_BUDGET - footer.length
-  const room = Math.min(CONTEXT_CHAR_BUDGET, Math.max(PASSPORT_FLOOR, budget - tail.length))
+export function composeContext(
+  summary: string,
+  tail: string,
+  footer: string,
+  summaryPath: string | null,
+  value: (line: string) => number = () => 1,
+  reserved = 0,
+): string {
+  // `reserved` — место под блок, который ставится ДО паспорта (указание
+  // владельца, gardener/skill-trial.ts): он в том же поле и в том же лимите
+  const budget = Math.max(0, HOOK_TEXT_BUDGET - footer.length - reserved)
+  // Пол паспорта не выше самого бюджета: иначе при большом `reserved` паспорт
+  // занял бы PASSPORT_FLOOR поверх остатка и поле вышло бы за лимит
+  const room = Math.min(CONTEXT_CHAR_BUDGET, Math.max(Math.min(PASSPORT_FLOOR, budget), budget - tail.length))
   const passport = fitToBudget(summary, room, summaryPath, value)
-  const rest = passport.length + tail.length > budget ? fitToBudget(tail, budget - passport.length, null, value, restMore) : tail
+  const rest = passport.length + tail.length > budget ? fitToBudget(tail, Math.max(0, budget - passport.length), null, value, restMore) : tail
   return `${passport}${rest}${footer}`
 }
 
@@ -297,6 +310,19 @@ export interface HookOutput {
     hookEventName: 'SessionStart'
     additionalContext: string
   }
+  /** Сообщение владельцу в интерфейсе (не модели): вердикт замера навыков. */
+  systemMessage?: string
+}
+
+/**
+ * Вывод только с указанием владельца и вердиктом замера — когда паспорта нет
+ * или сборка упала: указание от паспорта не зависит.
+ */
+function trialOnly(trial: TrialStart): HookOutput {
+  const out: HookOutput = {}
+  if (trial.context) out.hookSpecificOutput = { hookEventName: 'SessionStart', additionalContext: trial.context.trimEnd() }
+  if (trial.notice) out.systemMessage = trial.notice
+  return out
 }
 
 // Реэкспорт: слаг переехал в свой модуль (см. slug.ts), а импортируют его отсюда
@@ -315,6 +341,24 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
 
   // Heartbeat — до любой работы: даже упавший канал оставляет след попытки.
   beat(dataDir, 'SessionStart', { source: input.source ?? null })
+
+  // Навыки владельца — до паспорта и независимо от него: проект без паспорта
+  // и упавшая сборка всё равно получают указание (gardener/skill-trial.ts).
+  // Корень данных общий для всех проектов — выборка замера тоже общая.
+  let trial: TrialStart = { context: '', notice: '' }
+  if (input.session_id) {
+    try {
+      trial = startSkillTrial(dataRoot, {
+        sessionId: input.session_id,
+        source: input.source ?? null,
+        transcriptPath: input.transcript_path ?? null,
+        host: agentHost(),
+        now: new Date(),
+      })
+    } catch {
+      /* startSkillTrial сам не бросает; страховка, чтобы замер не уронил сводку */
+    }
+  }
 
   try {
     const r = buildPassport(cwd, dataDir)
@@ -495,7 +539,7 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
       /* проекции нет — падать не из-за чего */
     }
     if (!summary.includes('## ')) summary = '' // один заголовок без секций — не сводка
-    if (!summary && !constBlock) return {} // нечего сказать — молчим, не занимаем контекст
+    if (!summary && !constBlock) return trialOnly(trial) // о проекте сказать нечего — только указание владельца, если есть
     // Рубеж на выходе хука резал что-то в прошлые дни — называем (см. emit.ts)
     const overflowLine = renderOverflow(dataDir)
 
@@ -532,12 +576,16 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
     }
     const freshness = r.factsExecuted ? t('свежий пересчёт', 'freshly recomputed') : t('кэш (код не менялся)', 'cache (the code has not changed)')
     const footer = `\n_Symbiont · ${freshness} · ${t('подробнее по требованию', 'more on demand')}: passport_conventions / passport_history_`
-    return {
+    const out: HookOutput = {
       hookSpecificOutput: {
         hookEventName: 'SessionStart',
-        additionalContext: composeContext(summary, `${constBlock}${frameSection}${stateBlock}${entrySection}`, footer, r.summaryPath, lineValue),
+        // Указание владельца — ДО паспорта: заголовок паспорта объявляет всё
+        // ниже справкой, а не инструкцией
+        additionalContext: `${trial.context}${composeContext(summary, `${constBlock}${frameSection}${stateBlock}${entrySection}`, footer, r.summaryPath, lineValue, trial.context.length)}`,
       },
     }
+    if (trial.notice) out.systemMessage = trial.notice
+    return out
   } catch (e) {
     // fail-open: сессия владельца важнее нашего контекста
     try {
@@ -549,6 +597,6 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
     } catch {
       /* даже лог не пишется — молчим */
     }
-    return {}
+    return trialOnly(trial) // указание владельца от сборки паспорта не зависит
   }
 }

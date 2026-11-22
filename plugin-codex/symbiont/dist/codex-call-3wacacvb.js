@@ -5478,7 +5478,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-c45592bb8947";
+    return "bundle-2ce715e9becc";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -6474,8 +6474,8 @@ function renderVoiced(rules) {
 }
 
 // src/hooks/session-start-core.ts
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync17, appendFileSync } from "node:fs";
-import { join as join17 } from "node:path";
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync18, appendFileSync } from "node:fs";
+import { join as join18 } from "node:path";
 
 // src/hooks/session-baseline.ts
 init_signals();
@@ -6732,6 +6732,643 @@ function renderDiagnosis(silent) {
   return t(`- ⚠ самодиагностика: канал(ы) молчат ${SILENT_SESSIONS}+ сессий — ${named}. Возможен сломанный хук (обнови плагин / перезапусти Claude Code); паспорт работает на оставшихся каналах.`, `- ⚠ self-diagnosis: channel(s) silent for ${SILENT_SESSIONS}+ sessions — ${named}. A hook may be broken (update the plugin / restart Claude Code); the passport keeps working on the remaining channels.`);
 }
 
+// src/gardener/skill-trial.ts
+import { existsSync as existsSync10, readFileSync as readFileSync17 } from "node:fs";
+import { homedir } from "node:os";
+import { join as join17 } from "node:path";
+init_i18n();
+
+// src/gardener/feed-cost.ts
+init_i18n();
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+var SIGNATURE = "Symbiont";
+var SEEN_IDS = 64;
+var MIN_SESSIONS = 3;
+function ensureTable(db) {
+  db.run("CREATE TABLE IF NOT EXISTS feed_cost(session_id TEXT PRIMARY KEY, byte_offset INTEGER NOT NULL, requests INTEGER NOT NULL, channels TEXT NOT NULL, seen TEXT NOT NULL, updated_at TEXT NOT NULL)");
+}
+function loadState(db, sid) {
+  const row = db.query("SELECT byte_offset, requests, channels, seen FROM feed_cost WHERE session_id=?").get(sid);
+  if (!row)
+    return { offset: 0, requests: 0, channels: {}, seen: [] };
+  return { offset: row.byte_offset, requests: row.requests, channels: JSON.parse(row.channels), seen: JSON.parse(row.seen) };
+}
+function readNewLines(path, offset) {
+  let fd;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return null;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    if (size < offset)
+      return { lines: [], next: -1 };
+    if (size === offset)
+      return { lines: [], next: offset };
+    const buf = Buffer.alloc(size - offset);
+    const got = readSync(fd, buf, 0, buf.length, offset);
+    const end = buf.subarray(0, got).lastIndexOf(10);
+    if (end < 0)
+      return { lines: [], next: offset };
+    return { lines: buf.subarray(0, end).toString("utf8").split(`
+`), next: offset + end + 1 };
+  } finally {
+    closeSync(fd);
+  }
+}
+function applyLines(state, lines) {
+  const channels = {};
+  for (const [ch, c] of Object.entries(state.channels))
+    channels[ch] = { ...c };
+  const seen = [...state.seen];
+  let requests = state.requests;
+  for (const line of lines) {
+    const boundary = line.includes('"compact_boundary"');
+    const injection = !boundary && line.includes('"hook_additional_context"');
+    const answer = !boundary && !injection && line.includes('"type":"assistant"');
+    if (!boundary && !injection && !answer)
+      continue;
+    let o;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (o.isSidechain === true)
+      continue;
+    if (boundary && o.type === "system" && o.subtype === "compact_boundary") {
+      for (const c of Object.values(channels))
+        c.live = 0;
+    } else if (injection && o.attachment?.type === "hook_additional_context" && Array.isArray(o.attachment.content)) {
+      const ch = String(o.attachment.hookEvent ?? o.attachment.hookName ?? "?").split(":")[0];
+      for (const text of o.attachment.content) {
+        if (typeof text !== "string" || !text.includes(SIGNATURE))
+          continue;
+        const c = channels[ch] ??= { live: 0, once: 0, replay: 0 };
+        c.live += text.length;
+        c.once += text.length;
+      }
+    } else if (answer && o.type === "assistant" && typeof o.message?.id === "string" && !seen.includes(o.message.id)) {
+      seen.push(o.message.id);
+      if (seen.length > SEEN_IDS)
+        seen.shift();
+      requests++;
+      for (const c of Object.values(channels))
+        c.replay += c.live;
+    }
+  }
+  return { offset: state.offset, requests, channels, seen };
+}
+function accountFeedCost(db, sid, transcriptPath, now = new Date) {
+  if (!transcriptPath)
+    return;
+  try {
+    ensureTable(db);
+    let state = loadState(db, sid);
+    const read = readNewLines(transcriptPath, state.offset);
+    if (!read)
+      return;
+    if (read.next === -1) {
+      state = { offset: 0, requests: 0, channels: {}, seen: [] };
+      const again = readNewLines(transcriptPath, 0);
+      if (!again || again.next === -1)
+        return;
+      state = { ...applyLines(state, again.lines), offset: again.next };
+    } else {
+      if (read.next === state.offset)
+        return;
+      state = { ...applyLines(state, read.lines), offset: read.next };
+    }
+    db.query("INSERT INTO feed_cost(session_id, byte_offset, requests, channels, seen, updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET byte_offset=excluded.byte_offset, requests=excluded.requests, channels=excluded.channels, seen=excluded.seen, updated_at=excluded.updated_at").run(sid, state.offset, state.requests, JSON.stringify(state.channels), JSON.stringify(state.seen), now.toISOString());
+  } catch {}
+}
+function feedCostStats(db) {
+  try {
+    const rows = db.query("SELECT channels FROM feed_cost WHERE requests > 0").all();
+    if (rows.length < MIN_SESSIONS)
+      return null;
+    let once = 0;
+    let replay = 0;
+    const byChannel = new Map;
+    for (const r of rows) {
+      for (const [ch, c] of Object.entries(JSON.parse(r.channels))) {
+        once += c.once;
+        replay += c.replay;
+        byChannel.set(ch, (byChannel.get(ch) ?? 0) + c.replay);
+      }
+    }
+    if (once === 0)
+      return null;
+    const best2 = [...byChannel.entries()].sort((a, b) => b[1] - a[1])[0];
+    return {
+      sessions: rows.length,
+      oncePerSession: Math.round(once / rows.length),
+      replayPerSession: Math.round(replay / rows.length),
+      top: best2 && replay > 0 ? { channel: best2[0], share: Math.round(best2[1] / replay * 100) } : null
+    };
+  } catch {
+    return null;
+  }
+}
+function kilo(chars) {
+  const k = chars / 1000;
+  return k >= 100 ? String(Math.round(k)) : k.toFixed(1);
+}
+function renderFeedCost(s) {
+  if (!s)
+    return "";
+  const factor = s.oncePerSession > 0 ? Math.round(s.replayPerSession / s.oncePerSession) : 0;
+  const top = s.top ? t(` · больше всех: ${s.top.channel} ${s.top.share}%`, ` · largest: ${s.top.channel} ${s.top.share}%`) : "";
+  return t(`~${kilo(s.oncePerSession)} тыс. симв. за сессию, с повтором ~${kilo(s.replayPerSession)} тыс. (×${factor}: каждый запрос перечитывает окно до сжатия)${top} · по ${s.sessions} сессиям`, `~${kilo(s.oncePerSession)}k chars per session, ~${kilo(s.replayPerSession)}k with replay (×${factor}: every request re-reads the window until compaction)${top} · over ${s.sessions} sessions`);
+}
+
+// src/gardener/skill-trial.ts
+var TRIAL_FILE = "session-skills.json";
+var TRIAL_DB = "skill-trial.db";
+var DEFAULT_HOLDOUT = 0.15;
+var MAX_SKILLS = 3;
+var MIN_CONTROL = 20;
+var MAX_CONTROL = 40;
+var MIN_DELIVERED_FOR_ACTIVATION = 10;
+var FINISHED_MS = 3 * 3600000;
+var SEEN_IDS2 = 64;
+var OWNER_PROMPT_MAX2 = 2000;
+var PERMUTATIONS = 5000;
+var ALPHA = 0.05;
+var SKILL_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+function readTrialConfig(dataRoot) {
+  const path = join17(dataRoot, TRIAL_FILE);
+  if (!existsSync10(path))
+    return null;
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync17(path, "utf8").trimStart());
+  } catch {
+    return null;
+  }
+  if (typeof raw !== "object" || raw === null)
+    return null;
+  const r = raw;
+  const skills = Array.isArray(r.skills) ? r.skills.filter((s) => typeof s === "string" && SKILL_NAME.test(s)) : [];
+  if (skills.length === 0)
+    return null;
+  const h = typeof r.holdout === "number" && Number.isFinite(r.holdout) ? r.holdout : DEFAULT_HOLDOUT;
+  return { skills: [...new Set(skills)].slice(0, MAX_SKILLS), holdout: Math.min(0.5, Math.max(0, h)) };
+}
+function skillFile(name, env = process.env) {
+  const base = env.CLAUDE_CONFIG_DIR || join17(env.USERPROFILE || env.HOME || homedir(), ".claude");
+  const p = join17(base, "skills", name, "SKILL.md");
+  return existsSync10(p) ? p : null;
+}
+function isInteractive(env = process.env) {
+  const entry = env.CLAUDE_CODE_ENTRYPOINT;
+  return !entry || !entry.startsWith("sdk") || env.SYMBIONT_TRIAL_HEADLESS === "1";
+}
+function trialActive(dataRoot) {
+  if (!existsSync10(join17(dataRoot, TRIAL_DB)))
+    return false;
+  return (readTrialConfig(dataRoot)?.holdout ?? 0) > 0;
+}
+function trialArm(sessionId, skill, share) {
+  if (share <= 0)
+    return "delivered";
+  let h = 2166136261;
+  for (const ch of `${sessionId}|skill:${skill}`)
+    h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  return h % 1000 < share * 1000 ? "withheld" : "delivered";
+}
+function ensureTables(db) {
+  db.run(`CREATE TABLE IF NOT EXISTS skill_trial(session_id TEXT NOT NULL, skill TEXT NOT NULL, arm TEXT NOT NULL,
+      started_at TEXT NOT NULL, transcript TEXT, byte_offset INTEGER NOT NULL DEFAULT 0,
+      owner_msgs INTEGER NOT NULL DEFAULT 0, corrections INTEGER NOT NULL DEFAULT 0, invoked INTEGER NOT NULL DEFAULT 0,
+      tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, unverified INTEGER NOT NULL DEFAULT 0,
+      seen TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL, PRIMARY KEY(session_id, skill))`);
+  db.run("CREATE TABLE IF NOT EXISTS skill_trial_notice(skill TEXT PRIMARY KEY, day TEXT NOT NULL)");
+  db.run("CREATE TABLE IF NOT EXISTS skill_trial_look(skill TEXT NOT NULL, look INTEGER NOT NULL, verdict TEXT NOT NULL, decided_at TEXT NOT NULL, PRIMARY KEY(skill, look))");
+}
+function openTrialDb(dataRoot) {
+  const db = openDb(join17(dataRoot, TRIAL_DB));
+  try {
+    db.run("PRAGMA journal_mode = WAL");
+  } catch {}
+  ensureTables(db);
+  return db;
+}
+function startSkillTrial(dataRoot, input) {
+  const none = { context: "", notice: "" };
+  const env = input.env ?? process.env;
+  if (input.host !== "claude" || !isInteractive(env))
+    return none;
+  const cfg = readTrialConfig(dataRoot);
+  if (!cfg)
+    return none;
+  const present = cfg.skills.filter((s) => skillFile(s, env) !== null);
+  if (present.length === 0)
+    return none;
+  if (cfg.holdout <= 0)
+    return { context: renderDirective(present), notice: "" };
+  let db;
+  try {
+    db = openTrialDb(dataRoot);
+  } catch {
+    return none;
+  }
+  try {
+    const fresh = input.source === null || input.source === "startup" || input.source === "clear";
+    const insert = db.query("INSERT OR IGNORE INTO skill_trial(session_id, skill, arm, started_at, transcript, updated_at) VALUES(?,?,?,?,?,?)");
+    const delivered = [];
+    for (const skill of present) {
+      if (fresh)
+        insert.run(input.sessionId, skill, trialArm(input.sessionId, skill, cfg.holdout), input.now.toISOString(), input.transcriptPath, input.now.toISOString());
+      const row = db.query("SELECT arm FROM skill_trial WHERE session_id=? AND skill=?").get(input.sessionId, skill);
+      if ((row?.arm ?? "delivered") === "delivered")
+        delivered.push(skill);
+    }
+    const notices = present.map((skill) => ({ skill, ...dueNotice(db, skill, input.now) }));
+    const forModel = notices.filter((n) => n.verdict && delivered.includes(n.skill)).map((n) => n.verdict);
+    const forOwner = notices.flatMap((n) => [n.verdict, n.progress]).filter((s) => s !== "");
+    return { context: renderDirective(delivered, forModel, join17(dataRoot, TRIAL_FILE)), notice: forOwner.join(`
+`) };
+  } catch {
+    return none;
+  } finally {
+    db.close();
+  }
+}
+function renderDirective(skills, notices = [], configPath = "") {
+  if (skills.length === 0)
+    return "";
+  const lines = [t("## Указание владельца (Symbiont)", "## Owner directive (Symbiont)"), ""];
+  for (const s of skills) {
+    lines.push(t(`- Владелец включил навык \`${s}\` для всех сессий. Вызови его инструментом Skill до первого действия по задаче; если его текст уже есть в контексте, повторно не нужно. Это настройка самого владельца, а не справка о проекте.`, `- The owner enabled the \`${s}\` skill for every session. Invoke it with the Skill tool before the first action on the task; if its text is already in context, there is no need to invoke it again. This is the owner's own setting, not reference data about the project.`));
+  }
+  for (const n of notices)
+    lines.push(`- ${n}`);
+  if (notices.length > 0 && configPath) {
+    lines.push(t(`- Владелец видит этот вердикт сам. Если он решит: «оставить» — поставь \`"holdout": 0\` в ${configPath}; «выключить» — убери навык из списка \`skills\` там же.`, `- The owner sees this verdict too. If they decide "keep" — set \`"holdout": 0\` in ${configPath}; "turn off" — remove the skill from the \`skills\` list in the same file.`));
+  }
+  return `${lines.join(`
+`)}
+
+`;
+}
+var CORRECTION_WORDS = [
+  "не то",
+  "не так",
+  "не это",
+  "опять",
+  "снова не",
+  "не работает",
+  "верни как было",
+  "я же просил",
+  "я же говорил",
+  "я же писал",
+  "зачем ты",
+  "почему ты",
+  "не надо было",
+  "не просил",
+  "ошибся",
+  "ошиблась",
+  "wrong",
+  "incorrect",
+  "redo",
+  "that's not",
+  "that is not",
+  "not what i",
+  "doesn't work",
+  "does not work",
+  "why did you",
+  "i said",
+  "i asked"
+];
+var CORRECTION_STEMS = ["неправильн", "неверн", "передела", "переделы", "слома", "откати", "revert", "broke"];
+var esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+var CORRECTION = new RegExp([...CORRECTION_WORDS.map((w) => `(?<!\\p{L})${esc(w)}(?!\\p{L})`), ...CORRECTION_STEMS.map((w) => `(?<!\\p{L})${esc(w)}`)].join("|"), "iu");
+var isCorrection = (text) => CORRECTION.test(text);
+var ZERO = { ownerMsgs: 0, corrections: 0, invoked: false, tokensIn: 0, tokensOut: 0, seen: [] };
+function applyTrialLines(c, lines, skill) {
+  const out = { ...c, seen: [...c.seen] };
+  for (const line of lines) {
+    if (!line)
+      continue;
+    let o;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (o.isSidechain === true)
+      continue;
+    if (o.type === "user" && !o.isMeta) {
+      const content = o.message?.content;
+      let text = "";
+      if (typeof content === "string") {
+        text = content.trim();
+        if (!text || text.startsWith("<"))
+          continue;
+      } else if (Array.isArray(content)) {
+        const parts = content;
+        if (parts.length === 0 || parts.some((p) => p?.type === "tool_result"))
+          continue;
+        if (!parts.some((p) => p?.type === "text" || p?.type === "image"))
+          continue;
+        text = parts.map((p) => p?.type === "text" && typeof p.text === "string" ? p.text : "").join(`
+`).trim();
+        if (text.startsWith("<"))
+          continue;
+      } else
+        continue;
+      out.ownerMsgs++;
+      if (text && text.length <= OWNER_PROMPT_MAX2 && isCorrection(text))
+        out.corrections++;
+    } else if (o.type === "assistant") {
+      const content = o.message?.content;
+      if (Array.isArray(content)) {
+        for (const part of content) {
+          if (part?.type === "tool_use" && part.name === "Skill" && part.input?.skill === skill)
+            out.invoked = true;
+        }
+      }
+      const id = o.message?.id;
+      const u = o.message?.usage;
+      if (typeof id === "string" && u && !out.seen.includes(id)) {
+        out.seen.push(id);
+        if (out.seen.length > SEEN_IDS2)
+          out.seen.shift();
+        out.tokensIn += (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+        out.tokensOut += u.output_tokens ?? 0;
+      }
+    }
+  }
+  return out;
+}
+function samePath(a, b) {
+  const norm = (p) => process.platform === "win32" ? p.replace(/\\/g, "/").toLowerCase() : p;
+  return norm(a) === norm(b);
+}
+function accountSkillTrial(dataRoot, sessionId, transcriptPath, unverified, now = new Date) {
+  if (!transcriptPath || !trialActive(dataRoot))
+    return;
+  let db;
+  try {
+    db = openTrialDb(dataRoot);
+  } catch {
+    return;
+  }
+  try {
+    const rows = db.query("SELECT skill, transcript, byte_offset, owner_msgs, corrections, invoked, tokens_in, tokens_out, unverified, seen FROM skill_trial WHERE session_id=?").all(sessionId);
+    const update = db.query("UPDATE skill_trial SET byte_offset=?, owner_msgs=?, corrections=?, invoked=?, tokens_in=?, tokens_out=?, unverified=?, seen=?, transcript=?, updated_at=? WHERE session_id=? AND skill=? AND byte_offset=?");
+    const reread = db.query("SELECT skill, transcript, byte_offset, owner_msgs, corrections, invoked, tokens_in, tokens_out, unverified, seen FROM skill_trial WHERE session_id=? AND skill=?");
+    for (const first of rows) {
+      let r = first;
+      for (let attempt = 0;r && attempt < 3; attempt++) {
+        const same = !r.transcript || samePath(r.transcript, transcriptPath);
+        let c = same ? { ownerMsgs: r.owner_msgs, corrections: r.corrections, invoked: r.invoked === 1, tokensIn: r.tokens_in, tokensOut: r.tokens_out, seen: JSON.parse(r.seen) } : ZERO;
+        let read = readNewLines(transcriptPath, same ? r.byte_offset : 0);
+        if (!read)
+          break;
+        if (read.next === -1) {
+          c = ZERO;
+          read = readNewLines(transcriptPath, 0);
+          if (!read || read.next === -1)
+            break;
+        }
+        if (same && read.next === r.byte_offset && unverified === r.unverified)
+          break;
+        c = applyTrialLines(c, read.lines, r.skill);
+        const res = update.run(read.next, c.ownerMsgs, c.corrections, c.invoked ? 1 : 0, c.tokensIn, c.tokensOut, unverified, JSON.stringify(c.seen), transcriptPath, now.toISOString(), sessionId, r.skill, r.byte_offset);
+        if (Number(res.changes) > 0)
+          break;
+        r = reread.get(sessionId, r.skill);
+      }
+    }
+  } catch {} finally {
+    db.close();
+  }
+}
+var ACTIVATION_LOOK = 10;
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = a + 1831565813 >>> 0;
+    let x = Math.imul(a ^ a >>> 15, 1 | a);
+    x = x + Math.imul(x ^ x >>> 7, 61 | x) ^ x;
+    return ((x ^ x >>> 14) >>> 0) / 4294967296;
+  };
+}
+var mean = (xs) => xs.length === 0 ? 0 : xs.reduce((s, x) => s + x, 0) / xs.length;
+function median(xs) {
+  if (xs.length === 0)
+    return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+function permutationP(a, b, seed = 1, resamples = PERMUTATIONS) {
+  if (a.length === 0 || b.length === 0)
+    return 1;
+  const observed = Math.abs(mean(a) - mean(b));
+  const pool = [...a, ...b];
+  const total = pool.reduce((s, x) => s + x, 0);
+  const rnd = mulberry32(seed);
+  let extreme = 0;
+  for (let r = 0;r < resamples; r++) {
+    let sumA = 0;
+    for (let i = 0;i < a.length; i++) {
+      const j = i + Math.floor(rnd() * (pool.length - i));
+      const tmp = pool[i];
+      pool[i] = pool[j];
+      pool[j] = tmp;
+      sumA += pool[i];
+    }
+    const diff = Math.abs(sumA / a.length - (total - sumA) / b.length);
+    if (diff >= observed - 0.000000000001)
+      extreme++;
+  }
+  return (extreme + 1) / (resamples + 1);
+}
+function summarize(d, w) {
+  return {
+    delivered: d.length,
+    withheld: w.length,
+    corrDelivered: mean(d.map((r) => r.corrections)),
+    corrWithheld: mean(w.map((r) => r.corrections)),
+    msgsDelivered: mean(d.map((r) => r.ownerMsgs)),
+    msgsWithheld: mean(w.map((r) => r.ownerMsgs)),
+    unverifiedDelivered: mean(d.map((r) => r.unverified)),
+    unverifiedWithheld: mean(w.map((r) => r.unverified)),
+    tokensDelivered: median(d.map((r) => r.tokensIn + r.tokensOut)),
+    tokensWithheld: median(w.map((r) => r.tokensIn + r.tokensOut))
+  };
+}
+var FINAL = new Set(["not-invoked", "helps", "hurts", "unclear"]);
+function trialVerdict(rows, decided = new Map) {
+  const sample = rows.filter((r) => r.ownerMsgs >= 1);
+  const d = sample.filter((r) => r.arm === "delivered");
+  const w = sample.filter((r) => r.arm === "withheld");
+  const share = (xs) => xs.length === 0 ? 0 : xs.filter((r) => r.invoked).length / xs.length;
+  const ready = (until) => !rows.some((r) => !r.finished && r.startedAt <= until);
+  const current2 = { kind: "pending", ...summarize(d, w), invokedShare: share(d), p: null };
+  const fresh = [];
+  const early = decided.get(ACTIVATION_LOOK);
+  if (early) {
+    if (early.kind === "not-invoked")
+      return { verdict: early, decided: fresh };
+  } else if (d.length >= MIN_DELIVERED_FOR_ACTIVATION) {
+    const first = d.slice(0, MIN_DELIVERED_FOR_ACTIVATION);
+    if (ready(first[first.length - 1].startedAt)) {
+      const s = share(first);
+      const v = { ...current2, kind: s < 0.5 ? "not-invoked" : "pending", invokedShare: s };
+      fresh.push([ACTIVATION_LOOK, v]);
+      if (v.kind === "not-invoked")
+        return { verdict: v, decided: fresh };
+    }
+  }
+  for (const look of [MIN_CONTROL, MAX_CONTROL]) {
+    const known = decided.get(look);
+    if (known) {
+      if (FINAL.has(known.kind))
+        return { verdict: known, decided: fresh };
+      continue;
+    }
+    if (w.length < look)
+      break;
+    const ctrl = w.slice(0, look);
+    const until = ctrl[look - 1].startedAt;
+    if (!ready(until))
+      break;
+    const treat = d.filter((r) => r.startedAt <= until);
+    const last = look === MAX_CONTROL;
+    let v;
+    if (treat.length < MIN_CONTROL) {
+      v = { kind: last ? "unclear" : "pending", ...summarize(treat, ctrl), invokedShare: share(treat), p: null };
+    } else {
+      const p = permutationP(treat.map((r) => r.corrections), ctrl.map((r) => r.corrections));
+      const stats = summarize(treat, ctrl);
+      const kind = p < ALPHA ? stats.corrDelivered < stats.corrWithheld ? "helps" : "hurts" : last ? "unclear" : "pending";
+      v = { kind, ...stats, invokedShare: share(treat), p };
+    }
+    fresh.push([look, v]);
+    if (FINAL.has(v.kind))
+      return { verdict: v, decided: fresh };
+  }
+  return { verdict: current2, decided: fresh };
+}
+function trialRows(db, skill, now) {
+  const cutoff = new Date(now.getTime() - FINISHED_MS).toISOString();
+  const rows = db.query("SELECT arm, started_at, updated_at, owner_msgs, corrections, invoked, tokens_in, tokens_out, unverified FROM skill_trial WHERE skill=? AND (owner_msgs>=1 OR updated_at>?) ORDER BY started_at, session_id").all(skill, cutoff);
+  return rows.map((r) => ({
+    arm: r.arm === "withheld" ? "withheld" : "delivered",
+    startedAt: r.started_at,
+    finished: r.updated_at <= cutoff,
+    ownerMsgs: r.owner_msgs,
+    corrections: r.corrections,
+    invoked: r.invoked === 1,
+    tokensIn: r.tokens_in,
+    tokensOut: r.tokens_out,
+    unverified: r.unverified
+  }));
+}
+function decidedLooks(db, skill) {
+  const out = new Map;
+  const rows = db.query("SELECT look, verdict FROM skill_trial_look WHERE skill=?").all(skill);
+  for (const r of rows) {
+    try {
+      out.set(r.look, JSON.parse(r.verdict));
+    } catch {}
+  }
+  return out;
+}
+function verdictFor(db, skill, now, persist) {
+  const res = trialVerdict(trialRows(db, skill, now), decidedLooks(db, skill));
+  if (persist) {
+    const ins = db.query("INSERT OR IGNORE INTO skill_trial_look(skill, look, verdict, decided_at) VALUES(?,?,?,?)");
+    for (const [look, v] of res.decided)
+      ins.run(skill, look, JSON.stringify(v), now.toISOString());
+  }
+  return res.verdict;
+}
+var pct = (x) => `${Math.round(x * 100)}%`;
+var num2 = (x) => (Math.round(x * 100) / 100).toString();
+var kTok = (x) => `${Math.round(x / 1000)}k`;
+function renderVerdict(skill, v) {
+  const facts = t(`поправок на сессию ${num2(v.corrDelivered)} против ${num2(v.corrWithheld)}; сообщений на сессию ${num2(v.msgsDelivered)} против ${num2(v.msgsWithheld)}; правок без проверки ${num2(v.unverifiedDelivered)} против ${num2(v.unverifiedWithheld)}; токенов на сессию (медиана) ${kTok(v.tokensDelivered)} против ${kTok(v.tokensWithheld)}; ${v.delivered} сессий с навыком, ${v.withheld} без`, `corrections per session ${num2(v.corrDelivered)} vs ${num2(v.corrWithheld)}; messages per session ${num2(v.msgsDelivered)} vs ${num2(v.msgsWithheld)}; unverified edits ${num2(v.unverifiedDelivered)} vs ${num2(v.unverifiedWithheld)}; tokens per session (median) ${kTok(v.tokensDelivered)} vs ${kTok(v.tokensWithheld)}; ${v.delivered} sessions with the skill, ${v.withheld} without`);
+  const head = t(`Symbiont · замер навыка ${skill}`, `Symbiont · ${skill} skill trial`);
+  switch (v.kind) {
+    case "not-invoked":
+      return t(`${head}: в первых ${MIN_DELIVERED_FOR_ACTIVATION} сессиях с указанием модель вызвала навык только в ${pct(v.invokedShare)} — указание не работает, замер бессмыслен. Нужно менять способ подачи; после смены удалите ${TRIAL_DB} в корне данных — замер начнётся заново.`, `${head}: in the first ${MIN_DELIVERED_FOR_ACTIVATION} sessions with the directive the model invoked the skill in only ${pct(v.invokedShare)} — the directive does not work and the trial is meaningless. The delivery method needs to change; after changing it, delete ${TRIAL_DB} in the data root and the trial starts over.`);
+    case "helps":
+      return t(`${head} готов: с навыком поправлять приходилось реже (${facts}). Рекомендация — оставить и закончить замер.`, `${head} is done: with the skill corrections were needed less often (${facts}). Recommendation: keep it and end the trial.`);
+    case "hurts":
+      return t(`${head} готов: с навыком поправлять приходилось чаще (${facts}). Рекомендация — выключить навык.`, `${head} is done: with the skill corrections were needed more often (${facts}). Recommendation: turn the skill off.`);
+    case "unclear":
+      return t(`${head} готов: разницы не видно (${facts}). Пользы не доказано — решите по цене: оставить или выключить.`, `${head} is done: no difference is visible (${facts}). No benefit was shown — decide by cost: keep it or turn it off.`);
+    default:
+      return "";
+  }
+}
+function dueNotice(db, skill, now) {
+  const v = verdictFor(db, skill, now, true);
+  const text = renderVerdict(skill, v);
+  if (!text)
+    return { verdict: "", progress: dueProgress(db, skill, v, now) };
+  const day = now.toISOString().slice(0, 10);
+  const res = db.query("INSERT INTO skill_trial_notice(skill, day) VALUES(?,?) ON CONFLICT(skill) DO UPDATE SET day=excluded.day WHERE skill_trial_notice.day < excluded.day").run(skill, day);
+  return { verdict: Number(res.changes) > 0 ? text : "", progress: "" };
+}
+var PROGRESS_EVERY_DAYS = 7;
+function dueProgress(db, skill, v, now) {
+  const day = now.toISOString().slice(0, 10);
+  const cutoff = new Date(now.getTime() - PROGRESS_EVERY_DAYS * 86400000).toISOString().slice(0, 10);
+  const res = db.query("INSERT INTO skill_trial_notice(skill, day) VALUES(?,?) ON CONFLICT(skill) DO UPDATE SET day=excluded.day WHERE skill_trial_notice.day <= ?").run(`${skill}#progress`, day, cutoff);
+  if (Number(res.changes) === 0)
+    return "";
+  return t(`Symbiont · идёт замер навыка ${skill} (напоминание раз в неделю, делать ничего не нужно): сессий с навыком ${v.delivered}, без навыка ${v.withheld}; вердикт — на ${MIN_CONTROL} и ${MAX_CONTROL} сессиях без навыка; модель вызвала навык в ${pct(v.invokedShare)} сессий с ним.`, `Symbiont · the ${skill} skill trial is running (weekly reminder, nothing to do): ${v.delivered} sessions with the skill, ${v.withheld} without; the verdict comes at ${MIN_CONTROL} and ${MAX_CONTROL} sessions without the skill; the model invoked the skill in ${pct(v.invokedShare)} of the sessions that had it.`);
+}
+function renderTrialStatus(dataRoot, now = new Date, env = process.env) {
+  const cfg = readTrialConfig(dataRoot);
+  if (!cfg)
+    return "";
+  const out = [];
+  const missing = cfg.skills.filter((s) => skillFile(s, env) === null);
+  for (const s of missing)
+    out.push(t(`${s}: файла навыка в личных навыках нет — не подаётся`, `${s}: no skill file among personal skills — not delivered`));
+  const live = cfg.skills.filter((s) => !missing.includes(s));
+  if (cfg.holdout <= 0) {
+    for (const s of live)
+      out.push(t(`${s}: замер окончен (holdout 0) — навык подаётся во всех сессиях`, `${s}: trial over (holdout 0) — the skill is delivered in every session`));
+    return out.join(`
+`);
+  }
+  if (!existsSync10(join17(dataRoot, TRIAL_DB))) {
+    for (const s of live)
+      out.push(t(`${s}: замер включён, сессий ещё нет`, `${s}: trial enabled, no sessions yet`));
+    return out.join(`
+`);
+  }
+  let db;
+  try {
+    db = openTrialDb(dataRoot);
+  } catch {
+    return out.join(`
+`);
+  }
+  try {
+    for (const skill of live) {
+      const v = verdictFor(db, skill, now, false);
+      out.push(renderVerdict(skill, v) || t(`${skill}: с навыком ${v.delivered} · без ${v.withheld} (вердикт на ${MIN_CONTROL} и ${MAX_CONTROL}) · модель вызвала в ${pct(v.invokedShare)} · поправок на сессию ${num2(v.corrDelivered)} / ${num2(v.corrWithheld)}`, `${skill}: with the skill ${v.delivered} · without ${v.withheld} (verdict at ${MIN_CONTROL} and ${MAX_CONTROL}) · model invoked in ${pct(v.invokedShare)} · corrections per session ${num2(v.corrDelivered)} / ${num2(v.corrWithheld)}`));
+    }
+    return out.join(`
+`);
+  } catch {
+    return out.join(`
+`);
+  } finally {
+    db.close();
+  }
+}
+
 // src/hooks/session-start-core.ts
 init_i18n();
 function writePair(db, body) {
@@ -6772,7 +7409,7 @@ function detectCorrections(db, cwd, currentSid) {
     }
     let corrected = false;
     try {
-      const nowContent = snapshotContent(readFileSync17(join17(cwd, r.file), "utf8"));
+      const nowContent = snapshotContent(readFileSync18(join18(cwd, r.file), "utf8"));
       corrected = sha1(nowContent) !== r.hash;
     } catch {}
     if (!writePair(db, () => {
@@ -6877,19 +7514,39 @@ function restMore(dropped) {
   return t(`ещё ${dropped} — не вместилось в лимит подачи`, `${dropped} more — did not fit the delivery limit`);
 }
 var PASSPORT_FLOOR = 5000;
-function composeContext(summary, tail, footer, summaryPath, value = () => 1) {
-  const budget = HOOK_TEXT_BUDGET - footer.length;
-  const room = Math.min(CONTEXT_CHAR_BUDGET, Math.max(PASSPORT_FLOOR, budget - tail.length));
+function composeContext(summary, tail, footer, summaryPath, value = () => 1, reserved = 0) {
+  const budget = Math.max(0, HOOK_TEXT_BUDGET - footer.length - reserved);
+  const room = Math.min(CONTEXT_CHAR_BUDGET, Math.max(Math.min(PASSPORT_FLOOR, budget), budget - tail.length));
   const passport = fitToBudget(summary, room, summaryPath, value);
-  const rest = passport.length + tail.length > budget ? fitToBudget(tail, budget - passport.length, null, value, restMore) : tail;
+  const rest = passport.length + tail.length > budget ? fitToBudget(tail, Math.max(0, budget - passport.length), null, value, restMore) : tail;
   return `${passport}${rest}${footer}`;
+}
+function trialOnly(trial) {
+  const out = {};
+  if (trial.context)
+    out.hookSpecificOutput = { hookEventName: "SessionStart", additionalContext: trial.context.trimEnd() };
+  if (trial.notice)
+    out.systemMessage = trial.notice;
+  return out;
 }
 function handleSessionStart(input, dataRoot) {
   const cwd = input.cwd ?? process.cwd();
-  const dataDir = join17(dataRoot, slugOf(cwd));
+  const dataDir = join18(dataRoot, slugOf(cwd));
   mkdirSync3(dataDir, { recursive: true });
   initLang(dataDir, cwd);
   beat(dataDir, "SessionStart", { source: input.source ?? null });
+  let trial = { context: "", notice: "" };
+  if (input.session_id) {
+    try {
+      trial = startSkillTrial(dataRoot, {
+        sessionId: input.session_id,
+        source: input.source ?? null,
+        transcriptPath: input.transcript_path ?? null,
+        host: agentHost(),
+        now: new Date
+      });
+    } catch {}
+  }
   try {
     const r = buildPassport(cwd, dataDir);
     let reconciled = 0;
@@ -6906,7 +7563,7 @@ function handleSessionStart(input, dataRoot) {
     let lineValue = () => 1;
     const g = gitState(cwd);
     try {
-      const db = openDb(join17(dataDir, "passport.db"));
+      const db = openDb(join18(dataDir, "passport.db"));
       const log = new SessionLog(db);
       const sid = input.session_id ?? `manual-${Date.now()}`;
       diagLine = renderDiagnosis(silentChannels(readBeats(dataDir), log.recentStarts(sid)));
@@ -6988,12 +7645,12 @@ ${voicedBlock}
 ` : ""}`;
     let summary = "";
     try {
-      summary = readFileSync17(r.summaryPath, "utf8");
+      summary = readFileSync18(r.summaryPath, "utf8");
     } catch {}
     if (!summary.includes("## "))
       summary = "";
     if (!summary && !constBlock)
-      return {};
+      return trialOnly(trial);
     const overflowLine = renderOverflow(dataDir);
     let stateBlock = g ? `
 ${renderGitBlock(g, reconciled)}` : "";
@@ -7014,7 +7671,7 @@ ${entryBlock}
 ` : "";
     let frameSection = "";
     try {
-      const frame = readFileSync17(join17(dataDir, "frame.md"), "utf8").trim();
+      const frame = readFileSync18(join18(dataDir, "frame.md"), "utf8").trim();
       if (frame)
         frameSection = `
 ${frame}
@@ -7023,19 +7680,22 @@ ${frame}
     const freshness = r.factsExecuted ? t("свежий пересчёт", "freshly recomputed") : t("кэш (код не менялся)", "cache (the code has not changed)");
     const footer = `
 _Symbiont · ${freshness} · ${t("подробнее по требованию", "more on demand")}: passport_conventions / passport_history_`;
-    return {
+    const out = {
       hookSpecificOutput: {
         hookEventName: "SessionStart",
-        additionalContext: composeContext(summary, `${constBlock}${frameSection}${stateBlock}${entrySection}`, footer, r.summaryPath, lineValue)
+        additionalContext: `${trial.context}${composeContext(summary, `${constBlock}${frameSection}${stateBlock}${entrySection}`, footer, r.summaryPath, lineValue, trial.context.length)}`
       }
     };
+    if (trial.notice)
+      out.systemMessage = trial.notice;
+    return out;
   } catch (e) {
     try {
-      appendFileSync(join17(dataDir, "errors.log"), `${new Date().toISOString()} SessionStart: ${String(e)}
+      appendFileSync(join18(dataDir, "errors.log"), `${new Date().toISOString()} SessionStart: ${String(e)}
 `, "utf8");
     } catch {}
-    return {};
+    return trialOnly(trial);
   }
 }
 
-export { slugOf, lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, emitHookOutput, inspectRuntime, runtimeBlocker, silentSpawnOptions, claudeBin, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, isTestPath, init_signals, guardTests, renderTestGuard, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, markVisited, summaryFor, contentHashOf, contentHashes, pendingSummaries, runZSummaries, summaryStats, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, MATERIAL_SOURCE, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, goneAtStart, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, registeredChannels, beat, lastRun, runWorks, renderSkipped, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, patchPaths, transcriptLines, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, fitToBudget, handleSessionStart };
+export { slugOf, lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, emitHookOutput, inspectRuntime, runtimeBlocker, silentSpawnOptions, claudeBin, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, isTestPath, init_signals, guardTests, renderTestGuard, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, markVisited, summaryFor, contentHashOf, contentHashes, pendingSummaries, runZSummaries, summaryStats, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, MATERIAL_SOURCE, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, goneAtStart, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, registeredChannels, beat, lastRun, runWorks, renderSkipped, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, patchPaths, transcriptLines, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, accountFeedCost, feedCostStats, renderFeedCost, trialActive, accountSkillTrial, renderTrialStatus, fitToBudget, handleSessionStart };

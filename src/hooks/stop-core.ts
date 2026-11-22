@@ -33,6 +33,7 @@ import { goneAtStart } from './session-baseline'
 import { harvestVoiced } from '../gardener/voiced'
 import { markCited } from '../gardener/cited'
 import { accountFeedCost } from '../gardener/feed-cost'
+import { accountSkillTrial, trialActive } from '../gardener/skill-trial'
 import { toRelNode } from './post-tool-core'
 import { slugOf } from './session-start-core'
 import { beat } from './heartbeat'
@@ -203,7 +204,12 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
     initLang(dataDir, cwd)
     beat(dataDir, 'Stop')
     const dbPath = join(dataDir, 'passport.db')
-    if (!existsSync(dbPath)) return {}
+    if (!existsSync(dbPath)) {
+      // Паспорта нет, а указание владельца подаётся и без него — признаки
+      // сессии всё равно считаются (поимок гейта здесь нет по определению)
+      if (input.session_id && trialActive(dataRoot)) accountSkillTrial(dataRoot, input.session_id, input.transcript_path ?? null, 0)
+      return {}
+    }
 
     const db = openDb(dbPath)
     try {
@@ -520,10 +526,25 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
         .filter((v) => Number(dedup.run(sid, v.file, v.law).changes) > 0)
         .map((v) => `- ${v.file} · ${t(`«${statement(v.law)}»`, `“${statement(v.law)}”`)} · ${v.detail}`)
 
+      // Замер навыков владельца — с того же транскрипта; поимки гейта
+      // доказательств — из журнала гейта проекта. Здесь, ПОСЛЕ записи поимок
+      // этого хода (в режиме блокировки они ложатся строкой выше), и до всех
+      // выходов ниже (gardener/skill-trial.ts)
+      if (trialActive(dataRoot)) {
+        try {
+          const unverified = (
+            db.query("SELECT COUNT(*) n FROM gate_log WHERE session_id=? AND (file='#доказательства' OR law='доказательства')").get(sid) as { n: number }
+          ).n
+          accountSkillTrial(dataRoot, sid, transcript, unverified)
+        } catch {
+          /* замер — телеметрия: без него гейт и наблюдения хода уже отданы */
+        }
+      }
+
       db.run(
         'CREATE TABLE IF NOT EXISTS gate_fuse(session_id TEXT PRIMARY KEY, streak INTEGER NOT NULL DEFAULT 0, released INTEGER NOT NULL DEFAULT 0)',
       )
-      const fuse = (db.query('SELECT streak, released FROM gate_fuse WHERE session_id=?').get(sid) as {
+      const fuse =(db.query('SELECT streak, released FROM gate_fuse WHERE session_id=?').get(sid) as {
         streak: number
         released: number
       } | null) ?? { streak: 0, released: 0 }

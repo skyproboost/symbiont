@@ -5,8 +5,9 @@
  * Чистые функции над passport.db — тестируются без процесса.
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { openDb, type Database } from '../core/db'
+import { renderTrialStatus } from '../gardener/skill-trial'
 import { t, tier as tierName, statement } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
 import { isDue } from '../core/schedule'
@@ -250,6 +251,18 @@ export function buildStatusReport(dataDir: string): string {
       }
     } catch {
       /* признака нет — состояние обычное, показывать нечего */
+    }
+
+    // Замер навыков владельца: выборка общая для всех проектов, корень данных —
+    // родитель каталога проекта. Вердикт приходит сам; здесь — ход замера
+    try {
+      const trial = renderTrialStatus(dirname(dataDir))
+      if (trial) {
+        const [first, ...rest] = trial.split('\n')
+        L.push(` ${pad(t('Замер навыков', 'Skill trial'), 16)} ${first}`, ...rest.map((l) => `${' '.repeat(18)}${l}`), '')
+      }
+    } catch {
+      /* замера нет — молчим */
     }
 
     // Ленивый зум: у скольких посещённых узлов уже выведена роль (z1) и сколько

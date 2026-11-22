@@ -70,8 +70,9 @@ function loadState(db: Database, sid: string): CostState {
 /**
  * Прочитать новые полные строки транскрипта после смещения. Незавершённая
  * последняя строка (сессия пишет прямо сейчас) остаётся на следующий раз.
+ * Экспорт — для замера навыков (skill-trial.ts): форма чтения одна.
  */
-function readNewLines(path: string, offset: number): { lines: string[]; next: number } | null {
+export function readNewLines(path: string, offset: number): { lines: string[]; next: number } | null {
   let fd: number
   try {
     fd = openSync(path, 'r')
@@ -82,9 +83,11 @@ function readNewLines(path: string, offset: number): { lines: string[]; next: nu
     const size = fstatSync(fd).size
     if (size < offset) return { lines: [], next: -1 } // файл короче прочитанного: это уже другой файл
     if (size === offset) return { lines: [], next: offset }
+    // Короткое чтение возможно (файл пишется прямо сейчас): режем по прочитанному,
+    // иначе хвост из нулей буфера ушёл бы в разбор
     const buf = Buffer.alloc(size - offset)
-    readSync(fd, buf, 0, buf.length, offset)
-    const end = buf.lastIndexOf(0x0a)
+    const got = readSync(fd, buf, 0, buf.length, offset)
+    const end = buf.subarray(0, got).lastIndexOf(0x0a)
     if (end < 0) return { lines: [], next: offset }
     return { lines: buf.subarray(0, end).toString('utf8').split('\n'), next: offset + end + 1 }
   } finally {

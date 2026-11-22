@@ -1,7 +1,7 @@
 import {
   migrateLegacyPassports,
   resolveDataRoot
-} from "./codex-call-pxxba9as.js";
+} from "./codex-call-1chfyq5a.js";
 import {
   initLang,
   init_i18n,
@@ -11,7 +11,7 @@ import {
   slugOf,
   t,
   upsertConstitution
-} from "./codex-call-qxxgrqz0.js";
+} from "./codex-call-3wacacvb.js";
 import"./codex-call-b1s33asb.js";
 import"./codex-call-rvra3cez.js";
 

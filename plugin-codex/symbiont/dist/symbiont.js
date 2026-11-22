@@ -6,12 +6,10 @@ import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./codex-call-fbsjv0g5.js";
+} from "./codex-call-8jaj7fze.js";
 import {
-  citedStats,
-  feedCostStats,
-  renderFeedCost
-} from "./codex-call-bbb3f8dx.js";
+  citedStats
+} from "./codex-call-sypw6jyj.js";
 import {
   readGateMode
 } from "./codex-call-yvd28w11.js";
@@ -22,7 +20,7 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./codex-call-pxxba9as.js";
+} from "./codex-call-1chfyq5a.js";
 import {
   FactStore,
   REPORTED_WORKS,
@@ -31,6 +29,7 @@ import {
   computeHealth,
   contentHashOf,
   effectiveHeat,
+  feedCostStats,
   hotspotsFromGit,
   initLang,
   init_i18n,
@@ -43,6 +42,8 @@ import {
   registeredChannels,
   renderDrift,
   renderDriftReport,
+  renderFeedCost,
+  renderTrialStatus,
   renderTruth,
   renderUtility,
   runtimeBlocker,
@@ -54,7 +55,7 @@ import {
   t,
   tier,
   zoneOfArea
-} from "./codex-call-qxxgrqz0.js";
+} from "./codex-call-3wacacvb.js";
 import"./codex-call-b1s33asb.js";
 import {
   __require
@@ -66,7 +67,7 @@ import { existsSync as existsSync3, writeFileSync } from "node:fs";
 
 // src/cli/reports.ts
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 init_i18n();
 
 // src/gardener/review.ts
@@ -240,6 +241,14 @@ function buildStatusReport(dataDir) {
       const until = networkDownUntil(dataDir, Date.now());
       if (until !== null) {
         L.push(` ${pad(t("Сеть", "Network"), 16)} ${t("недоступна — следующая проба после", "unavailable — next attempt after")} ${new Date(until).toLocaleTimeString(t("ru-RU", "en-GB"), { hour: "2-digit", minute: "2-digit" })}`, "");
+      }
+    } catch {}
+    try {
+      const trial = renderTrialStatus(dirname(dataDir));
+      if (trial) {
+        const [first, ...rest] = trial.split(`
+`);
+        L.push(` ${pad(t("Замер навыков", "Skill trial"), 16)} ${first}`, ...rest.map((l) => `${" ".repeat(18)}${l}`), "");
       }
     } catch {}
     try {

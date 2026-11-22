@@ -1,6 +1,6 @@
 {
   "name": "symbiont",
-  "version": "0.138.0+codex.compat1",
+  "version": "0.139.0+codex.compat1",
   "description": "A living passport of your project: conventions, precedents and a quality profile — derived from the code itself and delivered to every session.",
   "author": {
     "name": "skyproboost"

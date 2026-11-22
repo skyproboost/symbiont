@@ -1,31 +1,30 @@
 import {
-  accountFeedCost,
   markCited
-} from "./codex-call-bbb3f8dx.js";
+} from "./codex-call-sypw6jyj.js";
 import {
   applyRules,
   readRules
-} from "./codex-call-807dazwp.js";
+} from "./codex-call-0zgdfh3p.js";
 import {
   evidenceFromTranscript,
   runHistory
-} from "./codex-call-e62pq0a3.js";
+} from "./codex-call-ereyk6ee.js";
 import {
   readGateMode
 } from "./codex-call-yvd28w11.js";
 import {
   checkAgainstLaws,
   lawsForFile
-} from "./codex-call-pp1qqpts.js";
-import"./codex-call-f9cazs4r.js";
+} from "./codex-call-thkw2csq.js";
+import"./codex-call-pwyqcsmb.js";
 import"./codex-call-8ychq3hk.js";
 import"./codex-call-046cybce.js";
 import"./codex-call-vgezmhw1.js";
 import {
   toRelNode
-} from "./codex-call-peq4c7qm.js";
+} from "./codex-call-pq9pcgtz.js";
 import"./codex-call-psab7pqj.js";
-import"./codex-call-dfpy0wrg.js";
+import"./codex-call-wy53kzbe.js";
 import {
   readStdinJson
 } from "./codex-call-p89re5se.js";
@@ -34,12 +33,14 @@ import {
 } from "./codex-call-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./codex-call-pxxba9as.js";
+} from "./codex-call-1chfyq5a.js";
 import {
   ENTITY_EXT,
   ENV_TEMPLATES,
   FactStore,
   SessionLog,
+  accountFeedCost,
+  accountSkillTrial,
   beat,
   contentVerifierActive,
   emitHookOutput,
@@ -64,8 +65,9 @@ import {
   slugOf,
   snapshotContent,
   statement,
-  t
-} from "./codex-call-qxxgrqz0.js";
+  t,
+  trialActive
+} from "./codex-call-3wacacvb.js";
 import {
   agentHost
 } from "./codex-call-b1s33asb.js";
@@ -894,8 +896,11 @@ function handleStop(input, dataRoot) {
     initLang(dataDir, cwd);
     beat(dataDir, "Stop");
     const dbPath = join3(dataDir, "passport.db");
-    if (!existsSync2(dbPath))
+    if (!existsSync2(dbPath)) {
+      if (input.session_id && trialActive(dataRoot))
+        accountSkillTrial(dataRoot, input.session_id, input.transcript_path ?? null, 0);
       return {};
+    }
     const db = openDb(dbPath);
     try {
       const laws = new FactStore(db).active().filter((f) => f.tier === "закон");
@@ -1044,6 +1049,12 @@ function handleStop(input, dataRoot) {
       } catch {}
       const observations = [...evidenceLines, ...testLines, ...focusLines, ...budgetLines, parallelLine].filter(Boolean);
       const freshLines = all.filter((v) => Number(dedup.run(sid, v.file, v.law).changes) > 0).map((v) => `- ${v.file} · ${t(`«${statement(v.law)}»`, `“${statement(v.law)}”`)} · ${v.detail}`);
+      if (trialActive(dataRoot)) {
+        try {
+          const unverified = db.query("SELECT COUNT(*) n FROM gate_log WHERE session_id=? AND (file='#доказательства' OR law='доказательства')").get(sid).n;
+          accountSkillTrial(dataRoot, sid, transcript, unverified);
+        } catch {}
+      }
       db.run("CREATE TABLE IF NOT EXISTS gate_fuse(session_id TEXT PRIMARY KEY, streak INTEGER NOT NULL DEFAULT 0, released INTEGER NOT NULL DEFAULT 0)");
       const fuse = db.query("SELECT streak, released FROM gate_fuse WHERE session_id=?").get(sid) ?? { streak: 0, released: 0 };
       const observationBlock = observations.length > 0 ? `Symbiont · ${t("наблюдение о ходе работы (факт, не требование)", "an observation about how the work is going (a fact, not a demand)")}:

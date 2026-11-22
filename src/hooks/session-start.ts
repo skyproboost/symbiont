@@ -13,7 +13,9 @@ const input = readStdinJson<SessionStartInput>()
 const res = resolveDataRoot(join(import.meta.dirname, '..', '..', '.data'))
 migrateLegacyPassports(res) // идемпотентно: разово переносит паспорта из версионированных установок
 const out = handleSessionStart(input, res.root)
-if (out.hookSpecificOutput) emitHookOutput(out, 'SessionStart', res.root, input.cwd)
+// systemMessage бывает и без контекста: вердикт замера навыков владельцу в
+// контрольной сессии пустого проекта (gardener/skill-trial.ts)
+if (out.hookSpecificOutput || out.systemMessage) emitHookOutput(out, 'SessionStart', res.root, input.cwd)
 
 // Фоновое обслуживание — ОДИН детач-процесс (слой 1 всегда + LLM-петля по сырью,
 // само-гейт внутри). Хук выходит мгновенно после выдачи сводки: не держим клиент

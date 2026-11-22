@@ -102,13 +102,15 @@ export class SessionLog {
     source: string | null,
     now = new Date().toISOString(),
     transcriptPath: string | null = null,
-  ): void {
-    // resume той же сессии не перезаписывает первый старт
-    this.db
+  ): boolean {
+    // resume той же сессии не перезаписывает первый старт. Ответ — открыта ли
+    // сессия этим вызовом: то, что делается однажды на сессию, решается по нему
+    const res = this.db
       .query(
         'INSERT INTO sessions(session_id, source, started_at, transcript_path) VALUES(?,?,?,?) ON CONFLICT(session_id) DO NOTHING',
       )
       .run(sessionId, source, now, transcriptPath)
+    return Number(res.changes) > 0
   }
 
   close(sessionId: string, reason: string, now = new Date().toISOString()): void {
@@ -194,7 +196,7 @@ export class SessionLog {
     if (recent.length < keep) return // ещё мало сессий — чистить нечего
     const ids = recent.map((r) => r.session_id)
     const placeholders = ids.map(() => '?').join(',')
-    for (const table of ['jit_log', 'gate_log', 'model_state', 'gate_fuse', 'session_edits', 'feed_cost']) {
+    for (const table of ['jit_log', 'gate_log', 'model_state', 'gate_fuse', 'session_edits', 'session_gone', 'feed_cost']) {
       try {
         this.db.query(`DELETE FROM ${table} WHERE session_id NOT IN (${placeholders})`).run(...ids)
       } catch {

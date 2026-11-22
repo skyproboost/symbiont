@@ -2,25 +2,30 @@ import {
   digestForFile,
   readGrounding,
   renderCorrection
-} from "./codex-call-2295bdpd.js";
-import {
-  indexedHash,
-  readOutline
-} from "./codex-call-psab7pqj.js";
+} from "./codex-call-f9cazs4r.js";
 import {
   playbooksFor,
   renderPlaybookBrief
 } from "./codex-call-8ychq3hk.js";
+import {
+  zoneOf
+} from "./codex-call-vgezmhw1.js";
+import {
+  handlePostToolFailure,
+  isRejectedWrite,
+  toRelNode
+} from "./codex-call-peq4c7qm.js";
+import {
+  indexedHash,
+  readOutline
+} from "./codex-call-psab7pqj.js";
 import {
   claimNode,
   ensureFeedLog,
   markUsed,
   nodeBrief,
   outlineKey
-} from "./codex-call-zygxj77t.js";
-import {
-  zoneOf
-} from "./codex-call-vgezmhw1.js";
+} from "./codex-call-dfpy0wrg.js";
 import {
   EDIT_TOUCH_WEIGHT,
   FactStore,
@@ -50,12 +55,12 @@ import {
   t,
   zoneAncestors,
   zoneOfArea
-} from "./codex-call-21dvb3ma.js";
+} from "./codex-call-qxxgrqz0.js";
 
 // src/hooks/post-tool-core.ts
-init_i18n();
 import { existsSync, readFileSync } from "node:fs";
-import { extname as extname2, join, relative } from "node:path";
+import { extname as extname2, join } from "node:path";
+init_i18n();
 
 // src/gates/checks.ts
 init_i18n();
@@ -256,15 +261,6 @@ function renderPhantom(p) {
 var WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 var TOUCH_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Read"]);
 var MAX_CONTENT = 1e6;
-var SKIP_ZONES = /(^|\/)(node_modules|\.git|\.data|dist|build|\.nuxt|vendor)(\/|$)/;
-function toRelNode(cwd, filePath) {
-  const rel = relative(cwd.replaceAll("\\", "/"), filePath.replaceAll("\\", "/")).replaceAll("\\", "/");
-  if (!rel || rel.startsWith("..") || rel.includes(":"))
-    return null;
-  if (SKIP_ZONES.test(rel))
-    return null;
-  return rel;
-}
 function recordEdit(db, sid, rel) {
   try {
     db.run("CREATE TABLE IF NOT EXISTS session_edits(session_id TEXT NOT NULL, file TEXT NOT NULL, edited_at TEXT NOT NULL, PRIMARY KEY(session_id, file))");
@@ -274,7 +270,7 @@ function recordEdit(db, sid, rel) {
 function handlePostTool(input, dataRoot) {
   try {
     if (input.tool_name === "apply_patch") {
-      const contexts = patchPaths(input.tool_input?.command ?? input.tool_input?.patch, input.cwd ?? process.cwd()).map((file_path) => handlePostTool({ ...input, tool_name: "Edit", tool_input: { file_path } }, dataRoot).hookSpecificOutput?.additionalContext).filter((text) => Boolean(text));
+      const contexts = patchPaths(input.tool_input?.command ?? input.tool_input?.patch, input.cwd ?? process.cwd()).map((file_path) => handlePostTool({ ...input, tool_name: "Edit", tool_input: { file_path }, tool_response: undefined }, dataRoot).hookSpecificOutput?.additionalContext).filter((text) => Boolean(text));
       return contexts.length ? { hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: contexts.join(`
 `) } } : {};
     }
@@ -284,6 +280,10 @@ function handlePostTool(input, dataRoot) {
     const filePath = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
     if (!filePath)
       return {};
+    if (WRITE_TOOLS.has(tool) && isRejectedWrite(input.tool_response)) {
+      const failed = handlePostToolFailure(input, dataRoot, "PostToolUse").hookSpecificOutput;
+      return failed ? { hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: failed.additionalContext } } : {};
+    }
     const cwd = input.cwd ?? process.cwd();
     const dataDir = join(dataRoot, slugOf(cwd));
     initLang(dataDir, cwd);
@@ -373,4 +373,4 @@ ${lines.join(`
   }
 }
 
-export { touchFeed, lawsForFile, checkAgainstLaws, toRelNode, handlePostTool };
+export { touchFeed, lawsForFile, checkAgainstLaws, handlePostTool };

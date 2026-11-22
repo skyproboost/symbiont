@@ -6,6 +6,9 @@ import { join } from 'node:path'
 import { buildSample, buildPrompt, parseRules, parseQuotedRules, ruleToFact, runVerbalize } from '../src/layer2/verbalize'
 import { handleSessionStart, slugOf } from '../src/hooks/session-start-core'
 import { openDb } from '../src/core/db'
+import { FactStore } from '../src/core/store'
+import { staleFacts } from '../src/gardener/stale'
+import { verbalizeNote } from '../src/gardener/works'
 
 /** Дословные строки из файлов мира-проекта ниже — улики, проходящие сверку. */
 const QUOTED = [
@@ -293,5 +296,150 @@ describe('сверка улик слоя 2 с образцом', () => {
     expect(ok('// БЕЗ I/O и зависимостей → тестируемо.')).toBe(false) // регистр изменён — это уже не цитата
     expect(ok('// Без ввода-вывода и зависимостей → тестируемо.')).toBe(false) // слово заменено
     expect(ok('// Модель — точность (§11.1 плана calculators-hub-plan.md):')).toBe(false) // слово выпущено
+  })
+})
+
+/**
+ * Перепроверка правила. Замер по 19 проектам владельца (22.11.2026): из 364
+ * правил слоя 2 перепроверки ждали 268, у правил о материале подтверждено 1 из
+ * 396, об устройстве продукта — 0 из 181. Три причины, по тесту на каждую:
+ * улики не хранились — подтвердить правило мог только платный вызов; проход по
+ * образцу кода спрашивал о правилах, которые код подтвердить не может; ранний
+ * срез молча освежал дату именно тем правилам, которые модель только что
+ * отказалась подтвердить.
+ */
+describe('перепроверка правила слоя 2', () => {
+  const DAY = 86_400_000
+  const world = (): { proj: string; dataRoot: string; dataDir: string } => {
+    const proj = mkdtempSync(join(tmpdir(), 'symbiont-l2-review-'))
+    mkdirSync(join(proj, 'lib'), { recursive: true })
+    writeFileSync(join(proj, 'lib', 'core.js'), "var e = require('./err');\nvar x = 1;\n".repeat(6))
+    writeFileSync(join(proj, 'lib', 'err.js'), 'var E = { fail: 1 };\nmodule.exports = E;\n'.repeat(6))
+    writeFileSync(join(proj, 'app.js'), "var core = require('./lib/core');\n")
+    const dataRoot = mkdtempSync(join(tmpdir(), 'symbiont-l2-review-data-'))
+    handleSessionStart({ cwd: proj, source: 'startup', session_id: 'l2r' }, dataRoot)
+    return { proj, dataRoot, dataDir: join(dataRoot, slugOf(proj)) }
+  }
+  const RULE = 'экспорт — только именованный'
+  const harvest = JSON.stringify([{ area: 'модули', statement: RULE, evidence: QUOTED, confidence: 0.85 }])
+  /** Сдвинуть последний замер правила в прошлое — оно становится просроченным. */
+  const age = (dataDir: string, statement: string, days: number): void => {
+    const db = openDb(join(dataDir, 'passport.db'))
+    db.query('UPDATE fact_journal SET seen_at=? WHERE statement=?').run(new Date(Date.now() - days * DAY).toISOString(), statement)
+    db.close()
+  }
+  const rowOf = (dataDir: string, statement: string): { id: number; seen_at: string; confirmations: number } => {
+    const db = openDb(join(dataDir, 'passport.db'))
+    const row = db.query('SELECT id, seen_at, confirmations FROM fact_journal WHERE statement=? AND superseded_by IS NULL').get(statement) as { id: number; seen_at: string; confirmations: number }
+    db.close()
+    return row
+  }
+  const fresh = (iso: string): boolean => Date.now() - Date.parse(iso) < DAY
+
+  it('сверенные цитаты пишутся в журнал вместе с правилом', () => {
+    const w = world()
+    runVerbalize(w.proj, w.dataDir, () => ({ model: 'fake', text: harvest }))
+    const db = openDb(join(w.dataDir, 'passport.db'))
+    const rows = db.query('SELECT file, quote FROM fact_evidence WHERE fact_id=? ORDER BY file').all(rowOf(w.dataDir, RULE).id) as Array<{ file: string; quote: string }>
+    db.close()
+    expect(rows.map((r) => r.file)).toEqual(['app.js', 'lib/core.js', 'lib/err.js'])
+    expect(rows[2].quote).toBe('module.exports = E;')
+    rmrf(w.proj)
+    rmrf(w.dataRoot)
+  })
+
+  it('уцелевшие цитаты правило не подтверждают: оно всё равно идёт на перепроверку к модели', () => {
+    // Отвергнутый вариант: «цитаты на месте → подтверждено без модели». Три
+    // нетронутые строки не говорят, что конвенцию не сломали в других файлах
+    const w = world()
+    runVerbalize(w.proj, w.dataDir, () => ({ model: 'fake', text: harvest }))
+    age(w.dataDir, RULE, 40)
+    // Материал меняется (иначе ранний срез), цитаты остаются на своих местах
+    writeFileSync(join(w.proj, 'app.js'), "var core = require('./lib/core');\nvar added = 1;\n")
+    const prompts: string[] = []
+    runVerbalize(w.proj, w.dataDir, (prompt) => {
+      prompts.push(prompt)
+      return { model: 'fake', text: '[]' }
+    })
+    expect(prompts[0]).toContain('пора переподтверждение')
+    expect(prompts[0]).toContain(RULE)
+    expect(fresh(rowOf(w.dataDir, RULE).seen_at)).toBe(false)
+    rmrf(w.proj)
+    rmrf(w.dataRoot)
+  })
+
+  it('правило, чьи улики ушли из кода, названо среди кандидатов на вытеснение — и не отозвано', () => {
+    const w = world()
+    runVerbalize(w.proj, w.dataDir, () => ({ model: 'fake', text: harvest }))
+    const groupOf = (): string[] => {
+      const db = openDb(join(w.dataDir, 'passport.db'))
+      const found = staleFacts(db, w.proj).find((g) => g.kind.includes('улики ушли'))?.facts.map((f) => f.statement) ?? []
+      db.close()
+      return found
+    }
+    expect(groupOf()).toEqual([]) // все три цитаты на месте
+    rmSync(join(w.proj, 'lib', 'err.js')) // файл-улика удалён — стоит две из трёх
+    expect(groupOf()).toEqual([RULE])
+    expect(rowOf(w.dataDir, RULE)).toBeTruthy() // правило активно: отзыв по уликам необратим и не делается
+    // Правило без записанных улик (рождено до их хранения) — основание неизвестно, а не утрачено
+    const db = openDb(join(w.dataDir, 'passport.db'))
+    new FactStore(db).assertAll([{ area: 'ошибки', statement: 'ошибки — возвращаются кодом', tier: 'привычка', prevalence: 0.85, positive: 3, total: 6 }], 'llm:layer2:fake')
+    db.close()
+    expect(groupOf()).toEqual([RULE])
+    rmrf(w.proj)
+    rmrf(w.dataRoot)
+  })
+
+  it('проход с вызовом модели засчитан как состоявшийся, даже если она ничего не вывела', () => {
+    // Пустой итог возвращал null — планировщик не начинал отсчёт паузы, и платный
+    // вызов повторялся на каждом заходе фона, пока в проекте менялся код
+    const none = { born: 0, updated: 0, superseded: 0 }
+    const base = { rules: [], merges: [], unverified: 0 }
+    expect(verbalizeNote({ ...base, model: 'fake', journal: none, cutoff: false })).toBe('правил +0, подтверждено 0')
+    expect(verbalizeNote({ ...base, model: 'fake', journal: { born: 2, updated: 1, superseded: 0 }, cutoff: false, unverified: 3 })).toBe('правил +2, подтверждено 1, без дословной улики отброшено 3')
+    // Срез — вызова не было; о просроченных правилах он не говорит «освежены»: они остаются просроченными
+    expect(verbalizeNote({ ...base, model: null, journal: none, cutoff: true })).toBe('материал не менялся — проход пропущен')
+  })
+
+  it('ранний срез не освежает правило, которое модель на этом же материале не подтвердила', () => {
+    const w = world()
+    // Правило без записанных улик — как все, рождённые до этой версии
+    const db = openDb(join(w.dataDir, 'passport.db'))
+    new FactStore(db).assertAll([{ area: 'модули', statement: RULE, tier: 'привычка', prevalence: 0.85, positive: 3, total: 6 }], 'llm:layer2:fake')
+    db.close()
+    age(w.dataDir, RULE, 40)
+    let calls = 0
+    const silent = (): { model: string; text: string } => {
+      calls++
+      return { model: 'fake', text: '[]' }
+    }
+    runVerbalize(w.proj, w.dataDir, silent) // модель спросили — не подтвердила
+    const second = runVerbalize(w.proj, w.dataDir, silent) // материал тот же — срез
+    expect(calls).toBe(1)
+    expect(second.cutoff).toBe(true)
+    expect(fresh(rowOf(w.dataDir, RULE).seen_at)).toBe(false)
+    rmrf(w.proj)
+    rmrf(w.dataRoot)
+  })
+
+  it('проход по коду не перепроверяет правила других источников — подтвердить их ему нечем', () => {
+    const w = world()
+    const SHAPE = 'данные и код — лежат в разных каталогах'
+    const db = openDb(join(w.dataDir, 'passport.db'))
+    const store = new FactStore(db)
+    store.assertAll([{ area: 'устройство продукта', statement: SHAPE, tier: 'привычка', prevalence: 0.8, positive: 2, total: 4 }], 'llm:composition')
+    db.query('UPDATE fact_journal SET seen_at=? WHERE statement=?').run(new Date(Date.now() - 40 * DAY).toISOString(), SHAPE)
+    expect(store.dueForReview().map((f) => f.statement)).toEqual([SHAPE]) // общий счёт просроченных его видит
+    expect(store.dueForReview(Date.now(), 'llm:layer2:')).toEqual([])
+    db.close()
+    const prompts: string[] = []
+    runVerbalize(w.proj, w.dataDir, (prompt) => {
+      prompts.push(prompt)
+      return { model: 'fake', text: '[]' }
+    })
+    expect(prompts[0]).not.toContain('пора переподтверждение')
+    expect(prompts[0]).toContain(SHAPE) // но как уже записанное — чтобы не вывести заново
+    rmrf(w.proj)
+    rmrf(w.dataRoot)
   })
 })

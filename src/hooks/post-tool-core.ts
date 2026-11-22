@@ -13,7 +13,9 @@
  * Молчание по умолчанию; fail-open; ничего не блокирует.
  */
 import { existsSync, readFileSync } from 'node:fs'
-import { extname, join, relative } from 'node:path'
+import { extname, join } from 'node:path'
+import { toRelNode } from './rel-node'
+import { handlePostToolFailure, isRejectedWrite } from './post-tool-failure-core'
 import { t, statement, initLang } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
 import { openDb, type Database } from '../core/db'
@@ -41,13 +43,14 @@ const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
  */
 const TOUCH_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Read'])
 const MAX_CONTENT = 1_000_000 // гейт не жуёт гигантов
-const SKIP_ZONES = /(^|\/)(node_modules|\.git|\.data|dist|build|\.nuxt|vendor)(\/|$)/
 
 export interface PostToolInput {
   cwd?: string
   session_id?: string
   tool_name?: string
   tool_input?: { file_path?: string; notebook_path?: string; command?: string; patch?: string }
+  /** Исход вызова: у состоявшейся правки — объект, у отклонённой — строка ошибки (см. isRejectedWrite). */
+  tool_response?: unknown
 }
 
 export interface PostToolOutput {
@@ -57,16 +60,9 @@ export interface PostToolOutput {
   }
 }
 
-/** Путь инструмента → путь узла графа (относительный, forward-slash). */
-export function toRelNode(cwd: string, filePath: string): string | null {
-  // Разделители приводятся к прямым слэшам ДО сравнения путей: node:path на
-  // Linux не считает обратный слэш разделителем, и виндовый путь читался бы как
-  // одно имя — файл внутри проекта выглядел бы внешним
-  const rel = relative(cwd.replaceAll('\\', '/'), filePath.replaceAll('\\', '/')).replaceAll('\\', '/')
-  if (!rel || rel.startsWith('..') || rel.includes(':')) return null // вне проекта
-  if (SKIP_ZONES.test(rel)) return null
-  return rel
-}
+// Реэкспорт: функция переехала в свой модуль (см. rel-node.ts), а импортируют
+// её отсюда соседние каналы и тесты.
+export { toRelNode }
 
 /**
  * Журнал авторства правок: единственное место, где ТОЧНО известно, что файл
@@ -100,7 +96,9 @@ export function handlePostTool(input: PostToolInput, dataRoot: string): PostTool
   try {
     if (input.tool_name === 'apply_patch') {
       const contexts = patchPaths(input.tool_input?.command ?? input.tool_input?.patch, input.cwd ?? process.cwd())
-        .map(file_path => handlePostTool({ ...input, tool_name: 'Edit', tool_input: { file_path } }, dataRoot).hookSpecificOutput?.additionalContext)
+        // Исход патча дальше не передаётся: он относится к патчу целиком, а не к
+        // файлу, и текстовый ответ Codex не должен читаться как отказ правки
+        .map(file_path => handlePostTool({ ...input, tool_name: 'Edit', tool_input: { file_path }, tool_response: undefined }, dataRoot).hookSpecificOutput?.additionalContext)
         .filter((text): text is string => Boolean(text))
       return contexts.length ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: contexts.join('\n') } } : {}
     }
@@ -108,6 +106,15 @@ export function handlePostTool(input: PostToolInput, dataRoot: string): PostTool
     if (!TOUCH_TOOLS.has(tool)) return {}
     const filePath = input.tool_input?.file_path ?? input.tool_input?.notebook_path
     if (!filePath) return {}
+
+    // Отклонённая правка — не правка. Раньше она шла дальше как состоявшаяся:
+    // записывала авторство файла за сессией, засчитывала подаче «пригодилось» и
+    // грела узел — три ложных сигнала с одного отказа. Её место — канал упавшей
+    // правки: свежее оглавление вместо перечитывания файла.
+    if (WRITE_TOOLS.has(tool) && isRejectedWrite(input.tool_response)) {
+      const failed = handlePostToolFailure(input, dataRoot, 'PostToolUse').hookSpecificOutput
+      return failed ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: failed.additionalContext } } : {}
+    }
 
     const cwd = input.cwd ?? process.cwd()
     const dataDir = join(dataRoot, slugOf(cwd))

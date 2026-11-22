@@ -7,15 +7,19 @@ import {
   zeroMetrics
 } from "./codex-call-penbn1w9.js";
 import {
+  canonText,
+  recordEvidence
+} from "./codex-call-f64wvkf6.js";
+import {
   callClaudeDetailed,
   callClaudeWithTools,
   explainNoAnswer
-} from "./codex-call-wtfdym5n.js";
+} from "./codex-call-57z27tea.js";
 import {
   buildRulesPrompt,
   parseRules,
   storeRules
-} from "./codex-call-j04ge161.js";
+} from "./codex-call-807dazwp.js";
 import {
   buildGroundingPrompt,
   dueForGrounding,
@@ -23,14 +27,7 @@ import {
   pendingDigests,
   runCommunityDigests,
   storeGrounding
-} from "./codex-call-2295bdpd.js";
-import {
-  collectOutline,
-  ensureSymbols,
-  indexedHash,
-  pruneSymbols,
-  storeOutline
-} from "./codex-call-psab7pqj.js";
+} from "./codex-call-f9cazs4r.js";
 import {
   PLAYBOOKS
 } from "./codex-call-8ychq3hk.js";
@@ -38,6 +35,13 @@ import {
   recordLesson,
   zoneOf
 } from "./codex-call-vgezmhw1.js";
+import {
+  collectOutline,
+  ensureSymbols,
+  indexedHash,
+  pruneSymbols,
+  storeOutline
+} from "./codex-call-psab7pqj.js";
 import {
   CODE_EXT,
   CSVX,
@@ -71,7 +75,7 @@ import {
   t,
   walkFiles,
   zoneOfArea
-} from "./codex-call-21dvb3ma.js";
+} from "./codex-call-qxxgrqz0.js";
 import {
   __require
 } from "./codex-call-rvra3cez.js";
@@ -417,6 +421,7 @@ function dedupeLlmFactsSemantic(db, caller) {
 // src/layer2/verbalize.ts
 var SAMPLE_FILES = 6;
 var SAMPLE_CHARS_PER_FILE = 4000;
+var OWN_SOURCE = "llm:layer2:";
 function buildSample(projectRoot, dataDir) {
   const dbPath = join(dataDir, "passport.db");
   if (!existsSync(dbPath))
@@ -489,10 +494,6 @@ var MIN_QUOTE_CHARS = 5;
 var MAX_QUOTE_CHARS = 400;
 var ANSWER_FORMAT = 2;
 var normPath = (p) => p.trim().replaceAll("\\", "/").replace(/^\.\//, "");
-var LINE_MARKUP = /^\s*(?:(?:\/\/+|\/\*+|\*+\/?|#+|<!--|--|;+|[•·▪‣]|-(?=\s))\s*)*/;
-function canonText(text) {
-  return text.split(/\r?\n/).map((l) => l.replace(LINE_MARKUP, "")).join(" ").replace(/\s+/g, " ").trim();
-}
 function parseQuotedRules(text, samples, minEvidence = 3) {
   const byFile = new Map(samples.map((s) => [normPath(s.file), canonText(s.content)]));
   const rules = [];
@@ -500,7 +501,7 @@ function parseQuotedRules(text, samples, minEvidence = 3) {
   for (const r of extractArray(text)) {
     if (!hasRuleShape(r))
       continue;
-    const files = new Set;
+    const verified = new Map;
     for (const e of r.evidence) {
       const ev = e;
       if (typeof ev?.file !== "string" || typeof ev?.quote !== "string")
@@ -511,12 +512,12 @@ function parseQuotedRules(text, samples, minEvidence = 3) {
       const quote = canonText(ev.quote);
       if (quote.length < MIN_QUOTE_CHARS)
         continue;
-      if (byFile.get(file)?.includes(quote))
-        files.add(file);
+      if (byFile.get(file)?.includes(quote) && !verified.has(file))
+        verified.set(file, ev.quote);
     }
-    if (files.size >= minEvidence)
-      rules.push({ area: r.area, statement: r.statement, evidence: [...files], confidence: r.confidence });
-    else
+    if (verified.size >= minEvidence) {
+      rules.push({ area: r.area, statement: r.statement, evidence: [...verified.keys()], confidence: r.confidence, quotes: [...verified].map(([file, quote]) => ({ file, quote })) });
+    } else
       unverified++;
   }
   return { rules, unverified };
@@ -553,16 +554,12 @@ function runVerbalize(projectRoot, dataDir, caller) {
     const store = new FactStore(db);
     const active = store.active();
     const laws = active.filter((f) => f.tier === "закон" && zoneOfArea(f.area) === null).map((f) => f.statement);
-    const dueRows = store.dueForReview();
+    const dueRows = store.dueForReview(Date.now(), OWN_SOURCE);
     const due = dueRows.map((f) => f.statement);
     const dueSet = new Set(due);
     const known = active.filter((f) => typeof f.source === "string" && f.source.startsWith("llm:") && !dueSet.has(f.statement)).map((f) => f.statement);
     const fp = materialFingerprint(laws, due, samples);
     if (fp === readStoredFingerprint(db)) {
-      const nowIso = new Date().toISOString();
-      const upd = db.query("UPDATE fact_journal SET seen_at=? WHERE id=?");
-      for (const f of dueRows)
-        upd.run(nowIso, f.id);
       return { model: null, rules: [], journal: empty, merges: [], cutoff: true, unverified: 0 };
     }
     const res = caller(buildPrompt(laws, samples, due, known));
@@ -578,7 +575,13 @@ function runVerbalize(projectRoot, dataDir, caller) {
     } catch {}
     const { rules, unverified } = parseQuotedRules(res.text, samples);
     const facts = rules.map((r) => ruleToFact(r, samples.length));
-    const journal = store.assertAll(facts, `llm:layer2:${res.model}`);
+    const journal = store.assertAll(facts, `${OWN_SOURCE}${res.model}`);
+    const liveByKey = db.query("SELECT id FROM fact_journal WHERE key=? AND superseded_by IS NULL");
+    for (const rule of rules) {
+      const row = liveByKey.get(keyOf(rule));
+      if (row && rule.quotes)
+        recordEvidence(db, row.id, rule.quotes);
+    }
     const merges = [...dedupeLlmFacts(db), ...dedupeLlmFactsSemantic(db, caller)];
     return { model: res.model, rules, journal, merges, cutoff: false, unverified };
   } finally {
@@ -837,7 +840,7 @@ var verbalizeWork = {
   cooldownH: 72,
   due: (ctx) => {
     const store = new FactStore(ctx.db);
-    if (store.dueForReview(ctx.nowMs).length > 0)
+    if (store.dueForReview(ctx.nowMs, "llm:layer2:").length > 0)
       return true;
     const hasCode = countOf(ctx, "SELECT COUNT(*) n FROM fact_journal WHERE source='miner:layer0'") > 0;
     if (ctx.full)
@@ -848,16 +851,17 @@ var verbalizeWork = {
   run: (ctx) => {
     const tried = [];
     const v = runVerbalize(ctx.projectRoot, ctx.dataDir, deepCaller(ctx, "вербализация конвенций", tried));
-    if (v.cutoff)
-      return t("материал не менялся — проход пропущен, правила освежены", "material unchanged — pass skipped, rules refreshed");
-    if (!v.model)
+    if (!v.cutoff && !v.model)
       throw new Error(explainNoAnswer(tried));
-    const dropped = v.unverified > 0 ? t(`, без дословной улики отброшено ${v.unverified}`, `, ${v.unverified} dropped without a verbatim quote`) : "";
-    if (v.journal.born === 0 && v.journal.updated === 0 && !dropped)
-      return null;
-    return t(`правил +${v.journal.born}, подтверждено ${v.journal.updated}${dropped}`, `rules +${v.journal.born}, confirmed ${v.journal.updated}${dropped}`);
+    return verbalizeNote(v);
   }
 };
+function verbalizeNote(v) {
+  if (v.cutoff)
+    return t("материал не менялся — проход пропущен", "material unchanged — pass skipped");
+  const dropped = v.unverified > 0 ? t(`, без дословной улики отброшено ${v.unverified}`, `, ${v.unverified} dropped without a verbatim quote`) : "";
+  return t(`правил +${v.journal.born}, подтверждено ${v.journal.updated}${dropped}`, `rules +${v.journal.born}, confirmed ${v.journal.updated}${dropped}`);
+}
 var correctionsWork = {
   id: "corrections",
   title: "разбор поправок владельца",

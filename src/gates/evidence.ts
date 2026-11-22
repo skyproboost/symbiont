@@ -69,6 +69,34 @@ export interface EvidenceState {
 const TAIL_LINES = 4000
 
 /**
+ * Вызовы правки, которые инструмент отклонил («строка не найдена», «файл не
+ * прочитан»): в транскрипте у их результата стоит признак ошибки. Сам вызов
+ * записан так же, как состоявшийся, поэтому без этой сверки попытка читалась
+ * правкой: после неё файл снова считался непроверенным, и гейт требовал
+ * повторить проверку, которая уже была сделана после настоящей правки.
+ *
+ * Признак ошибки здесь надёжен, в отличие от прогонов проверки (см. verdictOf):
+ * результат правки ничем не обёрнут, код возврата чужой команде не принадлежит.
+ */
+function rejectedCalls(lines: string[]): Set<string> {
+  const out = new Set<string>()
+  for (const line of lines) {
+    if (!line.includes('is_error')) continue
+    let obj: { message?: { content?: unknown } }
+    try {
+      obj = JSON.parse(line)
+    } catch {
+      continue // обрезанная строка
+    }
+    if (!Array.isArray(obj.message?.content)) continue
+    for (const c of obj.message?.content as Array<{ type?: string; tool_use_id?: string; is_error?: boolean }>) {
+      if (c.type === 'tool_result' && c.is_error === true && c.tool_use_id) out.add(c.tool_use_id)
+    }
+  }
+  return out
+}
+
+/**
  * Разбор транскрипта: какие файлы (из `own`, уже отфильтрованных как код этой
  * сессии) правлены ПОСЛЕ последней команды проверки. Порядок — порядок строк.
  */
@@ -83,10 +111,11 @@ export function evidenceFromTranscript(transcriptPath: string | null, own: Set<s
   }
   if (lines.length > TAIL_LINES) lines = lines.slice(-TAIL_LINES)
   const unchecked = new Set<string>()
+  const rejected = rejectedCalls(lines)
   let checkedOnce = false
   for (const line of lines) {
     if (!line.includes('"tool_use"')) continue
-    let obj: { type?: string; message?: { content?: Array<{ type?: string; name?: string; input?: Record<string, unknown> }> } }
+    let obj: { type?: string; message?: { content?: Array<{ type?: string; id?: string; name?: string; input?: Record<string, unknown> }> } }
     try {
       obj = JSON.parse(line)
     } catch {
@@ -103,7 +132,8 @@ export function evidenceFromTranscript(transcriptPath: string | null, own: Set<s
         }
         continue
       }
-      if (EDIT_TOOLS.has(c.name)) {
+      // Отклонённая попытка файла не меняла: проверка, сделанная до неё, остаётся в силе
+      if (EDIT_TOOLS.has(c.name) && !(c.id && rejected.has(c.id))) {
         const abs = String(c.input?.file_path ?? c.input?.notebook_path ?? '')
         const rel = abs ? toRel(abs) : null
         if (rel && own.has(rel)) unchecked.add(rel)
@@ -239,7 +269,7 @@ export interface RunHistory {
 }
 
 /** Удаление файла из оболочки — по форме команды, для обеих оболочек. */
-const DELETING_SHELL = /\b(rm|unlink|rmdir|del|Remove-Item|git\s+rm)\b/i
+export const DELETING_SHELL = /\b(rm|unlink|rmdir|del|Remove-Item|git\s+rm)\b/i
 
 /**
  * История прогонов: что правилось между упавшей проверкой и следующей прошедшей.
@@ -272,6 +302,7 @@ export function runHistory(transcriptPath: string | null, toRel: (abs: string) =
   const created = new Set<string>()
   const touched = new Set<string>()
   const pendingChecks = new Set<string>()
+  const rejected = rejectedCalls(lines)
   const deletions: string[] = []
   let afterRed = false
   let murky = false
@@ -312,7 +343,9 @@ export function runHistory(transcriptPath: string | null, toRel: (abs: string) =
         const abs = String(c.input?.file_path ?? c.input?.notebook_path ?? '')
         const rel = abs ? toRel(abs) : null
         if (!rel) continue
-        if (EDIT_TOOLS.has(c.name)) {
+        // Отклонённая попытка — не правка: ни рождения файла, ни правки между
+        // прогонами. Но файл она трогала — значит, он существовал до неё
+        if (EDIT_TOOLS.has(c.name) && !(c.id && rejected.has(c.id))) {
           if (c.name === 'Write' && !touched.has(rel)) created.add(rel)
           if (afterRed) {
             if (!gap.includes(rel)) gap.push(rel)

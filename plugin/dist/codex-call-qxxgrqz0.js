@@ -2812,9 +2812,9 @@ class FactStore {
          VALUES(?,?,?,?,?,?,?,?,?,?,NULL,?,?,0,?)`).run(key, f.area, f.statement, f.tier, f.prevalence, f.positive, f.total, source, now, now, init.rating, init.deviation, initialStability(source));
     return Number(res.lastInsertRowid);
   }
-  dueForReview(nowMs = Date.now()) {
+  dueForReview(nowMs = Date.now(), sourcePrefix = "llm:") {
     const rows = this.db.query("SELECT * FROM fact_journal WHERE superseded_by IS NULL AND source LIKE 'llm:%' AND stability IS NOT NULL").all();
-    return rows.filter((r) => isDue(r.stability, r.seen_at, nowMs));
+    return rows.filter((r) => r.source.startsWith(sourcePrefix) && isDue(r.stability, r.seen_at, nowMs));
   }
   touchAll(now = new Date().toISOString()) {
     this.db.query("UPDATE fact_journal SET seen_at=? WHERE superseded_by IS NULL AND source NOT LIKE 'llm:%'").run(now);
@@ -5478,7 +5478,7 @@ function renderSummary(projectName, allFacts, blocks = {}) {
 }
 function projectionCodeVersion() {
   if (true)
-    return "bundle-a24a2da9d1b2";
+    return "bundle-c45592bb8947";
   const rel = ["build.ts", "artifacts.ts", "profile.ts", "constitution-derive.ts", "../miner/facts.ts", "../graph/graph.ts", "../graph/entities.ts"];
   const parts = [];
   for (const r of rel) {
@@ -5875,7 +5875,8 @@ class SessionLog {
     } catch {}
   }
   open(sessionId, source, now = new Date().toISOString(), transcriptPath = null) {
-    this.db.query("INSERT INTO sessions(session_id, source, started_at, transcript_path) VALUES(?,?,?,?) ON CONFLICT(session_id) DO NOTHING").run(sessionId, source, now, transcriptPath);
+    const res = this.db.query("INSERT INTO sessions(session_id, source, started_at, transcript_path) VALUES(?,?,?,?) ON CONFLICT(session_id) DO NOTHING").run(sessionId, source, now, transcriptPath);
+    return Number(res.changes) > 0;
   }
   close(sessionId, reason, now = new Date().toISOString()) {
     this.db.query("UPDATE sessions SET closed_at=?, close_reason=? WHERE session_id=? AND closed_at IS NULL").run(now, reason, sessionId);
@@ -5912,7 +5913,7 @@ class SessionLog {
       return;
     const ids = recent.map((r) => r.session_id);
     const placeholders = ids.map(() => "?").join(",");
-    for (const table of ["jit_log", "gate_log", "model_state", "gate_fuse", "session_edits", "feed_cost"]) {
+    for (const table of ["jit_log", "gate_log", "model_state", "gate_fuse", "session_edits", "session_gone", "feed_cost"]) {
       try {
         this.db.query(`DELETE FROM ${table} WHERE session_id NOT IN (${placeholders})`).run(...ids);
       } catch {}
@@ -5960,8 +5961,18 @@ function renderConstitution(c) {
 }
 
 // src/hooks/heartbeat.ts
-import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync6 } from "node:fs";
+import { mkdirSync as mkdirSync2, readFileSync as readFileSync14, writeFileSync as writeFileSync6 } from "node:fs";
 import { join as join15 } from "node:path";
+function registeredChannels() {
+  for (const path of [join15(import.meta.dirname, "..", "hooks", "hooks.json"), join15(import.meta.dirname, "..", "..", "hooks", "hooks.json")]) {
+    try {
+      const manifest = JSON.parse(readFileSync14(path, "utf8"));
+      if (manifest.hooks)
+        return Object.keys(manifest.hooks);
+    } catch {}
+  }
+  return [];
+}
 function beat(dataDir, channel, extra = {}) {
   try {
     mkdirSync2(dataDir, { recursive: true });
@@ -6342,7 +6353,7 @@ function transcriptLines(text) {
 
 // src/gardener/voiced.ts
 init_i18n();
-import { existsSync as existsSync9, readFileSync as readFileSync14 } from "node:fs";
+import { existsSync as existsSync9, readFileSync as readFileSync15 } from "node:fs";
 var VOICED_MIN_SESSIONS = 2;
 var OWNER_PROMPT_MAX = 2000;
 var SENTENCE_MIN = 12;
@@ -6374,7 +6385,7 @@ function ownerMessages(transcriptPath) {
     return [];
   let lines;
   try {
-    lines = transcriptLines(readFileSync14(transcriptPath, "utf8"));
+    lines = transcriptLines(readFileSync15(transcriptPath, "utf8"));
   } catch {
     return [];
   }
@@ -6463,18 +6474,53 @@ function renderVoiced(rules) {
 }
 
 // src/hooks/session-start-core.ts
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync16, appendFileSync } from "node:fs";
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync17, appendFileSync } from "node:fs";
 import { join as join17 } from "node:path";
+
+// src/hooks/session-baseline.ts
+init_signals();
+import { spawnSync as spawnSync3 } from "node:child_process";
+var MARK = "";
+var MAX_FILES2 = 5000;
+function deletedTracked(cwd) {
+  try {
+    const r = spawnSync3("git", ["diff", "HEAD", "--name-only", "--diff-filter=D", "-z"], { cwd, encoding: "utf8", timeout: 8000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 });
+    return r.status === 0 && typeof r.stdout === "string" ? r.stdout.split("\x00").filter(Boolean) : null;
+  } catch {
+    return null;
+  }
+}
+function recordGoneAtStart(db, sid, deleted) {
+  if (deleted === null)
+    return;
+  try {
+    db.run("CREATE TABLE IF NOT EXISTS session_gone(session_id TEXT NOT NULL, file TEXT NOT NULL, PRIMARY KEY(session_id, file))");
+    const add = db.query("INSERT OR IGNORE INTO session_gone(session_id, file) VALUES(?,?)");
+    for (const file of deleted.filter(isTestPath).slice(0, MAX_FILES2))
+      add.run(sid, file);
+    add.run(sid, MARK);
+  } catch {}
+}
+function goneAtStart(db, sid) {
+  try {
+    const rows = db.query("SELECT file FROM session_gone WHERE session_id=?").all(sid);
+    if (!rows.some((r) => r.file === MARK))
+      return null;
+    return new Set(rows.map((r) => r.file).filter((f) => f !== MARK));
+  } catch {
+    return null;
+  }
+}
 
 // src/hooks/git-state.ts
 init_i18n();
-import { spawnSync as spawnSync3 } from "node:child_process";
-function git(cwd, args) {
+import { spawnSync as spawnSync4 } from "node:child_process";
+function git(cwd, args, raw = false) {
   try {
-    const r = spawnSync3("git", args, { cwd, encoding: "utf8", timeout: 8000, windowsHide: true });
+    const r = spawnSync4("git", args, { cwd, encoding: "utf8", timeout: 8000, windowsHide: true });
     if (r.status !== 0 || typeof r.stdout !== "string")
       return null;
-    return r.stdout.trim();
+    return raw ? r.stdout : r.stdout.trim();
   } catch {
     return null;
   }
@@ -6483,9 +6529,9 @@ function gitState(cwd) {
   const branch = git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
   if (branch === null)
     return null;
-  const porcelain = git(cwd, ["status", "--porcelain"]) ?? "";
+  const porcelain = git(cwd, ["status", "--porcelain"], true) ?? "";
   const dirty = porcelain.split(`
-`).filter((l) => l.trim().length > 0);
+`).filter((l) => l.length > 3);
   return {
     branch,
     dirtyCount: dirty.length,
@@ -6639,7 +6685,7 @@ function reconstructEntry(db, thread, dirty, nowMs) {
 
 // src/hooks/diagnose.ts
 init_i18n();
-import { readFileSync as readFileSync15, readdirSync as readdirSync2 } from "node:fs";
+import { readFileSync as readFileSync16, readdirSync as readdirSync2 } from "node:fs";
 import { join as join16 } from "node:path";
 var EXPECTED = ["userpromptsubmit", "stop"];
 var SILENT_SESSIONS = 3;
@@ -6662,7 +6708,7 @@ function readBeats(dataDir) {
   try {
     return readdirSync2(dataDir).filter((f) => f.startsWith("heartbeat-") && f.endsWith(".json")).map((f) => {
       try {
-        const j = JSON.parse(readFileSync15(join16(dataDir, f), "utf8"));
+        const j = JSON.parse(readFileSync16(join16(dataDir, f), "utf8"));
         return j.channel && j.at ? { channel: j.channel, at: j.at } : null;
       } catch {
         return null;
@@ -6726,7 +6772,7 @@ function detectCorrections(db, cwd, currentSid) {
     }
     let corrected = false;
     try {
-      const nowContent = snapshotContent(readFileSync16(join17(cwd, r.file), "utf8"));
+      const nowContent = snapshotContent(readFileSync17(join17(cwd, r.file), "utf8"));
       corrected = sha1(nowContent) !== r.hash;
     } catch {}
     if (!writePair(db, () => {
@@ -6864,7 +6910,9 @@ function handleSessionStart(input, dataRoot) {
       const log = new SessionLog(db);
       const sid = input.session_id ?? `manual-${Date.now()}`;
       diagLine = renderDiagnosis(silentChannels(readBeats(dataDir), log.recentStarts(sid)));
-      log.open(sid, input.source ?? null, new Date().toISOString(), input.transcript_path ?? null);
+      const opened = log.open(sid, input.source ?? null, new Date().toISOString(), input.transcript_path ?? null);
+      if (opened && g)
+        recordGoneAtStart(db, sid, deletedTracked(cwd));
       reconciled = log.reconcileStale(sid);
       log.pruneEphemeral();
       detectCorrections(db, cwd, sid);
@@ -6940,7 +6988,7 @@ ${voicedBlock}
 ` : ""}`;
     let summary = "";
     try {
-      summary = readFileSync16(r.summaryPath, "utf8");
+      summary = readFileSync17(r.summaryPath, "utf8");
     } catch {}
     if (!summary.includes("## "))
       summary = "";
@@ -6966,7 +7014,7 @@ ${entryBlock}
 ` : "";
     let frameSection = "";
     try {
-      const frame = readFileSync16(join17(dataDir, "frame.md"), "utf8").trim();
+      const frame = readFileSync17(join17(dataDir, "frame.md"), "utf8").trim();
       if (frame)
         frameSection = `
 ${frame}
@@ -6990,4 +7038,4 @@ _Symbiont · ${freshness} · ${t("подробнее по требованию",
   }
 }
 
-export { slugOf, lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, emitHookOutput, inspectRuntime, runtimeBlocker, silentSpawnOptions, claudeBin, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, isTestPath, init_signals, guardTests, renderTestGuard, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, markVisited, summaryFor, contentHashOf, contentHashes, pendingSummaries, runZSummaries, summaryStats, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, MATERIAL_SOURCE, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, beat, lastRun, runWorks, renderSkipped, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, patchPaths, transcriptLines, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, fitToBudget, handleSessionStart };
+export { slugOf, lang, t, sourceLabel, readState, initLang, observePrompt, chooseLang, statement, tier, area, areaList, areaKey, init_i18n, emitHookOutput, inspectRuntime, runtimeBlocker, silentSpawnOptions, claudeBin, openDb, isDue, analyzeJs, detectIndent, GENERATED_LINE_CHARS, zoneOfArea, deriveAstFacts, ENTITY_EXT, contentVerifierActive, loadEntityResolver, runContentVerifiers, isTestPath, init_signals, guardTests, renderTestGuard, MISLEADING, readLabels, mutedKeys, labelFact, unlabelFact, matchFacts, factBasis, keyOf, FactStore, inDerivedZone, CODE_EXT, walkFiles, codeFiles, init_walk, sha1, resolveImport, taskRelevantNeighbors, reachableUndirected, zoneAncestors, effectiveProfile, rootAxesFromFacts, renderEffective, readZoneProfiles, auditTruth, healProjections, renderTruth, jsonOnly, documentsBlock, revisionsBlock, SUMMARY_BUDGET, markVisited, summaryFor, contentHashOf, contentHashes, pendingSummaries, runZSummaries, summaryStats, ENV_TEMPLATES, isSecretCarrier, isConfigFile, looksSecret, parseConfigFile, readConfigEntries, readConfigEdges, renderConfigInfluence, artifactProfile, activeAxes, detectStack, fileDomains, OFFICE, CSVX, TEXT, isNonCodeMinable, extractContent, MATERIAL_SOURCE, findUnknownMaterial, buildUnknownPrompt, mergeLearnedMaterials, computeHealth, computeDrift, renderDrift, renderDriftReport, hotspotsFromGit, readFrame, buildPassport, snapshotContent, SessionLog, goneAtStart, readConstitution, upsertConstitution, renderConstitution, READ_TOUCH_WEIGHT, EDIT_TOUCH_WEIGHT, bumpHeat, effectiveHeat, hotFiles, readHeatRows, registeredChannels, beat, lastRun, runWorks, renderSkipped, REPORTED_WORKS, shouldWithhold, noteWithheld, noteWithheldUsed, noteSurfaced, noteUsed, shouldFeed, rankKinds, renderUtility, patchPaths, transcriptLines, VOICED_MIN_SESSIONS, harvestVoiced, voicedCandidates, fitToBudget, handleSessionStart };

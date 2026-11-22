@@ -29,6 +29,7 @@ import { readGateMode } from '../gates/config'
 import { evidenceFromTranscript, runHistory } from '../gates/evidence'
 import { renderTestGuard } from '../verifiers/test-guard'
 import { testGuardFindings, type DirtyEntry } from './test-guard-stop'
+import { goneAtStart } from './session-baseline'
 import { harvestVoiced } from '../gardener/voiced'
 import { markCited } from '../gardener/cited'
 import { accountFeedCost } from '../gardener/feed-cost'
@@ -435,7 +436,7 @@ export function handleStop(input: StopInput, dataRoot: string): StopOutput {
       const guardedFiles = new Set<string>()
       try {
         const history = runHistory(transcript, (abs) => toRelNode(cwd, abs))
-        const findings = testGuardFindings({ cwd, dirty, own, parallel, history, sessionStartMs, sinceIso })
+        const findings = testGuardFindings({ cwd, dirty, own, parallel, history, sessionStartMs, sinceIso, goneBefore: goneAtStart(db, sid) })
         for (const f of findings) if (f.kind === 'assertions' || f.kind === 'cases') guardedFiles.add(f.file)
         // `#`-ключ — конвенция наблюдений в гейт-потоке: поимки считаются по виду
         // (law), но «нарушаемым правилом» в сводке не становятся

@@ -14,6 +14,7 @@ import { guardTests, renderTestGuard, TEST_LAWS } from '../src/verifiers/test-gu
 import { isTestPath } from '../src/passport/signals'
 import { recordEdit } from '../src/hooks/post-tool-core'
 import { handleStop } from '../src/hooks/stop-core'
+import { commandDeletes } from '../src/hooks/deleted-by'
 import { handleSessionStart, slugOf } from '../src/hooks/session-start-core'
 import { rmrf } from './_helpers'
 
@@ -398,5 +399,166 @@ describe('на Stop', () => {
     expect(JSON.stringify(named)).toContain('страж тестов: tests/old.test.ts')
     rmrf(w.proj)
     rmrf(w.dataRoot)
+  })
+
+  it('тест, снятый с индекса и оставшийся на диске, удалённым не называется', () => {
+    const w = world('tg-11')
+    w.g('rm', '--cached', '-q', 'tests/old.test.ts') // для git это удаление, файл лежит на месте
+    writeFileSync(w.transcript, use('Bash', { command: 'rm tests/old.test.ts' })) // даже при названной команде
+    expect(JSON.stringify(handleStop({ cwd: w.proj, session_id: 'tg-11', transcript_path: w.transcript }, w.dataRoot))).not.toContain('страж тестов')
+    rmrf(w.proj)
+    rmrf(w.dataRoot)
+  })
+
+  // Живой случай (vidrixhq): 12 тестов удалены и не закоммичены; три сессии подряд
+  // страж называл их заново. Сравнение шло с коммитом-базой, а давнее удаление
+  // видно от него каждой новой сессии; привязка «команда называет каталог»
+  // искала подстроку во всей составной команде.
+  it('удаление, лежавшее в дереве до старта сессии, этой сессии не приписывается', () => {
+    const w = world('tg-6')
+    rmSync(join(w.proj, 'tests', 'old.test.ts')) // удалено прежней сессией, не закоммичено
+    handleSessionStart({ cwd: w.proj, source: 'startup', session_id: 'tg-6b' }, w.dataRoot)
+    // Новая сессия удаляет в том же каталоге по маске — каталог tests назван по праву
+    rmSync(join(w.proj, 'tests', 'a.test.ts'))
+    writeFileSync(w.transcript, use('Bash', { command: 'rm tests/*.test.ts' }))
+    const ctx = JSON.stringify(handleStop({ cwd: w.proj, session_id: 'tg-6b', transcript_path: w.transcript }, w.dataRoot))
+    expect(ctx).toContain('страж тестов: tests/a.test.ts')
+    expect(ctx).not.toContain('tests/old.test.ts')
+    rmrf(w.proj)
+    rmrf(w.dataRoot)
+  })
+
+  it('повторный старт той же сессии (сжатие, продолжение) точку отсчёта не сдвигает', () => {
+    const w = world('tg-7')
+    rmSync(join(w.proj, 'tests', 'old.test.ts'))
+    writeFileSync(w.transcript, use('Bash', { command: 'rm tests/old.test.ts' }))
+    // Сжатие контекста посреди сессии: удалённое ею самой не должно стать «бывшим до старта»
+    handleSessionStart({ cwd: w.proj, source: 'compact', session_id: 'tg-7' }, w.dataRoot)
+    const out = handleStop({ cwd: w.proj, session_id: 'tg-7', transcript_path: w.transcript }, w.dataRoot)
+    expect(JSON.stringify(out)).toContain('страж тестов: tests/old.test.ts')
+    rmrf(w.proj)
+    rmrf(w.dataRoot)
+  })
+
+  it('у сессии, начатой до появления снимков, повторный старт снимка не снимает', () => {
+    const w = world('tg-10')
+    // Как будто сессия открыта прежней версией плагина: строка сессии есть, снимка нет
+    const db = openDb(join(w.dataRoot, slugOf(w.proj), 'passport.db'))
+    db.run("DELETE FROM session_gone WHERE session_id='tg-10'")
+    db.close()
+    rmSync(join(w.proj, 'tests', 'old.test.ts'))
+    writeFileSync(w.transcript, use('Bash', { command: 'rm tests/old.test.ts' }))
+    handleSessionStart({ cwd: w.proj, source: 'compact', session_id: 'tg-10' }, w.dataRoot)
+    const out = handleStop({ cwd: w.proj, session_id: 'tg-10', transcript_path: w.transcript }, w.dataRoot)
+    expect(JSON.stringify(out)).toContain('страж тестов: tests/old.test.ts')
+    rmrf(w.proj)
+    rmrf(w.dataRoot)
+  })
+
+  it('каталог назван не удаляющей частью команды — авторство не подтверждено', () => {
+    const w = world('tg-8')
+    rmSync(join(w.proj, 'tests', 'old.test.ts')) // удалил владелец посреди сессии
+    writeFileSync(w.transcript, use('Bash', { command: 'rm -f /tmp/kept.ts; cd /work/tool && bun run tests/sim.ts 2>&1 | tail -3' }))
+    const silent = handleStop({ cwd: w.proj, session_id: 'tg-8', transcript_path: w.transcript }, w.dataRoot)
+    expect(JSON.stringify(silent)).not.toContain('страж тестов')
+    // …а удаление после перехода в каталог и удаление каталога целиком — подтверждено
+    writeFileSync(w.transcript, use('Bash', { command: 'cd tests && rm old.test.ts' }))
+    expect(JSON.stringify(handleStop({ cwd: w.proj, session_id: 'tg-8', transcript_path: w.transcript }, w.dataRoot))).toContain('страж тестов: tests/old.test.ts')
+    rmrf(w.proj)
+    rmrf(w.dataRoot)
+  })
+
+  it('слово каталога внутри другого слова каталогом не считается', () => {
+    const w = world('tg-9')
+    rmSync(join(w.proj, 'tests', 'old.test.ts'))
+    writeFileSync(w.transcript, use('Bash', { command: 'rm -rf contests/2020' }))
+    expect(JSON.stringify(handleStop({ cwd: w.proj, session_id: 'tg-9', transcript_path: w.transcript }, w.dataRoot))).not.toContain('страж тестов')
+    writeFileSync(w.transcript, use('PowerShell', { command: 'Remove-Item -Recurse tests' }))
+    expect(JSON.stringify(handleStop({ cwd: w.proj, session_id: 'tg-9', transcript_path: w.transcript }, w.dataRoot))).toContain('страж тестов: tests/old.test.ts')
+    rmrf(w.proj)
+    rmrf(w.dataRoot)
+  })
+})
+
+describe('удаляла ли команда файл проекта', () => {
+  const ROOT = 'D:\\proj'
+  const file = 'scripts/ai-active-raw.test.mjs'
+  const deletes = (command: string, target = file, caseInsensitive = true): boolean => commandDeletes(command, ROOT, target, caseInsensitive)
+
+  it('маска, точный путь, каталог целиком, абсолютный путь, переход в каталог', () => {
+    // Живой случай 18.11: тесты удалялись пачкой по маске с началом имени
+    expect(deletes('git rm -q scripts/ai-*.mjs scripts/genesis-progress.test.mjs')).toBe(true)
+    expect(deletes('rm scripts/ai-active-raw.test.mjs')).toBe(true)
+    expect(deletes('rm -rf scripts')).toBe(true)
+    expect(deletes('rm -rf "/d/proj/scripts/"')).toBe(true)
+    expect(deletes('rm /d/proj/scripts/*.test.mjs')).toBe(true)
+    expect(deletes('del D:\\proj\\scripts\\ai-active-raw.test.mjs')).toBe(true)
+    expect(deletes('cd scripts && rm ai-active-raw.test.mjs')).toBe(true)
+    expect(deletes('cd scripts && rm *.test.mjs')).toBe(true)
+    expect(deletes('cd /d/proj/scripts && cd .. && rm -rf scripts')).toBe(true)
+    expect(deletes('Remove-Item -Recurse .\\scripts\\')).toBe(true)
+    expect(deletes('Remove-Item scripts/other.mjs,scripts/ai-active-raw.test.mjs')).toBe(true)
+    expect(deletes('rm -rf /d/proj')).toBe(true)
+    expect(deletes('sudo rm -rf scripts')).toBe(true)
+    expect(deletes('(cd scripts && rm -f ai-active-raw.test.mjs)')).toBe(true)
+    expect(deletes('echo y | rm -i scripts/ai-active-raw.test.mjs')).toBe(true) // цель названа самим rm, а не пришла по конвейеру
+  })
+
+  it('слово rm в аргументах чужой команды, цели по конвейеру, предпросмотр и снятие с индекса — не удаление', () => {
+    // Второй круг ревью 22.11.2026: удаляет только звено, во главе которого удаляющая команда
+    expect(deletes("rg 'rm' scripts")).toBe(false)
+    expect(deletes('grep -rn "rm -rf" scripts')).toBe(false)
+    expect(deletes('echo rm scripts')).toBe(false)
+    // Что дошло до rm по конвейеру, из команды не видно — пропуск честнее догадки
+    expect(deletes('find scripts -name "*.test.mjs" | xargs rm')).toBe(false)
+    expect(deletes("find . -name '*.tmp' | xargs rm")).toBe(false)
+    expect(deletes('Remove-Item -WhatIf scripts/ai-active-raw.test.mjs')).toBe(false)
+    expect(deletes('git rm --dry-run scripts/ai-active-raw.test.mjs')).toBe(false)
+    expect(deletes('git rm -n scripts/ai-active-raw.test.mjs')).toBe(false)
+    expect(deletes('git rm --cached scripts/ai-active-raw.test.mjs')).toBe(false) // файл остался на диске
+    expect(deletes('git -C ../other rm scripts/ai-active-raw.test.mjs')).toBe(false)
+    expect(deletes('grep -E "rm|del" notes.txt; ls scripts')).toBe(false) // разделитель в кавычках — не граница
+  })
+
+  it('имя с пробелом в кавычках — одно слово', () => {
+    expect(deletes("rm 'tests/old case.test.ts'", 'tests/old case.test.ts')).toBe(true)
+    expect(deletes('rm tests/old case.test.ts', 'tests/old case.test.ts')).toBe(false)
+  })
+
+  it('чужой файл рядом, запуск из каталога, слово внутри слова, другая маска — не удаляли', () => {
+    expect(deletes('rm scripts/other.mjs')).toBe(false)
+    // Живой случай 22.11: удалён временный файл, а из scripts/ лишь запущен скрипт
+    expect(deletes('rm -f /d/.tmp/frame-kept.ts; cd /d/tool && bun run scripts/frame-sim.ts --kept ../proj')).toBe(false)
+    expect(deletes('rm -rf typescripts')).toBe(false)
+    expect(deletes('rm scripts/ab-*.mjs')).toBe(false)
+    expect(deletes('rm scripts/*.ts')).toBe(false)
+    expect(deletes('ls scripts')).toBe(false)
+  })
+
+  it('переход в каталог сам ничего не удаляет; маска и каталог ВНЕ проекта файлов проекта не называют', () => {
+    // Три промаха прежнего сопоставления по хвостам, найденные ревью 22.11.2026
+    expect(deletes('cd scripts && rm other.tmp')).toBe(false)
+    expect(deletes('rm -rf /tmp/*')).toBe(false)
+    expect(deletes('rm -rf dist/*')).toBe(false)
+    expect(deletes('rm scratch/*.mjs')).toBe(false)
+    expect(deletes('rm -rf /tmp/scripts')).toBe(false)
+    expect(deletes('cd /tmp && rm -rf scripts')).toBe(false)
+    expect(deletes('rm -rf "$DIR/scripts"')).toBe(false)
+    expect(deletes('rm -rf ~/scripts')).toBe(false)
+    expect(deletes('cd .. && rm -rf scripts')).toBe(false) // вышли выше корня — уже не этот проект
+  })
+
+  it('имя без каталога разрешается от корня — файл в подкаталоге оно не называет', () => {
+    // Отвергнута уступка «точное имя без каталога засчитывается»: `rm a.test.ts`
+    // в корне приписывал сессии исчезновение одноимённого теста в любом каталоге
+    expect(deletes('rm ai-active-raw.test.mjs')).toBe(false)
+    expect(deletes('rm ai-active-raw.test.mjs', 'ai-active-raw.test.mjs')).toBe(true)
+    expect(deletes('rm *.test.mjs')).toBe(false)
+    expect(deletes('cd docs && rm ai-active-raw.test.mjs')).toBe(false)
+  })
+
+  it('регистр имён — как у диска', () => {
+    expect(deletes('del Scripts\\AI-Active-Raw.test.mjs', file, true)).toBe(true)
+    expect(deletes('rm Scripts/ai-active-raw.test.mjs', file, false)).toBe(false)
   })
 })

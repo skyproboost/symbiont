@@ -1,29 +1,31 @@
 import {
   accountFeedCost,
   markCited
-} from "./codex-call-gfbkgdxm.js";
+} from "./codex-call-bbb3f8dx.js";
 import {
   applyRules,
   readRules
-} from "./codex-call-j04ge161.js";
+} from "./codex-call-807dazwp.js";
 import {
   evidenceFromTranscript,
   runHistory
-} from "./codex-call-00a25qa2.js";
+} from "./codex-call-e62pq0a3.js";
 import {
   readGateMode
 } from "./codex-call-yvd28w11.js";
 import {
   checkAgainstLaws,
-  lawsForFile,
-  toRelNode
-} from "./codex-call-wmwdes5m.js";
-import"./codex-call-2295bdpd.js";
-import"./codex-call-psab7pqj.js";
+  lawsForFile
+} from "./codex-call-pp1qqpts.js";
+import"./codex-call-f9cazs4r.js";
 import"./codex-call-8ychq3hk.js";
-import"./codex-call-zygxj77t.js";
 import"./codex-call-046cybce.js";
 import"./codex-call-vgezmhw1.js";
+import {
+  toRelNode
+} from "./codex-call-peq4c7qm.js";
+import"./codex-call-psab7pqj.js";
+import"./codex-call-dfpy0wrg.js";
 import {
   readStdinJson
 } from "./codex-call-p89re5se.js";
@@ -32,7 +34,7 @@ import {
 } from "./codex-call-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./codex-call-f5867843.js";
+} from "./codex-call-pxxba9as.js";
 import {
   ENTITY_EXT,
   ENV_TEMPLATES,
@@ -41,6 +43,7 @@ import {
   beat,
   contentVerifierActive,
   emitHookOutput,
+  goneAtStart,
   guardTests,
   harvestVoiced,
   inDerivedZone,
@@ -62,7 +65,7 @@ import {
   snapshotContent,
   statement,
   t
-} from "./codex-call-21dvb3ma.js";
+} from "./codex-call-qxxgrqz0.js";
 import {
   agentHost
 } from "./codex-call-b1s33asb.js";
@@ -620,6 +623,113 @@ init_walk();
 import { readFileSync as readFileSync2, statSync } from "node:fs";
 import { join as join2 } from "node:path";
 import { spawnSync } from "node:child_process";
+
+// src/hooks/deleted-by.ts
+var CHANGES_DIR = new Set(["cd", "pushd", "chdir", "set-location", "sl"]);
+var DELETERS = new Set(["rm", "unlink", "rmdir", "del", "erase", "rd", "remove-item", "ri"]);
+var WRAPPERS = new Set(["sudo", "command", "time", "nohup", "env"]);
+var UNRESOLVABLE = /[$`~]|^-$/;
+var PREVIEW = /^(-whatif|--dry-run)$/i;
+function stages(command) {
+  const spaced = command.replace(/"[^"]*"|'[^']*'|(&&|\|\||[;|\n])/g, (whole, sep) => sep ? ` ${sep === `
+` ? ";" : sep} ` : whole);
+  const out = [];
+  let words = [];
+  let piped = false;
+  const close = (pipeNext) => {
+    if (words.length > 0)
+      out.push({ words, piped, alone: !piped && !pipeNext });
+    words = [];
+    piped = pipeNext;
+  };
+  for (const m of spaced.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)) {
+    const bare = m[3];
+    if (bare === "|")
+      close(true);
+    else if (bare === ";" || bare === "&&" || bare === "||")
+      close(false);
+    else
+      words.push(m[1] ?? m[2] ?? bare.replace(/^\(+|\)+$/g, ""));
+  }
+  close(false);
+  return out;
+}
+function canonical(path, fold) {
+  const slashed = path.replaceAll("\\", "/").replace(/^\/([A-Za-z])\//, "$1:/").replace(/\/+$/, "");
+  return fold ? slashed.toLowerCase() : slashed;
+}
+var isAbsolute = (path) => /^([A-Za-z]:)?\//.test(path);
+function resolve(word, cwd, root, fold) {
+  if (UNRESOLVABLE.test(word))
+    return null;
+  const path = canonical(word, fold);
+  if (isAbsolute(path)) {
+    if (path !== root && !path.startsWith(root + "/"))
+      return null;
+    return path.slice(root.length).split("/").filter(Boolean);
+  }
+  if (cwd === null)
+    return null;
+  const segments = [...cwd];
+  for (const s of path.split("/")) {
+    if (!s || s === ".")
+      continue;
+    if (s === "..") {
+      if (segments.length === 0)
+        return null;
+      segments.pop();
+    } else
+      segments.push(s);
+  }
+  return segments;
+}
+var escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function segmentMatches(pattern, name) {
+  if (!/[*?]/.test(pattern))
+    return pattern === name;
+  return new RegExp(`^${pattern.split("*").map((p) => p.split("?").map(escapeRe).join(".")).join(".*")}$`).test(name);
+}
+function deletionOperands(stage) {
+  let words = stage.words;
+  while (words.length > 0 && (WRAPPERS.has(words[0].toLowerCase()) || /^\w+=/.test(words[0])))
+    words = words.slice(1);
+  if (words.length === 0 || words.some((w) => PREVIEW.test(w)))
+    return null;
+  const head = words[0].toLowerCase();
+  if (head === "git") {
+    if (words[1] !== "rm" || words.some((w) => w === "--cached" || w === "-n"))
+      return null;
+    return words.slice(2);
+  }
+  if (!DELETERS.has(head))
+    return null;
+  const rest = words.slice(1);
+  return head === "remove-item" || head === "ri" ? rest.flatMap((w) => w.split(",")) : rest;
+}
+function commandDeletes(command, root, file, caseInsensitive = process.platform === "win32") {
+  const fold = (s) => caseInsensitive ? s.toLowerCase() : s;
+  const rootPath = canonical(root, caseInsensitive);
+  const target = fold(file).split("/");
+  const names = (operand) => operand.length <= target.length && operand.every((s, i) => segmentMatches(fold(s), target[i]));
+  let cwd = [];
+  for (const stage of stages(command)) {
+    if (CHANGES_DIR.has(stage.words[0].toLowerCase())) {
+      if (stage.alone)
+        cwd = stage.words[1] === undefined ? null : resolve(stage.words[1], cwd, rootPath, caseInsensitive);
+      continue;
+    }
+    for (const word of deletionOperands(stage) ?? []) {
+      if (!word || word.startsWith("-"))
+        continue;
+      const operand = resolve(word, cwd, rootPath, caseInsensitive);
+      if (operand !== null && names(operand))
+        return true;
+    }
+  }
+  return false;
+}
+
+// src/hooks/test-guard-stop.ts
 init_signals();
 init_walk();
 var MAX_TEST_FILES = 12;
@@ -680,13 +790,16 @@ function testGuardFindings(w) {
   }
   let deleted = [];
   if (w.history.deletions.length > 0) {
-    const gone = (diffAgainst(w.cwd, base, ["--name-only", "--diff-filter=D"]) ?? "").split(`
-`).map((f) => f.trim()).filter((f) => f && judged(f));
-    const named = (f) => {
-      const dir = f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "";
-      return w.history.deletions.some((cmd) => cmd.includes(f.split("/").pop()) || dir !== "" && cmd.includes(dir));
+    const before = w.goneBefore ?? null;
+    const onDisk = (f) => {
+      try {
+        return statSync(join2(w.cwd, f)).isFile();
+      } catch {
+        return false;
+      }
     };
-    deleted = gone.filter(named).slice(0, MAX_TEST_FILES);
+    const gone = (diffAgainst(w.cwd, base, ["--name-only", "--diff-filter=D", "-z"]) ?? "").split("\x00").filter((f) => f && judged(f) && !before?.has(f) && !onDisk(f));
+    deleted = gone.filter((f) => w.history.deletions.some((command) => commandDeletes(command, w.cwd, f))).slice(0, MAX_TEST_FILES);
   }
   return guardTests({ existing, fresh, deleted, history: w.history });
 }
@@ -786,7 +899,7 @@ function handleStop(input, dataRoot) {
     const db = openDb(dbPath);
     try {
       const laws = new FactStore(db).active().filter((f) => f.tier === "закон");
-      const resolve = loadEntityResolver(db);
+      const resolve2 = loadEntityResolver(db);
       const sid = input.session_id ?? "manual";
       const session = db.query("SELECT started_at FROM sessions WHERE session_id=?").get(sid);
       const sessionStartMs = session ? Date.parse(session.started_at) : Date.now() - 24 * 3600000;
@@ -846,7 +959,7 @@ function handleStop(input, dataRoot) {
           all.push({ file: rel, law: v.law, detail: v.detail });
         }
         if (contentVerifierActive(ext)) {
-          for (const v of runContentVerifiers(rel, content, ext, { resolve })) {
+          for (const v of runContentVerifiers(rel, content, ext, { resolve: resolve2 })) {
             all.push({ file: rel, law: v.verifier, detail: v.detail });
           }
         }
@@ -887,7 +1000,7 @@ function handleStop(input, dataRoot) {
       const guardedFiles = new Set;
       try {
         const history = runHistory(transcript, (abs) => toRelNode(cwd, abs));
-        const findings = testGuardFindings({ cwd, dirty, own, parallel, history, sessionStartMs, sinceIso });
+        const findings = testGuardFindings({ cwd, dirty, own, parallel, history, sessionStartMs, sinceIso, goneBefore: goneAtStart(db, sid) });
         for (const f of findings)
           if (f.kind === "assertions" || f.kind === "cases")
             guardedFiles.add(f.file);

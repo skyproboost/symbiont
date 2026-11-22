@@ -15,6 +15,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import type { RunHistory } from '../gates/evidence'
+import { commandDeletes } from './deleted-by'
 import { guardTests, type TestFinding } from '../verifiers/test-guard'
 import { isTestPath } from '../passport/signals'
 import { isSecretCarrier } from '../env/config-graph'
@@ -78,6 +79,8 @@ export interface TestGuardWorld {
   history: RunHistory
   sessionStartMs: number
   sinceIso: string
+  /** тесты, удалённые из дерева ещё до старта сессии; null — снимка нет */
+  goneBefore?: Set<string> | null
 }
 
 /**
@@ -120,12 +123,26 @@ export function testGuardFindings(w: TestGuardWorld): TestFinding[] {
 
   let deleted: string[] = []
   if (w.history.deletions.length > 0) {
-    const gone = (diffAgainst(w.cwd, base, ['--name-only', '--diff-filter=D']) ?? '').split('\n').map((f) => f.trim()).filter((f) => f && judged(f))
-    const named = (f: string): boolean => {
-      const dir = f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : ''
-      return w.history.deletions.some((cmd) => cmd.includes(f.split('/').pop()!) || (dir !== '' && cmd.includes(dir)))
+    // Удалённое до старта сессии — не её работа, какой бы командой она потом ни
+    // удаляла рядом (session-baseline.ts). Снимка нет — судим по прежнему правилу.
+    const before = w.goneBefore ?? null
+    // `-z`: имена как есть, через нулевой байт. Обычный вывод берёт путь с
+    // пробелом или кириллицей в кавычки и экранирует — такой путь не совпал бы
+    // ни со снимком, ни с командой
+    // Удалён — значит, файла нет на диске. Для git «удалён» и файл, снятый с
+    // индекса (`git rm --cached`): он лежит на месте, и называть его удалённым тестом нельзя
+    const onDisk = (f: string): boolean => {
+      try {
+        return statSync(join(w.cwd, f)).isFile()
+      } catch {
+        return false
+      }
     }
-    deleted = gone.filter(named).slice(0, MAX_TEST_FILES)
+    const gone = (diffAgainst(w.cwd, base, ['--name-only', '--diff-filter=D', '-z']) ?? '')
+      .split('\0')
+      .filter((f) => f && judged(f) && !before?.has(f) && !onDisk(f))
+    // Удаляла ли файл хоть одна из команд сессии — решает разбор операндов (deleted-by.ts)
+    deleted = gone.filter((f) => w.history.deletions.some((command) => commandDeletes(command, w.cwd, f))).slice(0, MAX_TEST_FILES)
   }
   return guardTests({ existing, fresh, deleted, history: w.history })
 }

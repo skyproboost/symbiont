@@ -58,6 +58,27 @@ describe('разбор транскрипта', () => {
     expect(evidenceFromTranscript(join(dir, 'nope.jsonl'), own, toRel).readable).toBe(false)
     rmrf(dir)
   })
+
+  it('отклонённая попытка правки после проверки — не правка: проверка остаётся в силе', () => {
+    // Вызов записан в транскрипте так же, как состоявшийся; что файл не менялся,
+    // говорит только признак ошибки у результата. Без сверки попытка возвращала
+    // файл в непроверенные, и гейт требовал повторить уже сделанную проверку
+    const dir = mkdtempSync(join(tmpdir(), 'symbiont-ev-'))
+    const p = join(dir, 't.jsonl')
+    const own = new Set(['src/a.ts'])
+    const toRel = (abs: string) => abs.replace(/^\/proj\//, '')
+    const call = (id: string, name: string, input: Record<string, unknown>): string =>
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } })
+    const result = (id: string, text: string, isError: boolean): string =>
+      JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: text, is_error: isError }] } })
+    const done = [call('e1', 'Edit', { file_path: '/proj/src/a.ts' }), result('e1', 'updated', false), line('Bash', { command: 'bun test' })]
+    writeFileSync(p, [...done, call('e2', 'Edit', { file_path: '/proj/src/a.ts' }), result('e2', '<tool_use_error>String to replace not found in file.</tool_use_error>', true)].join('\n'))
+    expect(evidenceFromTranscript(p, own, toRel).uncheckedFiles).toEqual([])
+    // …а состоявшаяся правка после проверки по-прежнему требует доказательства
+    writeFileSync(p, [...done, call('e3', 'Edit', { file_path: '/proj/src/a.ts' }), result('e3', 'updated', false)].join('\n'))
+    expect(evidenceFromTranscript(p, own, toRel).uncheckedFiles).toEqual(['src/a.ts'])
+    rmrf(dir)
+  })
 })
 
 describe('на Stop', () => {

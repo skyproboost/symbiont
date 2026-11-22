@@ -1,13 +1,17 @@
 import {
+  MIN_EVIDENCE,
+  evidenceOf
+} from "./codex-call-f64wvkf6.js";
+import {
   networkDownUntil,
   readAvailability,
   renderAvailability
-} from "./codex-call-z0d8w6w7.js";
+} from "./codex-call-fbsjv0g5.js";
 import {
   citedStats,
   feedCostStats,
   renderFeedCost
-} from "./codex-call-gfbkgdxm.js";
+} from "./codex-call-bbb3f8dx.js";
 import {
   readGateMode
 } from "./codex-call-yvd28w11.js";
@@ -18,7 +22,7 @@ import {
   migrateLegacyPassports,
   resolveDataRoot,
   stripDataFlag
-} from "./codex-call-f5867843.js";
+} from "./codex-call-pxxba9as.js";
 import {
   FactStore,
   REPORTED_WORKS,
@@ -36,6 +40,7 @@ import {
   openDb,
   rankKinds,
   readHeatRows,
+  registeredChannels,
   renderDrift,
   renderDriftReport,
   renderTruth,
@@ -49,7 +54,7 @@ import {
   t,
   tier,
   zoneOfArea
-} from "./codex-call-21dvb3ma.js";
+} from "./codex-call-qxxgrqz0.js";
 import"./codex-call-b1s33asb.js";
 import {
   __require
@@ -138,11 +143,15 @@ function buildStatusReport(dataDir) {
     const lastSeen = one(db, "SELECT MAX(seen_at) t FROM fact_journal")?.t;
     const maxTier = Math.max(...tiers.map((t2) => t2.n), 1);
     let due = 0;
+    let dueOwn = 0;
     try {
-      const llm = q(db, "SELECT stability, seen_at FROM fact_journal WHERE superseded_by IS NULL AND source LIKE 'llm:%' AND stability IS NOT NULL");
-      due = llm.filter((r) => isDue(r.stability, r.seen_at)).length;
+      const llm = q(db, "SELECT stability, seen_at, source FROM fact_journal WHERE superseded_by IS NULL AND source LIKE 'llm:%' AND stability IS NOT NULL");
+      const overdue = llm.filter((r) => isDue(r.stability, r.seen_at));
+      due = overdue.length;
+      dueOwn = overdue.filter((r) => r.source.startsWith("llm:layer2:")).length;
     } catch {}
-    L.push(` ${pad(t("Петля фактов", "Fact loop"), 16)} ${t("журнал", "journal")} ${journal} · ${t("заменено", "superseded")} ${superseded}${lastSeen ? ` · ${t("замер", "measured")} ${lastSeen.slice(0, 10)}` : ""}${due > 0 ? ` · ${t("к перепроверке", "due for recheck")}: ${due} (${t("фон сделает сам", "background will do it")})` : ""}`);
+    const dueNote = due === 0 ? "" : ` · ${t("к перепроверке", "due for recheck")}: ${due} (${due === dueOwn ? t("фон сделает сам", "background will do it") : t(`фон возьмёт ${dueOwn}, для ${due - dueOwn} перепроверки нет`, `background takes ${dueOwn}, ${due - dueOwn} have no recheck`)})`;
+    L.push(` ${pad(t("Петля фактов", "Fact loop"), 16)} ${t("журнал", "journal")} ${journal} · ${t("заменено", "superseded")} ${superseded}${lastSeen ? ` · ${t("замер", "measured")} ${lastSeen.slice(0, 10)}` : ""}${dueNote}`);
     for (const row of tiers)
       L.push(`   ${pad(tier(row.tier), 16)}${pad(bar(row.n, maxTier), 18)}${row.n}`);
     L.push("");
@@ -207,7 +216,14 @@ function buildStatusReport(dataDir) {
       if (beats.length > 0) {
         L.push(t(" Пульс каналов", " Channel pulse"));
         for (const b of beats)
-          L.push(`   ${pad(b.channel, 18)}${ago(b.at)}`);
+          L.push(`   ${pad(b.channel, 20)}${ago(b.at)}`);
+        const seen = new Set(beats.map((b) => b.channel.toLowerCase()));
+        for (const ch of registeredChannels()) {
+          if (seen.has(ch.toLowerCase()))
+            continue;
+          const why = ch === "PostToolUseFailure" ? t(" — отклонённые правки приходят через PostToolUse", " — rejected edits arrive as PostToolUse") : "";
+          L.push(`   ${pad(ch, 20)}${t("ни разу", "never")}${why}`);
+        }
         L.push("");
       }
     } catch {}
@@ -371,6 +387,12 @@ function staleFacts(db, root, nowMs = Date.now()) {
   push(t("правила модели с истёкшим сроком перепроверки", "model rules past their re-check date"), active.filter((f) => due.has(f.id)));
   const cutoff = nowMs - STALE_DAYS * 24 * 3600000;
   push(t(`правила модели, не подтверждавшиеся дольше ${STALE_DAYS} дней`, `model rules unconfirmed for over ${STALE_DAYS} days`), active.filter((f) => f.source.startsWith("llm:") && !due.has(f.id) && Date.parse(f.seen_at) < cutoff));
+  push(t("правила, чьи улики ушли из кода", "rules whose evidence is gone from the code"), active.filter((f) => {
+    if (!f.source.startsWith("llm:layer2:"))
+      return false;
+    const evidence = evidenceOf(db, root, f.id);
+    return evidence.recorded > 0 && evidence.standing < MIN_EVIDENCE;
+  }));
   return groups;
 }
 function renderStale(groups) {

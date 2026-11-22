@@ -17,7 +17,9 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDb, type Database } from '../core/db'
 import { sha1 } from '../core/salsa'
-import { FactStore } from '../core/store'
+import { FactStore, keyOf } from '../core/store'
+import { canonText } from './canon'
+import { recordEvidence, type Quote } from './evidence'
 import type { Fact } from '../miner/facts'
 import type { LlmCaller } from './llm'
 import { dedupeLlmFacts, dedupeLlmFactsSemantic, type Merge } from '../gardener/dedupe'
@@ -30,7 +32,12 @@ export interface VerbalizedRule {
   statement: string
   evidence: string[]
   confidence: number
+  /** сверенные цитаты по файлам — есть только у правил, прошедших сверку улик (parseQuotedRules) */
+  quotes?: Quote[]
 }
+
+/** Источник правил этого прохода; о чужих он не спрашивает (см. FactStore.dueForReview). */
+const OWN_SOURCE = 'llm:layer2:'
 
 export function buildSample(projectRoot: string, dataDir: string): Array<{ file: string; content: string }> {
   const dbPath = join(dataDir, 'passport.db')
@@ -157,25 +164,8 @@ const ANSWER_FORMAT = 2
 
 const normPath = (p: string): string => p.trim().replaceAll('\\', '/').replace(/^\.\//, '')
 
-/**
- * Разметка начала строки, которую модель, цитируя, переставляет: отступ,
- * маркер комментария, маркер списка — в любом сочетании («//  • »).
- */
-const LINE_MARKUP = /^\s*(?:(?:\/\/+|\/\*+|\*+\/?|#+|<!--|--|;+|[•·▪‣]|-(?=\s))\s*)*/
-
-/**
- * Канонический вид текста для сверки: без разметки начала строк, строки
- * склеены, любая пробельная серия — один пробел. Слова, их регистр и порядок
- * не трогаются.
- */
-export function canonText(text: string): string {
-  return text
-    .split(/\r?\n/)
-    .map((l) => l.replace(LINE_MARKUP, ''))
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
+// Реэкспорт: канонический вид переехал в свой модуль (см. canon.ts), а берут его отсюда.
+export { canonText }
 
 /**
  * Разбор ответа слоя 2 со сверкой улик: подтверждение — пара «файл образца +
@@ -210,7 +200,8 @@ export function parseQuotedRules(text: string, samples: Array<{ file: string; co
   let unverified = 0
   for (const r of extractArray(text)) {
     if (!hasRuleShape(r)) continue
-    const files = new Set<string>()
+    // Файл → первая сверенная цитата из него: она и есть улика, которую хранит журнал
+    const verified = new Map<string, string>()
     for (const e of r.evidence) {
       const ev = e as { file?: unknown; quote?: unknown } | null
       if (typeof ev?.file !== 'string' || typeof ev?.quote !== 'string') continue
@@ -218,10 +209,11 @@ export function parseQuotedRules(text: string, samples: Array<{ file: string; co
       const file = normPath(ev.file)
       const quote = canonText(ev.quote)
       if (quote.length < MIN_QUOTE_CHARS) continue
-      if (byFile.get(file)?.includes(quote)) files.add(file)
+      if (byFile.get(file)?.includes(quote) && !verified.has(file)) verified.set(file, ev.quote)
     }
-    if (files.size >= minEvidence) rules.push({ area: r.area, statement: r.statement, evidence: [...files], confidence: r.confidence })
-    else unverified++
+    if (verified.size >= minEvidence) {
+      rules.push({ area: r.area, statement: r.statement, evidence: [...verified.keys()], confidence: r.confidence, quotes: [...verified].map(([file, quote]) => ({ file, quote })) })
+    } else unverified++
   }
   return { rules, unverified }
 }
@@ -285,8 +277,15 @@ export function runVerbalize(projectRoot: string, dataDir: string, caller: LlmCa
     const store = new FactStore(db)
     const active = store.active()
     const laws = active.filter((f) => f.tier === 'закон' && zoneOfArea(f.area) === null).map((f) => f.statement)
-    // FSRS: правила с истёкшим интервалом — на переподтверждение этим же проходом
-    const dueRows = store.dueForReview()
+    // FSRS: правила с истёкшим интервалом — на переподтверждение. Только свои:
+    // правило о материале или об устройстве продукта образец кода не подтвердит.
+    //
+    // Отвергнуто «цитаты на месте → правило подтверждено без модели». Уцелевшие
+    // цитаты говорят, что прежние строки не тронуты, а не что правило ещё верно:
+    // конвенцию ломают в ДРУГИХ файлах, и три нетронутые строки освежали бы её
+    // бессрочно, уводя от единственной смысловой перепроверки. Улики хранятся
+    // (evidence.ts) и показывают, у каких правил основание ушло, — не более.
+    const dueRows = store.dueForReview(Date.now(), OWN_SOURCE)
     const due = dueRows.map((f) => f.statement)
     // Уже записанные LLM-привычки минус те, что сами ждут переподтверждения:
     // due просят повторить ТОЙ ЖЕ формулировкой, и запрет на повтор их убил бы
@@ -295,16 +294,14 @@ export function runVerbalize(projectRoot: string, dataDir: string, caller: LlmCa
       .filter((f) => typeof f.source === 'string' && f.source.startsWith('llm:') && !dueSet.has(f.statement))
       .map((f) => f.statement)
 
-    // Ранний срез (Bazel/Buck2): вход не изменился → LLM не зовём. Честность
-    // среза: due-фактам освежается seen_at БЕЗ роста уверенности — вызов на
-    // идентичном входе подтвердил бы их из того же образца, так что пропуск
-    // ровно настолько же доказателен, насколько был бы сам вызов (и настолько
-    // же ограничен образцом). Уверенность не растёт — как у touchAll.
+    // Ранний срез (Bazel/Buck2): вход не изменился → LLM не зовём. Просроченные
+    // правила при этом НЕ освежаются. Раньше освежались — с доводом «вызов на том
+    // же входе подтвердил бы их». Но список просроченных входит в отпечаток: он
+    // совпадает с прошлым, только если прошлый вызов на этом самом входе эти
+    // правила уже видел и НЕ повторил. Срез освежал ровно то, что модель
+    // отказалась подтвердить, и мёртвое правило выглядело свежепроверенным.
     const fp = materialFingerprint(laws, due, samples)
     if (fp === readStoredFingerprint(db)) {
-      const nowIso = new Date().toISOString()
-      const upd = db.query('UPDATE fact_journal SET seen_at=? WHERE id=?')
-      for (const f of dueRows) upd.run(nowIso, f.id)
       return { model: null, rules: [], journal: empty, merges: [], cutoff: true, unverified: 0 }
     }
 
@@ -335,7 +332,14 @@ export function runVerbalize(projectRoot: string, dataDir: string, caller: LlmCa
     // Улики сверяются с тем же текстом образца, что видела модель
     const { rules, unverified } = parseQuotedRules(res.text, samples)
     const facts = rules.map((r) => ruleToFact(r, samples.length))
-    const journal = store.assertAll(facts, `llm:layer2:${res.model}`)
+    const journal = store.assertAll(facts, `${OWN_SOURCE}${res.model}`)
+    // Улики — к записи факта, до уборки дублей: та оставляет одну из записей, и
+    // у оставшейся улики должны быть свои
+    const liveByKey = db.query('SELECT id FROM fact_journal WHERE key=? AND superseded_by IS NULL')
+    for (const rule of rules) {
+      const row = liveByKey.get(keyOf(rule)) as { id: number } | null
+      if (row && rule.quotes) recordEvidence(db, row.id, rule.quotes)
+    }
     // Садовник: сначала дешёвый проход по почти-одинаковым строкам, следом
     // смысловой — он один видит пересказ той же мысли на другом языке. Оба
     // внутри уже оплаченного дорогого прохода: отдельного повода звать модель

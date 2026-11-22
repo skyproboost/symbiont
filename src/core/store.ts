@@ -222,12 +222,20 @@ export class FactStore {
     return Number(res.lastInsertRowid)
   }
 
-  /** LLM-факты, которым по FSRS пора на переподтверждение (/sym-learn спросит о них). */
-  dueForReview(nowMs = Date.now()): FactRow[] {
+  /**
+   * LLM-факты, которым по FSRS пора на переподтверждение.
+   *
+   * Префикс источника — потому что «просрочено» и «кто может перепроверить»
+   * — разные вопросы. Витрина устаревания спрашивает обо всех (`llm:`), а
+   * проход слоя 2 — только о своих (`llm:layer2:`): правила о материале, об
+   * устройстве продукта и из поправок владельца он по образцу кода подтвердить
+   * не может (замер 22.11.2026: 1 из 396, 0 из 181, 0 из 169 за всё время).
+   */
+  dueForReview(nowMs = Date.now(), sourcePrefix = 'llm:'): FactRow[] {
     const rows = this.db
       .query("SELECT * FROM fact_journal WHERE superseded_by IS NULL AND source LIKE 'llm:%' AND stability IS NOT NULL")
       .all() as FactRow[]
-    return rows.filter((r) => isDue(r.stability, r.seen_at, nowMs))
+    return rows.filter((r) => r.source.startsWith(sourcePrefix) && isDue(r.stability, r.seen_at, nowMs))
   }
 
   /**

@@ -12,11 +12,11 @@ export interface GitState {
   lastCommit: string | null
 }
 
-function git(cwd: string, args: string[]): string | null {
+function git(cwd: string, args: string[], raw = false): string | null {
   try {
     const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 8000, windowsHide: true })
     if (r.status !== 0 || typeof r.stdout !== 'string') return null
-    return r.stdout.trim()
+    return raw ? r.stdout : r.stdout.trim()
   } catch {
     return null
   }
@@ -25,8 +25,11 @@ function git(cwd: string, args: string[]): string | null {
 export function gitState(cwd: string): GitState | null {
   const branch = git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
   if (branch === null) return null
-  const porcelain = git(cwd, ['status', '--porcelain']) ?? ''
-  const dirty = porcelain.split('\n').filter((l) => l.trim().length > 0)
+  // Вывод статуса берётся как есть: первые две колонки строки — статус, и у
+  // неиндексированного изменения первая из них пробел. Обрезка краёв съедала
+  // его у первой строки — путь терял первый символ (`.gitignore` → `gitignore`)
+  const porcelain = git(cwd, ['status', '--porcelain'], true) ?? ''
+  const dirty = porcelain.split('\n').filter((l) => l.length > 3)
   return {
     branch,
     dirtyCount: dirty.length,

@@ -20,6 +20,7 @@ import { citedStats } from '../gardener/cited'
 import { feedCostStats, renderFeedCost } from '../gardener/feed-cost'
 import { reviewQueue, renderReviewQueue } from '../gardener/review'
 import { inspectRuntime } from '../core/runtime'
+import { registeredChannels } from '../hooks/heartbeat'
 
 const ago = (iso: string): string => {
   const mins = Math.round((Date.now() - Date.parse(iso)) / 60_000)
@@ -86,19 +87,32 @@ export function buildStatusReport(dataDir: string): string {
     const superseded = one<{ n: number }>(db, 'SELECT COUNT(*) n FROM fact_journal WHERE superseded_by IS NOT NULL')!.n
     const lastSeen = one<{ t: string }>(db, 'SELECT MAX(seen_at) t FROM fact_journal')?.t
     const maxTier = Math.max(...tiers.map((t) => t.n), 1)
-    // Факты от модели с истёкшим интервалом перепроверки — их возьмёт фон
+    // Факты от модели с истёкшим интервалом перепроверки. Фон берёт только правила
+    // слоя 2; у остальных источников перепроверки пока нет, и обещать её нельзя —
+    // прежнее «фон сделает сам» стояло при 18 правилах, которых фон не трогал
     let due = 0
+    let dueOwn = 0
     try {
-      const llm = q<{ stability: number | null; seen_at: string }>(
+      const llm = q<{ stability: number | null; seen_at: string; source: string }>(
         db,
-        "SELECT stability, seen_at FROM fact_journal WHERE superseded_by IS NULL AND source LIKE 'llm:%' AND stability IS NOT NULL",
+        "SELECT stability, seen_at, source FROM fact_journal WHERE superseded_by IS NULL AND source LIKE 'llm:%' AND stability IS NOT NULL",
       )
-      due = llm.filter((r) => isDue(r.stability, r.seen_at)).length
+      const overdue = llm.filter((r) => isDue(r.stability, r.seen_at))
+      due = overdue.length
+      dueOwn = overdue.filter((r) => r.source.startsWith('llm:layer2:')).length
     } catch {
       /* старая схема без stability (read-only база) — счётчика просто нет */
     }
+    const dueNote =
+      due === 0
+        ? ''
+        : ` · ${t('к перепроверке', 'due for recheck')}: ${due} (${
+            due === dueOwn
+              ? t('фон сделает сам', 'background will do it')
+              : t(`фон возьмёт ${dueOwn}, для ${due - dueOwn} перепроверки нет`, `background takes ${dueOwn}, ${due - dueOwn} have no recheck`)
+          })`
     L.push(
-      ` ${pad(t('Петля фактов', 'Fact loop'), 16)} ${t('журнал', 'journal')} ${journal} · ${t('заменено', 'superseded')} ${superseded}${lastSeen ? ` · ${t('замер', 'measured')} ${lastSeen.slice(0, 10)}` : ''}${due > 0 ? ` · ${t('к перепроверке', 'due for recheck')}: ${due} (${t('фон сделает сам', 'background will do it')})` : ''}`,
+      ` ${pad(t('Петля фактов', 'Fact loop'), 16)} ${t('журнал', 'journal')} ${journal} · ${t('заменено', 'superseded')} ${superseded}${lastSeen ? ` · ${t('замер', 'measured')} ${lastSeen.slice(0, 10)}` : ''}${dueNote}`,
     )
     for (const row of tiers) L.push(`   ${pad(tierName(row.tier), 16)}${pad(bar(row.n, maxTier), 18)}${row.n}`)
     L.push('')
@@ -196,7 +210,18 @@ export function buildStatusReport(dataDir: string): string {
         .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
       if (beats.length > 0) {
         L.push(t(' Пульс каналов', ' Channel pulse'))
-        for (const b of beats) L.push(`   ${pad(b.channel, 18)}${ago(b.at)}`)
+        for (const b of beats) L.push(`   ${pad(b.channel, 20)}${ago(b.at)}`)
+        // Зарегистрированный канал без следа на диске — тоже молчание, и самое
+        // незаметное: в списке «у кого пульс есть» его нет по построению
+        const seen = new Set(beats.map((b) => b.channel.toLowerCase()))
+        for (const ch of registeredChannels()) {
+          if (seen.has(ch.toLowerCase())) continue
+          // У канала упавшей правки «ни разу» — обычное состояние, и об этом сказано
+          // прямо: платформа зовёт его только при сбое исполнения, а отклонённую
+          // правку приносит событием PostToolUse (см. post-tool-failure-core.ts)
+          const why = ch === 'PostToolUseFailure' ? t(' — отклонённые правки приходят через PostToolUse', ' — rejected edits arrive as PostToolUse') : ''
+          L.push(`   ${pad(ch, 20)}${t('ни разу', 'never')}${why}`)
+        }
         L.push('')
       }
     } catch {

@@ -2,8 +2,9 @@
  * Кандидаты на вытеснение: факты, у которых основание могло уйти из-под ног.
  *
  * Журнал вытесняет факт только новым замером: пока замера нет, устаревшее
- * правило подаётся с той же уверенностью, что и вчера. Здесь называются три
- * класса, у которых расхождение с диском видно БЕЗ замера и без модели:
+ * правило подаётся с той же уверенностью, что и вчера. Здесь называются
+ * классы, у которых расхождение с диском видно БЕЗ замера и без модели (четвёртый
+ * — правило слоя 2 с ушедшими уликами — описан у своей проверки ниже):
  *
  * 1) зональный закон, чьей зоны на диске больше нет (каталог удалён или
  *    переименован) — следующая сборка отзовёт его сама, до неё он судит
@@ -23,6 +24,7 @@ import { join } from 'node:path'
 import type { Database } from '../core/db'
 import { FactStore, type FactRow } from '../core/store'
 import { zoneOfArea } from '../miner/facts'
+import { evidenceOf, MIN_EVIDENCE } from '../layer2/evidence'
 import { statement, t } from '../core/i18n'
 import '../core/statements' // таблицы формулировок: импорт ради регистрации
 
@@ -61,6 +63,19 @@ export function staleFacts(db: Database, root: string, nowMs = Date.now()): Stal
   push(
     t(`правила модели, не подтверждавшиеся дольше ${STALE_DAYS} дней`, `model rules unconfirmed for over ${STALE_DAYS} days`),
     active.filter((f) => f.source.startsWith('llm:') && !due.has(f.id) && Date.parse(f.seen_at) < cutoff),
+  )
+
+  // 4) Правило слоя 2, чьи цитаты-улики ушли: файлы удалены или строки
+  // переписаны, и в стольких файлах, сколько нужно для приёма правила, улики
+  // уже не стоят. Судятся только правила с записанными уликами — у рождённых
+  // до их хранения основание неизвестно, а не утрачено.
+  push(
+    t('правила, чьи улики ушли из кода', 'rules whose evidence is gone from the code'),
+    active.filter((f) => {
+      if (!f.source.startsWith('llm:layer2:')) return false
+      const evidence = evidenceOf(db, root, f.id)
+      return evidence.recorded > 0 && evidence.standing < MIN_EVIDENCE
+    }),
   )
   return groups
 }

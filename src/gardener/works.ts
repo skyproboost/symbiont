@@ -25,7 +25,7 @@ import { OFFICE, TEXT, CSVX } from '../miner/noncode'
 import { ENTITY_EXT } from '../graph/entities'
 import { parseRules as parseVerbalized, ruleToFact } from '../layer2/verbalize'
 import { runLayer1 } from '../layer1/run'
-import { runVerbalize } from '../layer2/verbalize'
+import { runVerbalize, type VerbalizeResult } from '../layer2/verbalize'
 import { analyzeCorrections } from './corrections'
 import { runZSummaries, pendingSummaries, contentHashes } from '../graph/zsummary'
 import { runCommunityDigests, pendingDigests } from '../graph/cdigest'
@@ -182,7 +182,8 @@ const verbalizeWork: Work = {
   cooldownH: 72,
   due: (ctx) => {
     const store = new FactStore(ctx.db)
-    if (store.dueForReview(ctx.nowMs).length > 0) return true
+    // Только свои правила: чужие этот проход не перепроверяет, и будить платную работу ради них незачем
+    if (store.dueForReview(ctx.nowMs, 'llm:layer2:').length > 0) return true
     const hasCode = countOf(ctx, "SELECT COUNT(*) n FROM fact_journal WHERE source='miner:layer0'") > 0
     // «Уже вербализовано» — не отсутствие сырья: полный пересчёт его снимает,
     // иначе init re молча пропускал единственную работу, ради которой срезает
@@ -194,15 +195,28 @@ const verbalizeWork: Work = {
   run: (ctx) => {
     const tried: LlmAttempt[] = []
     const v = runVerbalize(ctx.projectRoot, ctx.dataDir, deepCaller(ctx, 'вербализация конвенций', tried))
-    // Ранний срез — не отказ моделей: материал не менялся, due освежены без вызова
-    if (v.cutoff) return t('материал не менялся — проход пропущен, правила освежены', 'material unchanged — pass skipped, rules refreshed')
-    if (!v.model) throw new Error(explainNoAnswer(tried))
-    // Отброшенное сверкой улик называется: ноль правил при десятке отброшенных —
-    // не «нечего сказать», а сигнал, что модель пересказывает вместо цитаты
-    const dropped = v.unverified > 0 ? t(`, без дословной улики отброшено ${v.unverified}`, `, ${v.unverified} dropped without a verbatim quote`) : ''
-    if (v.journal.born === 0 && v.journal.updated === 0 && !dropped) return null
-    return t(`правил +${v.journal.born}, подтверждено ${v.journal.updated}${dropped}`, `rules +${v.journal.born}, confirmed ${v.journal.updated}${dropped}`)
+    if (!v.cutoff && !v.model) throw new Error(explainNoAnswer(tried))
+    return verbalizeNote(v)
   },
+}
+
+/**
+ * Итог прохода слоя 2 одной строкой — и всегда строкой. Отдельной функцией,
+ * чтобы проверять без вызова модели.
+ *
+ * Модель вызвана — проход состоялся, даже если она ничего не вывела и не
+ * подтвердила. Пустой итог раньше возвращал null, планировщик читал это как
+ * «работы не было» и не начинал отсчёт паузы: пока в проекте менялся код,
+ * платный вызов повторялся на каждом заходе фона.
+ */
+export function verbalizeNote(v: VerbalizeResult): string {
+  // Ранний срез — не отказ моделей: материал не менялся, вызова не было.
+  // Просроченные правила при этом остаются просроченными (см. runVerbalize)
+  if (v.cutoff) return t('материал не менялся — проход пропущен', 'material unchanged — pass skipped')
+  // Отброшенное сверкой улик называется: ноль правил при десятке отброшенных —
+  // не «нечего сказать», а сигнал, что модель пересказывает вместо цитаты
+  const dropped = v.unverified > 0 ? t(`, без дословной улики отброшено ${v.unverified}`, `, ${v.unverified} dropped without a verbatim quote`) : ''
+  return t(`правил +${v.journal.born}, подтверждено ${v.journal.updated}${dropped}`, `rules +${v.journal.born}, confirmed ${v.journal.updated}${dropped}`)
 }
 
 /** Поправки владельца — главный сигнал петли: «модель написала → человек исправил». */

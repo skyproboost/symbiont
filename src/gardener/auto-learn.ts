@@ -58,7 +58,8 @@ export function shouldAutoLearn(db: Database, dataDir: string, nowMs = Date.now(
   if (corrections > 0) return { run: true, reason: `поправок владельца: ${corrections}` }
 
   const store = new FactStore(db)
-  const due = store.dueForReview(nowMs).length
+  // Перепроверку ведёт проход слоя 2, и только своих правил (см. FactStore.dueForReview)
+  const due = store.dueForReview(nowMs, 'llm:layer2:').length
   if (due > 0) return { run: true, reason: `к перепроверке: ${due}` }
 
   const everRan = !!(db.query("SELECT 1 x FROM fact_journal WHERE source LIKE 'llm:layer2:%' LIMIT 1").get())

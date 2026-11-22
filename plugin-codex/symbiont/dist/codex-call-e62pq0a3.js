@@ -1,6 +1,6 @@
 import {
   transcriptLines
-} from "./codex-call-21dvb3ma.js";
+} from "./codex-call-qxxgrqz0.js";
 
 // src/gates/evidence.ts
 import { existsSync, readFileSync } from "node:fs";
@@ -19,6 +19,26 @@ function headOf(segment) {
 }
 var isCheckCommand = (command) => subcommands(command).some((s) => CHECK_COMMAND.test(s) && !RECON_HEAD.test(headOf(s)));
 var TAIL_LINES = 4000;
+function rejectedCalls(lines) {
+  const out = new Set;
+  for (const line of lines) {
+    if (!line.includes("is_error"))
+      continue;
+    let obj;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(obj.message?.content))
+      continue;
+    for (const c of obj.message?.content) {
+      if (c.type === "tool_result" && c.is_error === true && c.tool_use_id)
+        out.add(c.tool_use_id);
+    }
+  }
+  return out;
+}
 function evidenceFromTranscript(transcriptPath, own, toRel) {
   const none = { uncheckedFiles: [], checkedOnce: false, readable: false };
   if (!transcriptPath || !existsSync(transcriptPath))
@@ -32,6 +52,7 @@ function evidenceFromTranscript(transcriptPath, own, toRel) {
   if (lines.length > TAIL_LINES)
     lines = lines.slice(-TAIL_LINES);
   const unchecked = new Set;
+  const rejected = rejectedCalls(lines);
   let checkedOnce = false;
   for (const line of lines) {
     if (!line.includes('"tool_use"'))
@@ -55,7 +76,7 @@ function evidenceFromTranscript(transcriptPath, own, toRel) {
         }
         continue;
       }
-      if (EDIT_TOOLS.has(c.name)) {
+      if (EDIT_TOOLS.has(c.name) && !(c.id && rejected.has(c.id))) {
         const abs = String(c.input?.file_path ?? c.input?.notebook_path ?? "");
         const rel = abs ? toRel(abs) : null;
         if (rel && own.has(rel))
@@ -151,6 +172,7 @@ function runHistory(transcriptPath, toRel) {
   const created = new Set;
   const touched = new Set;
   const pendingChecks = new Set;
+  const rejected = rejectedCalls(lines);
   const deletions = [];
   let afterRed = false;
   let murky = false;
@@ -196,7 +218,7 @@ function runHistory(transcriptPath, toRel) {
         const rel = abs ? toRel(abs) : null;
         if (!rel)
           continue;
-        if (EDIT_TOOLS.has(c.name)) {
+        if (EDIT_TOOLS.has(c.name) && !(c.id && rejected.has(c.id))) {
           if (c.name === "Write" && !touched.has(rel))
             created.add(rel);
           if (afterRed) {

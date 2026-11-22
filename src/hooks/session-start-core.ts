@@ -13,6 +13,7 @@ import { slugOf } from './slug'
 import { HOOK_TEXT_BUDGET, renderOverflow } from './emit'
 import { buildPassport } from '../passport/build'
 import { SessionLog, snapshotContent } from '../core/sessions'
+import { deletedTracked, recordGoneAtStart } from './session-baseline'
 import { readConstitution, renderConstitution } from '../core/constitution'
 import { gitState, renderGitBlock } from './git-state'
 import { reconstructEntry } from './entry'
@@ -342,7 +343,10 @@ export function handleSessionStart(input: SessionStartInput, dataRoot: string): 
       const sid = input.session_id ?? `manual-${Date.now()}`
       // самодиагностика — ДО open(): смотрим пульс против ПРОШЛЫХ сессий
       diagLine = renderDiagnosis(silentChannels(readBeats(dataDir), log.recentStarts(sid)))
-      log.open(sid, input.source ?? null, new Date().toISOString(), input.transcript_path ?? null)
+      const opened = log.open(sid, input.source ?? null, new Date().toISOString(), input.transcript_path ?? null)
+      // Что уже удалено из дерева к старту — точка отсчёта стража тестов. Только
+      // при открытии сессии: повторный старт той же сессии снимка не снимает
+      if (opened && g) recordGoneAtStart(db, sid, deletedTracked(cwd))
       reconciled = log.reconcileStale(sid)
       log.pruneEphemeral() // храповик: посессионные логи не растут вечно
       detectCorrections(db, cwd, sid)

@@ -6,14 +6,14 @@ import {
 } from "./codex-call-5s7r4262.js";
 import {
   resolveDataRoot
-} from "./codex-call-f5867843.js";
+} from "./codex-call-pxxba9as.js";
 import {
   beat,
   emitHookOutput,
   initLang,
   init_i18n,
   slugOf
-} from "./codex-call-21dvb3ma.js";
+} from "./codex-call-qxxgrqz0.js";
 import"./codex-call-b1s33asb.js";
 import {
   __require
@@ -44,6 +44,6 @@ var out = handlePreCompact(input, res.root);
 if (out.hookSpecificOutput)
   emitHookOutput(out, "PreCompact", res.root, input.cwd);
 try {
-  const { spawnAutoLearnDetached } = await import("./detach-ha9aqp6w.js");
+  const { spawnAutoLearnDetached } = await import("./detach-avgercbg.js");
   spawnAutoLearnDetached(input.cwd ?? process.cwd(), res.root);
 } catch {}
